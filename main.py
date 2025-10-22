@@ -6,6 +6,7 @@ import queue
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import logging
 
 # CONFIGURABLES
 INPUT_DIR = os.environ.get("INPUT_DIR", "./rag_input")  # directory to watch
@@ -14,6 +15,9 @@ MAX_WORKERS = int(os.environ.get("WATCHER_WORKERS", "4"))
 
 # Ensure INPUT_DIR exists
 Path(INPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Ingestion function placeholder
 def ingest_file(file_path: str, change_type: str):
@@ -27,7 +31,10 @@ def ingest_file(file_path: str, change_type: str):
     """
     # Replace with your actual ingestion call, e.g.:
     # rag.ingest_file(file_path, change_type=change_type)
-    print(f"[ingest] {change_type} {file_path}")
+    logger.info(f"Processing {change_type}: {file_path}")
+    # Replace with your actual ingestion call, e.g.:
+    # rag.ingest_file(file_path, change_type=change_type)
+    time.sleep(1)  # Simulate processing
 
 # Debounce manager
 class DebounceManager:
@@ -62,31 +69,39 @@ def worker():
             path, change_type = work_queue.get(timeout=0.2)
         except queue.Empty:
             continue
+        logger.debug(f"Worker processing {change_type}: {path}")
         try:
             ingest_file(path, change_type)
         except Exception as e:
-            print(f"[error] ingestion failed for {path}: {e}", file=sys.stderr)
+            logger.error(f"Ingestion failed for {path}: {e}")
         finally:
             work_queue.task_done()
 
 # Event handler
 class LightRAGEventHandler(FileSystemEventHandler):
+    def _handle(self, path: str, change_type: str) -> None:
+        logger.debug(f"Scheduling ingestion for {change_type}: {path}")
+        work_queue.put((path, change_type))
+
     def on_created(self, event):
         if event.is_directory:
             return
-        path = os.path.abspath(event.src_path)
-        debouncer.schedule(path, self._handle, path, "created")
+        path = str(os.path.abspath(event.src_path))
+        logger.debug(f"File created event: {path}")
+        debouncer.schedule(path, lambda: self._handle(path, "created"), path, "created")
 
     def on_modified(self, event):
         if event.is_directory:
             return
-        path = os.path.abspath(event.src_path)
-        debouncer.schedule(path, self._handle, path, "modified")
+        path = str(os.path.abspath(event.src_path))
+        logger.debug(f"File modified event: {path}")
+        debouncer.schedule(path, lambda: self._handle(path, "modified"), path, "modified")
 
     def on_deleted(self, event):
         if event.is_directory:
             return
-        path = os.path.abspath(event.src_path)
+        path = str(os.path.abspath(event.src_path))
+        logger.debug(f"File deleted event: {path}")
         # Deletions should be processed immediately, not debounced
         work_queue.put((path, "deleted"))
 
@@ -94,6 +109,34 @@ class LightRAGEventHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         # Treat as: delete old path, then create new path
-        old_path = os.path.abspath(event.src_path)
-        new_path = os
+        old_path = str(os.path.abspath(event.src_path))
+        new_path = str(os.path.abspath(event.dest_path))
+        logger.debug(f"File moved from {old_path} to {new_path}")
+        work_queue.put((old_path, "deleted"))
+        debouncer.schedule(new_path, lambda: self._handle(new_path, "created"), new_path, "created")
 
+if __name__ == "__main__":
+    logger.info(f"Starting {MAX_WORKERS} worker threads")
+    threads = []
+    for _ in range(MAX_WORKERS):
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        threads.append(t)
+
+    event_handler = LightRAGEventHandler()
+    observer = Observer()
+    observer.schedule(event_handler, INPUT_DIR, recursive=True)
+    observer.start()
+
+    logger.info(f"Watching directory: {INPUT_DIR} (press Ctrl+C to stop)")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Received interrupt, stopping...")
+        observer.stop()
+        stop_event.set()
+    observer.join()
+    for t in threads:
+        t.join()
+    logger.info("Shutdown complete")
