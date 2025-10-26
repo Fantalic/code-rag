@@ -65,7 +65,19 @@ class Program
             var ignoredFilesCount = 0;
             foreach (var document in project.Documents)
             {
-                var relativePath = Path.GetRelativePath(solutionDir, document.FilePath ?? "").Replace('\\', '/');
+                // Skip files that are not within the solution directory
+                var documentPath = document.FilePath ?? "";
+                var relativePath = Path.GetRelativePath(solutionDir, documentPath).Replace('\\', '/');
+                
+                // Check if the relative path starts with ".." which indicates it's outside the solution directory
+                if (relativePath.StartsWith("../") || relativePath.StartsWith("..\\"))
+                {
+                    Console.WriteLine($"  -> Skipping external file: {relativePath}");
+                    ignoredFilesCount++;
+                    totalIgnoredFilesCount++;
+                    continue;
+                }
+                
                 // Debug logging
                 // Console.WriteLine($"Checking file: {relativePath}");
                 if (ConfigurationService.IsIgnored(relativePath, options.IgnorePatterns))
