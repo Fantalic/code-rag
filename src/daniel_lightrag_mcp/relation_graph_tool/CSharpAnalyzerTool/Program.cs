@@ -47,6 +47,10 @@ class Program
 
         var fileWriterService = new FileWriterService(options);
 
+        // Create a single list for all file entries across all projects
+        var allFileEntries = new List<string>();
+        var solutionDir = Path.GetDirectoryName(solutionPath) ?? Directory.GetCurrentDirectory();
+        
         foreach (var project in solution.Projects)
         {
             if (project.Language != LanguageNames.CSharp)
@@ -56,24 +60,7 @@ class Program
             var compilation = await project.GetCompilationAsync();
             if (compilation == null) continue;
 
-            string moduleDir = Path.Combine(options.OutputDir, Path.GetFileNameWithoutExtension(project.FilePath) ?? project.Name);
-            Directory.CreateDirectory(moduleDir);
-
-            var fileEntries = new List<string>();
-            var moduleDependencies = new List<string>();
-
-            // Collect project dependencies
-            foreach (var projectReference in project.ProjectReferences)
-            {
-                var referencedProject = solution.GetProject(projectReference.ProjectId);
-                if (referencedProject != null)
-                {
-                    moduleDependencies.Add(referencedProject.Name);
-                }
-            }
-
-            var solutionDir = Path.GetDirectoryName(solutionPath) ?? Directory.GetCurrentDirectory();
-            
+            // Process documents directly in output directory, no subdirectories
             foreach (var document in project.Documents)
             {
                 var relativePath = Path.GetRelativePath(solutionDir, document.FilePath ?? "");
@@ -86,12 +73,14 @@ class Program
                 if (document.SourceCodeKind != SourceCodeKind.Regular)
                     continue;
 
+                // Create unique filename by combining project name and file name to avoid conflicts
                 var fileName = Path.GetFileNameWithoutExtension(document.FilePath ?? "unknown");
-                var relFilePath = Path.Combine(moduleDir, $"{fileName}.{options.FileExtension}");
-                
-                // Add to index
+                var uniqueFileName = $"{project.Name}_{fileName}";
+                var relFilePath = Path.Combine(options.OutputDir, $"{uniqueFileName}.{options.FileExtension}");
+
+                // Add to global index
                 var relativeDocumentPath = Path.GetRelativePath(solutionDir, document.FilePath ?? "");
-                fileEntries.Add(RelationFormatter.FormatFileEntry(relativeDocumentPath, fileName, options.FileExtension));
+                allFileEntries.Add(RelationFormatter.FormatFileEntry(relativeDocumentPath, uniqueFileName, options.FileExtension));
 
                 var lines = new List<string>();
                 lines.Add($"FILE: {relativeDocumentPath}");
@@ -110,24 +99,47 @@ class Program
 
                     lines.Add(RelationFormatter.FormatClassEntry(symbol.Name));
 
+                    // Focus on usage rather than inheritance/package relationships
+                    // Only include inheritance if it's within the same solution
                     if (symbol.BaseType != null && symbol.BaseType.Name != "Object")
-                        lines.Add(RelationFormatter.FormatInheritsFrom(symbol.BaseType.ToDisplayString()));
+                    {
+                        // Check if base type is from the same solution
+                        var baseTypeProject = solution.Projects.FirstOrDefault(p => 
+                            p.AssemblyName == symbol.BaseType.ContainingAssembly?.Name);
+                        if (baseTypeProject != null)
+                        {
+                            lines.Add(RelationFormatter.FormatInheritsFrom(symbol.BaseType.Name));
+                        }
+                    }
 
+                    // Focus on interfaces from the same solution
                     foreach (var iface in symbol.Interfaces)
-                        lines.Add(RelationFormatter.FormatDependsOn(iface.ToDisplayString()));
+                    {
+                        var ifaceProject = solution.Projects.FirstOrDefault(p => 
+                            p.AssemblyName == iface.ContainingAssembly?.Name);
+                        if (ifaceProject != null)
+                        {
+                            lines.Add(RelationFormatter.FormatDependsOn(iface.Name));
+                        }
+                    }
 
-                    // Properties
+                    // Properties - focus on usage within solution
                     foreach (var prop in symbol.GetMembers().OfType<IPropertySymbol>())
                     {
                         lines.Add(RelationFormatter.FormatPropertyEntry(prop.Name, prop.Type.ToDisplayString()));
                         foreach (var dep in ExtractTypeDependencies(prop.Type))
                         {
-                            // For now, we'll use a simple reference format
-                            lines.Add(RelationFormatter.FormatPropertyUses(prop.Name, dep, $"{dep}.{options.FileExtension}"));
+                            // Only track dependencies on types within the same solution
+                            var depProject = solution.Projects.FirstOrDefault(p => 
+                                p.AssemblyName == GetAssemblyNameFromType(dep));
+                            if (depProject != null)
+                            {
+                                lines.Add(RelationFormatter.FormatPropertyUses(prop.Name, dep, $"{depProject.Name}_{dep}.{options.FileExtension}"));
+                            }
                         }
                     }
 
-                    // Methods
+                    // Methods - focus on usage rather than package relationships
                     foreach (var method in symbol.GetMembers().OfType<IMethodSymbol>())
                     {
                         if (method.MethodKind == MethodKind.Constructor || method.DeclaringSyntaxReferences.Length == 0)
@@ -146,6 +158,7 @@ class Program
                         var syntaxTree = syntax.SyntaxTree;
                         var localModel = syntaxTree == tree ? model : compilation.GetSemanticModel(syntaxTree);
 
+                        // Focus on method calls within the same solution
                         foreach (var inv in syntax.DescendantNodes().OfType<InvocationExpressionSyntax>())
                         {
                             try
@@ -154,41 +167,58 @@ class Program
                                 var target = symbolInfo.Symbol as IMethodSymbol ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IMethodSymbol;
                                 if (target != null)
                                 {
-                                    var callee = target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
-                                    var targetModule = target.ContainingAssembly?.Name ?? "unknown";
-                                    var targetFile = target.ContainingType?.Name ?? callee.Split('.').FirstOrDefault() ?? "unknown";
-                                    lines.Add(RelationFormatter.FormatMethodCall(method.Name, callee, $"{targetModule}/{targetFile}.{options.FileExtension}"));
+                                    // Only process calls to methods within the same solution
+                                    var targetProject = solution.Projects.FirstOrDefault(p => 
+                                        p.AssemblyName == target.ContainingAssembly?.Name);
+                                    if (targetProject != null)
+                                    {
+                                        var callee = target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                                        var targetFile = target.ContainingType?.Name ?? callee.Split('.').FirstOrDefault() ?? "unknown";
+                                        var uniqueTargetFileName = $"{targetProject.Name}_{targetFile}";
+                                        lines.Add(RelationFormatter.FormatMethodCall(method.Name, callee, $"{uniqueTargetFileName}.{options.FileExtension}"));
+                                    }
                                 }
                             }
                             catch { }
                         }
 
+                        // Method parameters - focus on usage within solution
                         foreach (var param in method.Parameters)
                         {
                             foreach (var dep in ExtractTypeDependencies(param.Type))
                             {
-                                // For now, we'll use a simple reference format
-                                lines.Add(RelationFormatter.FormatMethodUses(method.Name, dep, $"{dep}.{options.FileExtension}"));
+                                // Only track dependencies on types within the same solution
+                                var depProject = solution.Projects.FirstOrDefault(p => 
+                                    p.AssemblyName == GetAssemblyNameFromType(dep));
+                                if (depProject != null)
+                                {
+                                    lines.Add(RelationFormatter.FormatMethodUses(method.Name, dep, $"{depProject.Name}_{dep}.{options.FileExtension}"));
+                                }
                             }
                         }
                     }
                 }
 
+                // Skip outbound references to external packages
                 lines.Add("");
                 lines.Add(RelationFormatter.FormatOutboundReferencesHeader());
-                foreach (var reference in project.MetadataReferences)
+                // Only include references to projects within the same solution
+                foreach (var projectReference in project.ProjectReferences)
                 {
-                    var name = Path.GetFileNameWithoutExtension(reference.Display ?? "<unknown>");
-                    lines.Add(RelationFormatter.FormatReference($"{name}.{options.FileExtension}"));
+                    var referencedProject = solution.GetProject(projectReference.ProjectId);
+                    if (referencedProject != null)
+                    {
+                        lines.Add(RelationFormatter.FormatReference($"{referencedProject.Name}.{options.FileExtension}"));
+                    }
                 }
 
                 fileWriterService.WriteFileRelations(relFilePath, lines);
             }
-
-            // Write module index
-            fileWriterService.WriteModuleIndex(moduleDir, project.Name, fileEntries, moduleDependencies);
-            Console.WriteLine($"  -> Saved module relations in {moduleDir}");
         }
+
+        // Write a single global index file instead of per-module indexes
+        WriteGlobalIndex(options.OutputDir, solution.Projects.Select(p => p.Name).ToList(), allFileEntries);
+        Console.WriteLine($"  -> Saved all relation files in {options.OutputDir}");
 
         Console.WriteLine("All relation files generated successfully.");
         return 0;
@@ -207,5 +237,39 @@ class Program
         }
         collect(typeSymbol);
         return results;
+    }
+
+    static string GetAssemblyNameFromType(string typeName)
+    {
+        // Extract assembly name from fully qualified type name
+        // This is a simplified approach - in practice, you might need more sophisticated parsing
+        var parts = typeName.Split(',');
+        if (parts.Length > 0)
+        {
+            var nameParts = parts[0].Split('.');
+            return nameParts.Length > 0 ? nameParts[0] : "unknown";
+        }
+        return "unknown";
+    }
+
+    static void WriteGlobalIndex(string outputDir, List<string> projectNames, List<string> fileEntries)
+    {
+        var indexPath = Path.Combine(outputDir, "_index.txt");
+        
+        using var writer = new StreamWriter(indexPath, false, new UTF8Encoding(true)); // UTF-8 with BOM
+        writer.WriteLine("GLOBAL INDEX");
+        writer.WriteLine();
+        writer.WriteLine("PROJECTS:");
+        foreach (var projectName in projectNames)
+        {
+            writer.WriteLine($"  - {projectName}");
+        }
+        writer.WriteLine();
+        
+        writer.WriteLine("FILES:");
+        foreach (var entry in fileEntries)
+        {
+            writer.WriteLine(entry);
+        }
     }
 }

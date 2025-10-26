@@ -23,7 +23,8 @@ public class FileWriterService
         // Ensure directory exists
         Directory.CreateDirectory(Path.GetDirectoryName(indexPath)!);
 
-        using var writer = new StreamWriter(indexPath, false, Encoding.UTF8);
+        // Use UTF-8 with BOM encoding
+        using var writer = new StreamWriter(indexPath, false, new UTF8Encoding(true));
         writer.WriteLine(RelationFormatter.FormatModuleHeader(moduleName));
         writer.WriteLine();
 
@@ -57,7 +58,8 @@ public class FileWriterService
             // In a full implementation, we would split by classes
         }
 
-        using var writer = new StreamWriter(filePath, false, Encoding.UTF8);
+        // Use UTF-8 with BOM encoding
+        using var writer = new StreamWriter(filePath, false, new UTF8Encoding(true));
         foreach (var line in lines)
         {
             writer.WriteLine(line);
@@ -69,7 +71,8 @@ public class FileWriterService
         // Ensure directory exists
         Directory.CreateDirectory(Path.GetDirectoryName(classFilePath)!);
 
-        using var writer = new StreamWriter(classFilePath, false, Encoding.UTF8);
+        // Use UTF-8 with BOM encoding
+        using var writer = new StreamWriter(classFilePath, false, new UTF8Encoding(true));
         foreach (var line in lines)
         {
             writer.WriteLine(line);
