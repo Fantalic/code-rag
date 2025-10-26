@@ -1,15 +1,7 @@
-﻿// CSharpAnalyzerTool: Relation-based .rel file generator
-// Usage: CSharpAnalyzerTool.exe <path-to-solution.sln> [output-directory]
-
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.Build.Locator;
+﻿using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.MSBuild;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.MSBuild;
 
 class Program
 {
@@ -40,137 +32,137 @@ class Program
         }
         MSBuildLocator.RegisterInstance(instance);
 
-        using (var workspace = MSBuildWorkspace.Create())
-        {
-            Console.WriteLine($"Loading solution from {solutionPath} ...");
-            var solution = await workspace.OpenSolutionAsync(solutionPath);
-            Console.WriteLine($"Loaded {solution.Projects.Count()} projects.");
+        using var workspace = MSBuildWorkspace.Create();
+        var solution = await workspace.OpenSolutionAsync(solutionPath);
+        Console.WriteLine($"Loaded {solution.Projects.Count()} projects.");
 
-            foreach (var project in solution.Projects)
+        foreach (var project in solution.Projects)
+        {
+            if (project.Language != LanguageNames.CSharp)
+                continue;
+
+            Console.WriteLine($"Analyzing project: {project.Name}");
+            var compilation = await project.GetCompilationAsync();
+            if (compilation == null) continue;
+
+            string moduleDir = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(project.FilePath) ?? project.Name);
+            Directory.CreateDirectory(moduleDir);
+
+            var relIndexPath = Path.Combine(moduleDir, "_index.txt");
+            using var indexWriter = new StreamWriter(relIndexPath, append: false);
+            indexWriter.WriteLine($"MODULE: {project.Name}");
+            indexWriter.WriteLine();
+
+            foreach (var document in project.Documents)
             {
-                if (project.Language != LanguageNames.CSharp)
+                if (document.SourceCodeKind != SourceCodeKind.Regular)
                     continue;
 
-                Console.WriteLine($"Analyzing project: {project.Name}");
-                var compilation = await project.GetCompilationAsync();
-                if (compilation == null) continue;
+                var fileName = Path.GetFileNameWithoutExtension(document.FilePath ?? "unknown");
+                string relFilePath = Path.Combine(moduleDir, fileName + ".txt");
+                indexWriter.WriteLine($"[LINK: {fileName}.txt]");
 
-                // Each project or main folder is treated as a module
-                string moduleName = Path.GetFileNameWithoutExtension(project.FilePath) ?? project.Name;
-                string relFilePath = Path.Combine(outputDir, moduleName + ".rel");
+                using var writer = new StreamWriter(relFilePath, append: false);
+                writer.WriteLine($"FILE: {document.FilePath}");
+                writer.WriteLine();
 
-                using (var writer = new StreamWriter(relFilePath, append: false))
+                var tree = await document.GetSyntaxTreeAsync();
+                if (tree == null) continue;
+                var root = await tree.GetRootAsync();
+                var model = compilation.GetSemanticModel(tree);
+
+                var typeDecls = root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>();
+                foreach (var typeDecl in typeDecls)
                 {
-                    writer.WriteLine($"MODULE: {moduleName}\n");
+                    var symbol = model.GetDeclaredSymbol(typeDecl) as INamedTypeSymbol;
+                    if (symbol == null) continue;
 
-                    foreach (var document in project.Documents)
+                    writer.WriteLine($"  CLASS: {symbol.Name}");
+
+                    if (symbol.BaseType != null && symbol.BaseType.Name != "Object")
+                        writer.WriteLine($"    INHERITS_FROM -> {symbol.BaseType.ToDisplayString()}");
+
+                    foreach (var iface in symbol.Interfaces)
+                        writer.WriteLine($"    DEPENDS_ON -> {iface.ToDisplayString()}");
+
+                    // Properties
+                    foreach (var prop in symbol.GetMembers().OfType<IPropertySymbol>())
                     {
-                        if (document.SourceCodeKind != SourceCodeKind.Regular)
-                            continue;
-
-                        var filePath = document.FilePath ?? "<in-memory>";
-                        writer.WriteLine($"  FILE: {filePath}");
-
-                        var tree = await document.GetSyntaxTreeAsync();
-                        if (tree == null) continue;
-
-                        var root = await tree.GetRootAsync();
-                        var model = compilation.GetSemanticModel(tree);
-
-                        // Process class/struct/interface declarations
-                        var typeDecls = root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>();
-                        foreach (var typeDecl in typeDecls)
-                        {
-                            var symbol = model.GetDeclaredSymbol(typeDecl) as INamedTypeSymbol;
-                            if (symbol == null) continue;
-
-                            writer.WriteLine($"    CLASS: {symbol.Name}");
-
-                            // Inheritance
-                            if (symbol.BaseType != null && symbol.BaseType.Name != "Object")
-                                writer.WriteLine($"      INHERITS_FROM -> {symbol.BaseType.ToDisplayString()}");
-
-                            // Interfaces
-                            foreach (var iface in symbol.Interfaces)
-                                writer.WriteLine($"      DEPENDS_ON -> {iface.ToDisplayString()}");
-
-                            // Properties
-                            foreach (var prop in symbol.GetMembers().OfType<IPropertySymbol>())
-                            {
-                                writer.WriteLine($"      PROPERTY: {prop.Name} -> RETURNS -> {prop.Type.ToDisplayString()}");
-                                foreach (var dep in ExtractTypeDependencies(prop.Type))
-                                    writer.WriteLine($"      PROPERTY: {prop.Name} -> USES -> {dep}");
-                            }
-
-                            // Methods
-                            foreach (var method in symbol.GetMembers().OfType<IMethodSymbol>())
-                            {
-                                if (method.MethodKind == MethodKind.Constructor || method.DeclaringSyntaxReferences.Length == 0)
-                                    continue;
-
-                                writer.WriteLine($"      METHOD: {method.Name} -> RETURNS -> {method.ReturnType.ToDisplayString()}");
-
-                                // Analyze method body for calls and usages
-                                var syntax = method.DeclaringSyntaxReferences.First().GetSyntax() as MethodDeclarationSyntax;
-                                if (syntax == null) continue;
-
-                                var invocations = syntax.DescendantNodes().OfType<InvocationExpressionSyntax>();
-                                foreach (var inv in invocations)
-                                {
-                                    var symbolInfo = model.GetSymbolInfo(inv);
-                                    var target = symbolInfo.Symbol as IMethodSymbol ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IMethodSymbol;
-                                    if (target != null)
-                                    {
-                                        var callee = target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
-                                        writer.WriteLine($"        METHOD: {method.Name} -> CALLS -> {callee}");
-                                    }
-                                }
-
-                                // Dependencies from parameter types
-                                foreach (var param in method.Parameters)
-                                {
-                                    foreach (var dep in ExtractTypeDependencies(param.Type))
-                                        writer.WriteLine($"        METHOD: {method.Name} -> USES -> {dep}");
-                                }
-                            }
-                        }
-
-                        writer.WriteLine();
+                        writer.WriteLine($"    PROPERTY: {prop.Name} -> RETURNS -> {prop.Type.ToDisplayString()}");
+                        foreach (var dep in ExtractTypeDependencies(prop.Type))
+                            writer.WriteLine($"    PROPERTY: {prop.Name} -> USES -> {dep} [LINK: maybe:{dep}.txt]");
                     }
 
-                    // At the end, list outbound references (simplified)
-                    writer.WriteLine("OUTBOUND REFERENCES:");
-                    foreach (var reference in project.MetadataReferences)
+                    // Methods
+                    foreach (var method in symbol.GetMembers().OfType<IMethodSymbol>())
                     {
-                        var name = Path.GetFileNameWithoutExtension(reference.Display ?? "<unknown>");
-                        writer.WriteLine($"  - [REF: {name}.rel]");
+                        if (method.MethodKind == MethodKind.Constructor || method.DeclaringSyntaxReferences.Length == 0)
+                            continue;
+
+                        writer.WriteLine($"    METHOD: {method.Name} -> RETURNS -> {method.ReturnType.ToDisplayString()}");
+
+                        var syntaxRef = method.DeclaringSyntaxReferences.FirstOrDefault();
+                        if (syntaxRef == null)
+                            continue;
+
+                        var syntax = syntaxRef.GetSyntax() as MethodDeclarationSyntax;
+                        if (syntax == null)
+                            continue;
+
+                        var syntaxTree = syntax.SyntaxTree;
+                        var localModel = syntaxTree == tree ? model : compilation.GetSemanticModel(syntaxTree);
+
+                        foreach (var inv in syntax.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                        {
+                            try
+                            {
+                                var symbolInfo = localModel.GetSymbolInfo(inv);
+                                var target = symbolInfo.Symbol as IMethodSymbol ?? symbolInfo.CandidateSymbols.FirstOrDefault() as IMethodSymbol;
+                                if (target != null)
+                                {
+                                    var callee = target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                                    var linkFile = $"{callee.Split('.').FirstOrDefault()}.txt";
+                                    writer.WriteLine($"      METHOD: {method.Name} -> CALLS -> {callee} [LINK: {linkFile}]");
+                                }
+                            }
+                            catch { }
+                        }
+
+                        foreach (var param in method.Parameters)
+                        {
+                            foreach (var dep in ExtractTypeDependencies(param.Type))
+                                writer.WriteLine($"      METHOD: {method.Name} -> USES -> {dep} [LINK: maybe:{dep}.txt]");
+                        }
                     }
                 }
 
-                Console.WriteLine($"  -> Saved relations to {relFilePath}");
+                writer.WriteLine();
+                writer.WriteLine("OUTBOUND REFERENCES:");
+                foreach (var reference in project.MetadataReferences)
+                {
+                    var name = Path.GetFileNameWithoutExtension(reference.Display ?? "<unknown>");
+                    writer.WriteLine($"  - [REF: {name}.txt]");
+                }
             }
+
+            Console.WriteLine($"  -> Saved module chunked relations in {moduleDir}");
         }
 
-        Console.WriteLine("All module relation files generated successfully.");
+        Console.WriteLine("All relation chunks generated successfully.");
         return 0;
     }
 
-    // Helper: Extract type names used by a symbol type
     static IEnumerable<string> ExtractTypeDependencies(ITypeSymbol typeSymbol)
     {
         var results = new HashSet<string>();
-
         void collect(ITypeSymbol t)
         {
             if (t == null) return;
-            if (!string.IsNullOrEmpty(t.Name)) results.Add(t.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
+            if (!string.IsNullOrEmpty(t.Name))
+                results.Add(t.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
             if (t is INamedTypeSymbol named)
-            {
-                foreach (var arg in named.TypeArguments)
-                    collect(arg);
-            }
+                foreach (var arg in named.TypeArguments) collect(arg);
         }
-
         collect(typeSymbol);
         return results;
     }
