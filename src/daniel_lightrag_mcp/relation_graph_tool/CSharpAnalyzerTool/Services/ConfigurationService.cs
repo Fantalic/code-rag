@@ -2,11 +2,18 @@ using System;
 using System.IO;
 using System.Linq;
 using CSharpAnalyzerTool.Models;
+using Ignore;
 
 namespace CSharpAnalyzerTool.Services;
 
 public class ConfigurationService
 {
+    private static string EscapeBackslashes(string pattern)
+    {
+        // Escape backslashes that are not already escaped
+        return System.Text.RegularExpressions.Regex.Replace(pattern, @"(?<!\\)\\(?!\\)", @"\\");
+    }
+
     public static AnalyzerOptions LoadConfiguration(string solutionPath)
     {
         var options = new AnalyzerOptions
@@ -40,14 +47,38 @@ public class ConfigurationService
             }
         }
 
-        // Load .relignore patterns
+// Load .relignore patterns
         var ignorePath = Path.Combine(solutionDir, ".relignore");
         if (File.Exists(ignorePath))
         {
-            options.IgnorePatterns = File.ReadAllLines(ignorePath)
+            Console.WriteLine($"Found .relignore file at: {ignorePath}");
+            var ignoreLines = File.ReadAllLines(ignorePath)
                 .Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith("#"))
-                .Select(line => line.Trim())
+                .Select(line => line.Trim().Replace('\\', '/')) // Normalize path separators
+                .Select(line => 
+                {
+                    // Convert simple case-insensitive patterns like "test_*.cs" to proper regex
+                    if (line.StartsWith("test_", StringComparison.OrdinalIgnoreCase) && line.EndsWith(".cs"))
+                    {
+                        // Convert to case-insensitive pattern
+                        return "[Tt][Ee][Ss][Tt]_" + line.Substring(5);
+                    }
+                    // If the line looks like a directory name (no wildcards, no slashes at end), 
+                    // treat it as a directory pattern by adding a trailing slash
+                    else if (!line.Contains("*") && !line.EndsWith("/") && !line.Contains(".") && !line.Contains("["))
+                    {
+                        return line + "/";
+                    }
+                    return line;
+                })
+                .Select(EscapeBackslashes)
                 .ToArray();
+            options.IgnorePatterns = ignoreLines;
+            Console.WriteLine($"Loaded {ignoreLines.Length} ignore patterns from .relignore file");
+        }
+        else
+        {
+            Console.WriteLine("No .relignore file found, using default settings");
         }
 
         return options;
@@ -55,71 +86,43 @@ public class ConfigurationService
 
     public static bool IsIgnored(string relativePath, string[] ignorePatterns)
     {
-        foreach (var pattern in ignorePatterns)
+        try
         {
-            if (SimpleGlobMatch(relativePath, pattern))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool SimpleGlobMatch(string path, string pattern)
-    {
-        // Handle simple glob patterns
-        if (pattern == "**")
-            return true;
-
-        // Split path and pattern into segments
-        var pathSegments = path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-        var patternSegments = pattern.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-
-        return MatchSegments(pathSegments, patternSegments, 0, 0);
-    }
-
-    private static bool MatchSegments(string[] pathSegments, string[] patternSegments, int pathIndex, int patternIndex)
-    {
-        // If we've matched all pattern segments, we're done
-        if (patternIndex >= patternSegments.Length)
-            return pathIndex >= pathSegments.Length;
-
-        // If we've run out of path segments but have pattern segments left
-        if (pathIndex >= pathSegments.Length)
-        {
-            // Only match if all remaining pattern segments are "*"
-            for (int i = patternIndex; i < patternSegments.Length; i++)
+            // Normalize path separators
+            var normalizedPath = relativePath.Replace('\\', '/');
+            
+            // Debug logging
+            // Console.WriteLine($"Checking if '{normalizedPath}' is ignored by patterns: [{string.Join(", ", ignorePatterns)}]");
+            
+            // Use the Ignore library to check if the path should be ignored
+            var ignore = new Ignore.Ignore();
+            ignore.Add(ignorePatterns);
+            var isIgnored = ignore.IsIgnored(normalizedPath);
+            
+            // Debug logging - only show when a path is ignored
+            if (isIgnored)
             {
-                if (patternSegments[i] != "*" && patternSegments[i] != "**")
-                    return false;
+                Console.WriteLine($"  -> '{normalizedPath}' is ignored by .relignore patterns");
             }
-            return true;
+            
+            return isIgnored;
         }
-
-        var patternSegment = patternSegments[patternIndex];
-
-        // Handle "**" (matches any number of path segments)
-        if (patternSegment == "**")
+        catch (System.Text.RegularExpressions.RegexParseException ex)
         {
-            // Try matching the rest of the pattern at this position or any subsequent position
-            for (int i = pathIndex; i <= pathSegments.Length; i++)
+            Console.WriteLine($"Warning: Error parsing ignore pattern: {ex.Message}");
+            Console.WriteLine("Falling back to simple string matching for this pattern");
+            
+            // Fallback to simple string matching if regex parsing fails
+            foreach (var pattern in ignorePatterns)
             {
-                if (MatchSegments(pathSegments, patternSegments, i, patternIndex + 1))
+                var cleanPattern = pattern.Split('#')[0].Trim(); // Remove comments
+                if (string.IsNullOrEmpty(cleanPattern)) continue;
+                
+                // Simple string matching - check if the relative path contains the pattern
+                if (relativePath.Contains(cleanPattern))
                     return true;
             }
             return false;
         }
-
-        // Handle "*" (matches a single path segment)
-        if (patternSegment == "*")
-        {
-            return MatchSegments(pathSegments, patternSegments, pathIndex + 1, patternIndex + 1);
-        }
-
-        // Handle exact match
-        if (string.Equals(pathSegments[pathIndex], patternSegment, StringComparison.OrdinalIgnoreCase))
-        {
-            return MatchSegments(pathSegments, patternSegments, pathIndex + 1, patternIndex + 1);
-        }
-
-        return false;
     }
 }

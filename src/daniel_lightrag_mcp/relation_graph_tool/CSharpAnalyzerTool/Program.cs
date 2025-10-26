@@ -47,9 +47,10 @@ class Program
 
         var fileWriterService = new FileWriterService(options);
 
-        // Create a single list for all file entries across all projects
+// Create a single list for all file entries across all projects
         var allFileEntries = new List<string>();
         var solutionDir = Path.GetDirectoryName(solutionPath) ?? Directory.GetCurrentDirectory();
+        var totalIgnoredFilesCount = 0;
         
         foreach (var project in solution.Projects)
         {
@@ -61,12 +62,17 @@ class Program
             if (compilation == null) continue;
 
             // Process documents directly in output directory, no subdirectories
+            var ignoredFilesCount = 0;
             foreach (var document in project.Documents)
             {
-                var relativePath = Path.GetRelativePath(solutionDir, document.FilePath ?? "");
+                var relativePath = Path.GetRelativePath(solutionDir, document.FilePath ?? "").Replace('\\', '/');
+                // Debug logging
+                // Console.WriteLine($"Checking file: {relativePath}");
                 if (ConfigurationService.IsIgnored(relativePath, options.IgnorePatterns))
                 {
                     Console.WriteLine($"  -> Ignoring {relativePath}");
+                    ignoredFilesCount++;
+                    totalIgnoredFilesCount++;
                     continue;
                 }
 
@@ -219,6 +225,7 @@ class Program
         // Write a single global index file instead of per-module indexes
         WriteGlobalIndex(options.OutputDir, solution.Projects.Select(p => p.Name).ToList(), allFileEntries);
         Console.WriteLine($"  -> Saved all relation files in {options.OutputDir}");
+        Console.WriteLine($"  -> Ignored {totalIgnoredFilesCount} files based on .relignore patterns");
 
         Console.WriteLine("All relation files generated successfully.");
         return 0;
