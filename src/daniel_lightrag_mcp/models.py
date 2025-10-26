@@ -130,6 +130,23 @@ class RelationUpdateRequest(BaseModel):
     target_id: str = Field(..., description="Target entity ID")
     updated_data: Dict[str, Any] = Field(..., description="Updated data for the relation")
 
+class BatchRelationUpdateRequest(BaseModel):
+    """Request model for batch updating relations."""
+    updates: List[RelationUpdateRequest] = Field(..., description="List of relation updates")
+
+class RelatedFilesRequest(BaseModel):
+    """Request model for getting related files."""
+    query: str = Field(..., description="Query or keywords to find related files")
+    mode: QueryMode = Field(QueryMode.HYBRID, description="Query mode")
+    limit: int = Field(10, ge=1, le=100, description="Maximum number of related files to return")
+
+class RelatedFilesResponse(BaseModel):
+    """Response model for related files."""
+    related_files: List['DocumentInfo'] = Field(default_factory=list, description="List of related document info")
+    query: str = Field(..., description="Original query")
+    total_found: int = Field(0, description="Total number of related files found")
+
+
 
 class EntityExistsRequest(BaseModel):
     """Request model for checking if entity exists."""
@@ -158,7 +175,7 @@ class ScanResponse(BaseModel):
     message: str = Field(..., description="Status message")
     track_id: str = Field(..., description="Tracking ID for the scan operation")
     new_documents: List[str] = Field(default_factory=list, description="List of new document names")
-    message: Optional[str] = None
+
 
 
 class UploadResponse(BaseModel):

@@ -32,6 +32,8 @@ from .client import (
     LightRAGTimeoutError,
     LightRAGServerError
 )
+from .models import RelatedFilesResponse  # For type hints if needed
+
 
 # Configure logging with structured format
 logging.basicConfig(
@@ -68,6 +70,8 @@ def _validate_tool_arguments(tool_name: str, arguments: Dict[str, Any]) -> None:
         "check_entity_exists": ["entity_name"],
         "update_entity": ["entity_id", "properties"],
         "update_relation": ["source_id", "target_id", "updated_data"],
+        "update_relations": ["updates"],
+        "get_related_files": ["query"],
         "delete_entity": ["entity_id"],
         "delete_relation": ["relation_id"],
         "get_track_status": ["track_id"],
@@ -95,13 +99,27 @@ def _validate_tool_arguments(tool_name: str, arguments: Dict[str, Any]) -> None:
         if not isinstance(page_size, int) or page_size < 1 or page_size > 100:
             raise LightRAGValidationError("Page size must be an integer between 1 and 100")
     
-    elif tool_name == "query_text" or tool_name == "query_text_stream":
+    elif tool_name in ["query_text", "query_text_stream", "get_related_files"]:
         mode = arguments.get("mode", "hybrid")
         valid_modes = ["naive", "local", "global", "hybrid"]
         if mode not in valid_modes:
             raise LightRAGValidationError(f"Invalid query mode '{mode}'. Must be one of: {valid_modes}")
     
+    elif tool_name == "get_related_files":
+        limit = arguments.get("limit", 10)
+        if not isinstance(limit, int) or limit < 1 or limit > 100:
+            raise LightRAGValidationError("Limit must be an integer between 1 and 100")
+    
+    elif tool_name == "update_relations":
+        updates = arguments.get("updates", [])
+        if not isinstance(updates, list) or not updates:
+            raise LightRAGValidationError("Updates must be a non-empty list")
+        for i, update in enumerate(updates):
+            if not isinstance(update, dict) or "source_id" not in update or "target_id" not in update:
+                raise LightRAGValidationError(f"Update {i} missing source_id or target_id")
+    
     logger.debug(f"Tool arguments validation passed for {tool_name}")
+
 
 
 def _serialize_result(result: Any) -> str:
@@ -473,7 +491,7 @@ async def handle_list_tools() -> List[Tool]:#ListToolsResult:
         ),
     ])
     
-    # Knowledge Graph Tools (7 tools)
+    # Knowledge Graph Tools (9 tools)
     tools.extend([
         Tool(
             name="get_knowledge_graph",
@@ -566,6 +584,56 @@ async def handle_list_tools() -> List[Tool]:#ListToolsResult:
             }
         ),
         Tool(
+            name="update_relations",
+            description="Batch update multiple relations in the knowledge graph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "updates": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source_id": {"type": "string"},
+                                "target_id": {"type": "string"},
+                                "updated_data": {"type": "object"}
+                            },
+                            "required": ["source_id", "target_id"]
+                        },
+                        "description": "List of relation updates"
+                    }
+                },
+                "required": ["updates"]
+            }
+        ),
+        Tool(
+            name="get_related_files",
+            description="Get files related to a query or keywords",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Query or keywords to find related files"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Query mode",
+                        "enum": ["naive", "local", "global", "hybrid"],
+                        "default": "hybrid"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of related files",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
             name="delete_entity",
             description="Delete an entity from the knowledge graph",
             inputSchema={
@@ -594,6 +662,7 @@ async def handle_list_tools() -> List[Tool]:#ListToolsResult:
             }
         ),
     ])
+
     
     # System Management Tools (5 tools)
     tools.extend([
@@ -1858,8 +1927,97 @@ async def handle_call_tool(self, request: CallToolRequest) -> dict:
                 logger.error(f"  - Full traceback: {traceback.format_exc()}")
                 raise
         
+        elif tool_name == "update_relations":
+            logger.info("EXECUTING UPDATE_RELATIONS TOOL:")
+            logger.info(f"  - Tool: {tool_name}")
+            logger.info(f"  - Client type: {type(lightrag_client)}")
+            logger.info(f"  - Client base_url: {lightrag_client.base_url}")
+            logger.info(f"  - Raw arguments: {arguments}")
+            
+            updates = arguments.get("updates", [])
+            logger.info(f"UPDATE_RELATIONS PARAMETERS:")
+            logger.info(f"  - updates count: {len(updates)}")
+            
+            if not updates or not isinstance(updates, list):
+                logger.error("UPDATE_RELATIONS VALIDATION ERROR:")
+                logger.error("  - Updates must be a non-empty list")
+                raise LightRAGValidationError("Updates must be a non-empty list")
+            
+            logger.info("  - Parameter validation passed")
+            logger.info("  - Calling lightrag_client.update_relations()...")
+            
+            try:
+                result = await lightrag_client.update_relations(updates)
+                logger.info("UPDATE_RELATIONS SUCCESS:")
+                logger.info(f"  - Result type: {type(result)}")
+                logger.info(f"  - Results count: {len(result)}")
+                response = _create_success_response(result, tool_name)
+                logger.info(f"  - Success response created")
+                return response
+            except Exception as e:
+                logger.error("UPDATE_RELATIONS FAILED:")
+                logger.error(f"  - Exception type: {type(e)}")
+                logger.error(f"  - Exception message: {str(e)}")
+                logger.error(f"  - Updates count: {len(updates)}")
+                import traceback
+                logger.error(f"  - Full traceback: {traceback.format_exc()}")
+                raise
+        
+        elif tool_name == "get_related_files":
+            logger.info("EXECUTING GET_RELATED_FILES TOOL:")
+            logger.info(f"  - Tool: {tool_name}")
+            logger.info(f"  - Client type: {type(lightrag_client)}")
+            logger.info(f"  - Client base_url: {lightrag_client.base_url}")
+            logger.info(f"  - Raw arguments: {arguments}")
+            
+            query = arguments.get("query", "")
+            mode = arguments.get("mode", "hybrid")
+            limit = arguments.get("limit", 10)
+            
+            logger.info(f"GET_RELATED_FILES PARAMETERS:")
+            logger.info(f"  - query: '{query}'")
+            logger.info(f"  - mode: '{mode}'")
+            logger.info(f"  - limit: {limit}")
+            
+            if not query or not query.strip():
+                logger.error("GET_RELATED_FILES VALIDATION ERROR:")
+                logger.error("  - Query is empty")
+                raise LightRAGValidationError("Query cannot be empty")
+            
+            valid_modes = ["naive", "local", "global", "hybrid"]
+            if mode not in valid_modes:
+                logger.error("GET_RELATED_FILES MODE ERROR:")
+                logger.error(f"  - Invalid mode: '{mode}'")
+                raise LightRAGValidationError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
+            
+            if not isinstance(limit, int) or limit < 1 or limit > 100:
+                logger.error("GET_RELATED_FILES VALIDATION ERROR:")
+                logger.error(f"  - Invalid limit: {limit}")
+                raise LightRAGValidationError("Limit must be an integer between 1 and 100")
+            
+            logger.info("  - Parameter validation passed")
+            logger.info("  - Calling lightrag_client.get_related_files()...")
+            
+            try:
+                result = await lightrag_client.get_related_files(query, mode=mode, limit=limit)
+                logger.info("GET_RELATED_FILES SUCCESS:")
+                logger.info(f"  - Result type: {type(result)}")
+                logger.info(f"  - Related files count: {len(result.related_files)}")
+                response = _create_success_response(result, tool_name)
+                logger.info(f"  - Success response created")
+                return response
+            except Exception as e:
+                logger.error("GET_RELATED_FILES FAILED:")
+                logger.error(f"  - Exception type: {type(e)}")
+                logger.error(f"  - Exception message: {str(e)}")
+                logger.error(f"  - Query: '{query}'")
+                import traceback
+                logger.error(f"  - Full traceback: {traceback.format_exc()}")
+                raise
+        
         # System Management Tools (5 tools)
         elif tool_name == "get_pipeline_status":
+
             logger.info("EXECUTING GET_PIPELINE_STATUS TOOL:")
             logger.info(f"  - Tool: {tool_name}")
             logger.info(f"  - Client type: {type(lightrag_client)}")
