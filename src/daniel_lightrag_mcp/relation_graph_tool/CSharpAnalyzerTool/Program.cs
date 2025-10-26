@@ -1,7 +1,10 @@
-﻿using Microsoft.Build.Locator;
+using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.MSBuild;
+using CSharpAnalyzerTool.Models;
+using CSharpAnalyzerTool.Services;
+using System.Text;
 
 class Program
 {
@@ -14,15 +17,21 @@ class Program
         }
 
         string solutionPath = args[0];
-        string outputDir = args.Length > 1 ? args[1] : Path.Combine(Directory.GetCurrentDirectory(), "relations_output");
-
+        
         if (!File.Exists(solutionPath))
         {
             Console.WriteLine($"Error: Solution file not found: {solutionPath}");
             return 1;
         }
 
-        Directory.CreateDirectory(outputDir);
+        // Load configuration
+        var options = ConfigurationService.LoadConfiguration(solutionPath);
+        if (args.Length > 1)
+        {
+            options.OutputDir = args[1];
+        }
+        
+        Directory.CreateDirectory(options.OutputDir);
 
         var instance = MSBuildLocator.QueryVisualStudioInstances().FirstOrDefault();
         if (instance == null)
@@ -36,6 +45,8 @@ class Program
         var solution = await workspace.OpenSolutionAsync(solutionPath);
         Console.WriteLine($"Loaded {solution.Projects.Count()} projects.");
 
+        var fileWriterService = new FileWriterService(options);
+
         foreach (var project in solution.Projects)
         {
             if (project.Language != LanguageNames.CSharp)
@@ -45,26 +56,46 @@ class Program
             var compilation = await project.GetCompilationAsync();
             if (compilation == null) continue;
 
-            string moduleDir = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(project.FilePath) ?? project.Name);
+            string moduleDir = Path.Combine(options.OutputDir, Path.GetFileNameWithoutExtension(project.FilePath) ?? project.Name);
             Directory.CreateDirectory(moduleDir);
 
-            var relIndexPath = Path.Combine(moduleDir, "_index.txt");
-            using var indexWriter = new StreamWriter(relIndexPath, append: false);
-            indexWriter.WriteLine($"MODULE: {project.Name}");
-            indexWriter.WriteLine();
+            var fileEntries = new List<string>();
+            var moduleDependencies = new List<string>();
 
+            // Collect project dependencies
+            foreach (var projectReference in project.ProjectReferences)
+            {
+                var referencedProject = solution.GetProject(projectReference.ProjectId);
+                if (referencedProject != null)
+                {
+                    moduleDependencies.Add(referencedProject.Name);
+                }
+            }
+
+            var solutionDir = Path.GetDirectoryName(solutionPath) ?? Directory.GetCurrentDirectory();
+            
             foreach (var document in project.Documents)
             {
+                var relativePath = Path.GetRelativePath(solutionDir, document.FilePath ?? "");
+                if (ConfigurationService.IsIgnored(relativePath, options.IgnorePatterns))
+                {
+                    Console.WriteLine($"  -> Ignoring {relativePath}");
+                    continue;
+                }
+
                 if (document.SourceCodeKind != SourceCodeKind.Regular)
                     continue;
 
                 var fileName = Path.GetFileNameWithoutExtension(document.FilePath ?? "unknown");
-                string relFilePath = Path.Combine(moduleDir, fileName + ".txt");
-                indexWriter.WriteLine($"[LINK: {fileName}.txt]");
+                var relFilePath = Path.Combine(moduleDir, $"{fileName}.{options.FileExtension}");
+                
+                // Add to index
+                var relativeDocumentPath = Path.GetRelativePath(solutionDir, document.FilePath ?? "");
+                fileEntries.Add(RelationFormatter.FormatFileEntry(relativeDocumentPath, fileName, options.FileExtension));
 
-                using var writer = new StreamWriter(relFilePath, append: false);
-                writer.WriteLine($"FILE: {document.FilePath}");
-                writer.WriteLine();
+                var lines = new List<string>();
+                lines.Add($"FILE: {relativeDocumentPath}");
+                lines.Add("");
 
                 var tree = await document.GetSyntaxTreeAsync();
                 if (tree == null) continue;
@@ -77,20 +108,23 @@ class Program
                     var symbol = model.GetDeclaredSymbol(typeDecl) as INamedTypeSymbol;
                     if (symbol == null) continue;
 
-                    writer.WriteLine($"  CLASS: {symbol.Name}");
+                    lines.Add(RelationFormatter.FormatClassEntry(symbol.Name));
 
                     if (symbol.BaseType != null && symbol.BaseType.Name != "Object")
-                        writer.WriteLine($"    INHERITS_FROM -> {symbol.BaseType.ToDisplayString()}");
+                        lines.Add(RelationFormatter.FormatInheritsFrom(symbol.BaseType.ToDisplayString()));
 
                     foreach (var iface in symbol.Interfaces)
-                        writer.WriteLine($"    DEPENDS_ON -> {iface.ToDisplayString()}");
+                        lines.Add(RelationFormatter.FormatDependsOn(iface.ToDisplayString()));
 
                     // Properties
                     foreach (var prop in symbol.GetMembers().OfType<IPropertySymbol>())
                     {
-                        writer.WriteLine($"    PROPERTY: {prop.Name} -> RETURNS -> {prop.Type.ToDisplayString()}");
+                        lines.Add(RelationFormatter.FormatPropertyEntry(prop.Name, prop.Type.ToDisplayString()));
                         foreach (var dep in ExtractTypeDependencies(prop.Type))
-                            writer.WriteLine($"    PROPERTY: {prop.Name} -> USES -> {dep} [LINK: maybe:{dep}.txt]");
+                        {
+                            // For now, we'll use a simple reference format
+                            lines.Add(RelationFormatter.FormatPropertyUses(prop.Name, dep, $"{dep}.{options.FileExtension}"));
+                        }
                     }
 
                     // Methods
@@ -99,7 +133,7 @@ class Program
                         if (method.MethodKind == MethodKind.Constructor || method.DeclaringSyntaxReferences.Length == 0)
                             continue;
 
-                        writer.WriteLine($"    METHOD: {method.Name} -> RETURNS -> {method.ReturnType.ToDisplayString()}");
+                        lines.Add(RelationFormatter.FormatMethodEntry(method.Name, method.ReturnType.ToDisplayString()));
 
                         var syntaxRef = method.DeclaringSyntaxReferences.FirstOrDefault();
                         if (syntaxRef == null)
@@ -121,8 +155,9 @@ class Program
                                 if (target != null)
                                 {
                                     var callee = target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
-                                    var linkFile = $"{callee.Split('.').FirstOrDefault()}.txt";
-                                    writer.WriteLine($"      METHOD: {method.Name} -> CALLS -> {callee} [LINK: {linkFile}]");
+                                    var targetModule = target.ContainingAssembly?.Name ?? "unknown";
+                                    var targetFile = target.ContainingType?.Name ?? callee.Split('.').FirstOrDefault() ?? "unknown";
+                                    lines.Add(RelationFormatter.FormatMethodCall(method.Name, callee, $"{targetModule}/{targetFile}.{options.FileExtension}"));
                                 }
                             }
                             catch { }
@@ -131,24 +166,31 @@ class Program
                         foreach (var param in method.Parameters)
                         {
                             foreach (var dep in ExtractTypeDependencies(param.Type))
-                                writer.WriteLine($"      METHOD: {method.Name} -> USES -> {dep} [LINK: maybe:{dep}.txt]");
+                            {
+                                // For now, we'll use a simple reference format
+                                lines.Add(RelationFormatter.FormatMethodUses(method.Name, dep, $"{dep}.{options.FileExtension}"));
+                            }
                         }
                     }
                 }
 
-                writer.WriteLine();
-                writer.WriteLine("OUTBOUND REFERENCES:");
+                lines.Add("");
+                lines.Add(RelationFormatter.FormatOutboundReferencesHeader());
                 foreach (var reference in project.MetadataReferences)
                 {
                     var name = Path.GetFileNameWithoutExtension(reference.Display ?? "<unknown>");
-                    writer.WriteLine($"  - [REF: {name}.txt]");
+                    lines.Add(RelationFormatter.FormatReference($"{name}.{options.FileExtension}"));
                 }
+
+                fileWriterService.WriteFileRelations(relFilePath, lines);
             }
 
-            Console.WriteLine($"  -> Saved module chunked relations in {moduleDir}");
+            // Write module index
+            fileWriterService.WriteModuleIndex(moduleDir, project.Name, fileEntries, moduleDependencies);
+            Console.WriteLine($"  -> Saved module relations in {moduleDir}");
         }
 
-        Console.WriteLine("All relation chunks generated successfully.");
+        Console.WriteLine("All relation files generated successfully.");
         return 0;
     }
 
