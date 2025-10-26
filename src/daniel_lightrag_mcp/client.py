@@ -3,6 +3,7 @@ LightRAG API client for MCP server integration.
 """
 
 import asyncio
+import os
 import json
 import logging
 from typing import Any, Dict, List, Optional, AsyncGenerator
@@ -20,6 +21,7 @@ from .models import (
     LabelsResponse, EntityExistsResponse, EntityUpdateResponse, RelationUpdateResponse,
     HealthResponse, TextDocument, RelatedFilesResponse
 )
+from .relation_graph_tool.c_sharp_tool import main as create_relations
 
 
 
@@ -452,60 +454,70 @@ class LightRAGClient:
     #     response_data = await self._make_request("POST", "/graph/relation/edit", request_data.model_dump())
     #     return RelationUpdateResponse(**response_data)
 
-async def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any]) -> RelationUpdateResponse:
-    """Update a relation in the knowledge graph."""
-    request_data = RelationUpdateRequest(
-        source_id=source_id,
-        target_id=target_id,
-        updated_data=updated_data
-    )
-    response_data = await self._make_request("POST", "/graph/relation/edit", request_data.model_dump())
-    return RelationUpdateResponse(**response_data)
+    async def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any]) -> RelationUpdateResponse:
+        """Update a relation in the knowledge graph."""
+        request_data = RelationUpdateRequest(
+            source_id=source_id,
+            target_id=target_id,
+            updated_data=updated_data
+        )
+        response_data = await self._make_request("POST", "/graph/relation/edit", request_data.model_dump())
+        return RelationUpdateResponse(**response_data)
 
-async def update_relations(self, updates: List[Dict[str, Any]]) -> List[RelationUpdateResponse]:
-    """Batch update multiple relations in the knowledge graph."""
-    # Optionally validate with BatchRelationUpdateRequest, but since API is single, proceed
-    results = []
-    for update_data in updates:
-        source_id = update_data.get("source_id")
-        target_id = update_data.get("target_id")
-        updated_data = update_data.get("updated_data", {})
-        if source_id and target_id:
-            result = await self.update_relation(source_id, target_id, updated_data)
-            results.append(result)
-        else:
-            self.logger.warning(f"Skipping invalid update: missing source_id or target_id in {update_data}")
-    return results
+# async def update_relations(self, updates: List[Dict[str, Any]]) -> List[RelationUpdateResponse]:
+#     """Batch update multiple relations in the knowledge graph."""
+#     # Optionally validate with BatchRelationUpdateRequest, but since API is single, proceed
+#     results = []
+#     for update_data in updates:
+#         source_id = update_data.get("source_id")
+#         target_id = update_data.get("target_id")
+#         updated_data = update_data.get("updated_data", {})
+#         if source_id and target_id:
+#             result = await self.update_relation(source_id, target_id, updated_data)
+#             results.append(result)
+#         else:
+#             self.logger.warning(f"Skipping invalid update: missing source_id or target_id in {update_data}")
+#     return results
 
-async def get_related_files(self, query: str, mode: str = "hybrid", limit: int = 10) -> RelatedFilesResponse:
-    """Get files related to a query or keywords."""
-    # Use query_text to find relevant documents
-    query_result = await self.query_text(query, mode=mode)
-    
-    # Extract document_ids from results (assuming query returns relevant docs)
-    related_doc_ids = []
-    if hasattr(query_result, 'results') and query_result.results:
-        related_doc_ids = [result.document_id for result in query_result.results[:limit]]
-    
-    # Fetch full document info for the IDs
-    related_files = []
-    if related_doc_ids:
-        all_docs = await self.get_documents()
-        if hasattr(all_docs, 'statuses'):
-            for status, docs in all_docs.statuses.items():
-                for doc in docs:
-                    if doc.get('id') in related_doc_ids:
-                        related_files.append(DocumentInfo(**doc))
-                        if len(related_files) >= limit:
-                            break
-                if len(related_files) >= limit:
-                    break
-    
-    return RelatedFilesResponse(
-        related_files=related_files,
-        query=query,
-        total_found=len(related_files)
-    )
+
+    async def update_relations(self, path) -> List[str]:
+        """Update relations based on recent code changes."""
+        create_relations(path, "relation_graph_txt")
+        return [ 
+            "creation of relational graph complete."+
+            "you find the files under the folder relation_graph_txt."+
+            "Lightrag still has to tranform these into a graph. It will take a while"
+        ]
+
+    async def get_related_files(self, query: str, mode: str = "hybrid", limit: int = 10) -> RelatedFilesResponse:
+        """Get files related to a query or keywords."""
+        # Use query_text to find relevant documents
+        query_result = await self.query_text(query, mode=mode)
+        
+        # Extract document_ids from results (assuming query returns relevant docs)
+        related_doc_ids = []
+        if hasattr(query_result, 'results') and query_result.results:
+            related_doc_ids = [result.document_id for result in query_result.results[:limit]]
+        
+        # Fetch full document info for the IDs
+        related_files = []
+        if related_doc_ids:
+            all_docs = await self.get_documents()
+            if hasattr(all_docs, 'statuses'):
+                for status, docs in all_docs.statuses.items():
+                    for doc in docs:
+                        if doc.get('id') in related_doc_ids:
+                            related_files.append(DocumentInfo(**doc))
+                            if len(related_files) >= limit:
+                                break
+                    if len(related_files) >= limit:
+                        break
+        
+        return RelatedFilesResponse(
+            related_files=related_files,
+            query=query,
+            total_found=len(related_files)
+        )
 
     
     async def delete_entity(self, entity_id: str, entity_name: Optional[str] = None) -> DeletionResult:

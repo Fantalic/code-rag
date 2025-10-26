@@ -70,8 +70,11 @@ def _validate_tool_arguments(tool_name: str, arguments: Dict[str, Any]) -> None:
         "check_entity_exists": ["entity_name"],
         "update_entity": ["entity_id", "properties"],
         "update_relation": ["source_id", "target_id", "updated_data"],
-        "update_relations": ["updates"],
+        # "update_relations": ["updates"],
+
+        "update_relations": ["absolute_project_root_path"],
         "get_related_files": ["query"],
+
         "delete_entity": ["entity_id"],
         "delete_relation": ["relation_id"],
         "get_track_status": ["track_id"],
@@ -110,13 +113,13 @@ def _validate_tool_arguments(tool_name: str, arguments: Dict[str, Any]) -> None:
         if not isinstance(limit, int) or limit < 1 or limit > 100:
             raise LightRAGValidationError("Limit must be an integer between 1 and 100")
     
-    elif tool_name == "update_relations":
-        updates = arguments.get("updates", [])
-        if not isinstance(updates, list) or not updates:
-            raise LightRAGValidationError("Updates must be a non-empty list")
-        for i, update in enumerate(updates):
-            if not isinstance(update, dict) or "source_id" not in update or "target_id" not in update:
-                raise LightRAGValidationError(f"Update {i} missing source_id or target_id")
+    # elif tool_name == "update_relations":
+    #     updates = arguments.get("updates", [])
+    #     if not isinstance(updates, list) or not updates:
+    #         raise LightRAGValidationError("Updates must be a non-empty list")
+    #     for i, update in enumerate(updates):
+    #         if not isinstance(update, dict) or "source_id" not in update or "target_id" not in update:
+    #             raise LightRAGValidationError(f"Update {i} missing source_id or target_id")
     
     logger.debug(f"Tool arguments validation passed for {tool_name}")
 
@@ -583,27 +586,41 @@ async def handle_list_tools() -> List[Tool]:#ListToolsResult:
                 "required": ["source_id", "target_id", "updated_data"]
             }
         ),
-        Tool(
+        # Tool(
+        #     name="update_relations",
+        #     description="Batch update multiple relations in the knowledge graph",
+        #     inputSchema={
+        #         "type": "object",
+        #         "properties": {
+        #             "updates": {
+        #                 "type": "array",
+        #                 "items": {
+        #                     "type": "object",
+        #                     "properties": {
+        #                         "source_id": {"type": "string"},
+        #                         "target_id": {"type": "string"},
+        #                         "updated_data": {"type": "object"}
+        #                     },
+        #                     "required": ["source_id", "target_id"]
+        #                 },
+        #                 "description": "List of relation updates"
+        #             }
+        #         },
+        #         "required": ["updates"]
+        #     }
+        # ),
+                Tool(
             name="update_relations",
-            description="Batch update multiple relations in the knowledge graph",
+            description="run this when relations in the codebase are effected in recent code changes.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "updates": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "source_id": {"type": "string"},
-                                "target_id": {"type": "string"},
-                                "updated_data": {"type": "object"}
-                            },
-                            "required": ["source_id", "target_id"]
-                        },
-                        "description": "List of relation updates"
+                    "absolute_project_root_path": {
+                        "type": "string",
+                        "description": "the absolute path of your current working root dir"
                     }
                 },
-                "required": ["updates"]
+                "required": ["absolute_project_root_path"]
             }
         ),
         Tool(
@@ -1931,23 +1948,11 @@ async def handle_call_tool(self, request: CallToolRequest) -> dict:
             logger.info("EXECUTING UPDATE_RELATIONS TOOL:")
             logger.info(f"  - Tool: {tool_name}")
             logger.info(f"  - Client type: {type(lightrag_client)}")
-            logger.info(f"  - Client base_url: {lightrag_client.base_url}")
-            logger.info(f"  - Raw arguments: {arguments}")
-            
-            updates = arguments.get("updates", [])
-            logger.info(f"UPDATE_RELATIONS PARAMETERS:")
-            logger.info(f"  - updates count: {len(updates)}")
-            
-            if not updates or not isinstance(updates, list):
-                logger.error("UPDATE_RELATIONS VALIDATION ERROR:")
-                logger.error("  - Updates must be a non-empty list")
-                raise LightRAGValidationError("Updates must be a non-empty list")
-            
-            logger.info("  - Parameter validation passed")
             logger.info("  - Calling lightrag_client.update_relations()...")
             
             try:
-                result = await lightrag_client.update_relations(updates)
+                path = arguments.get("absolute_project_root_path", "")
+                result = await lightrag_client.update_relations(path)
                 logger.info("UPDATE_RELATIONS SUCCESS:")
                 logger.info(f"  - Result type: {type(result)}")
                 logger.info(f"  - Results count: {len(result)}")
@@ -1958,7 +1963,6 @@ async def handle_call_tool(self, request: CallToolRequest) -> dict:
                 logger.error("UPDATE_RELATIONS FAILED:")
                 logger.error(f"  - Exception type: {type(e)}")
                 logger.error(f"  - Exception message: {str(e)}")
-                logger.error(f"  - Updates count: {len(updates)}")
                 import traceback
                 logger.error(f"  - Full traceback: {traceback.format_exc()}")
                 raise
