@@ -14,8 +14,10 @@ services:
       - ./data/inputs:/app/data/inputs
       - ./config.ini:/app/config.ini
       - ./.env:/app/.env
+      - ${INPUT_DIR}/.lightrag/code:/app/code
     env_file:
       - .env
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      

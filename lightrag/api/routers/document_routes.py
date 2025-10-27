@@ -743,6 +743,8 @@ class DocumentManager:
             ".sh",  # Shell scripts
             ".c",  # C source code
             ".cpp",  # C++ source code
+            ".cs", # C# source code
+            ".rel", # relations
             ".py",  # Python source code
             ".java",  # Java source code
             ".js",  # JavaScript source code
@@ -773,15 +775,15 @@ class DocumentManager:
         self.input_dir.mkdir(parents=True, exist_ok=True)
 
     def scan_directory_for_new_files(self) -> List[Path]:
-        """Scan input directory for new files"""
+        """Scan input directory and all subdirectories for new files"""
         new_files = []
         for ext in self.supported_extensions:
-            logger.debug(f"Scanning for {ext} files in {self.input_dir}")
-            for file_path in self.input_dir.glob(f"*{ext}"):
+            logger.debug(f"Recursively scanning for {ext} files in {self.input_dir}")
+            for file_path in self.input_dir.rglob(f"*{ext}"):
                 if file_path not in self.indexed_files:
                     new_files.append(file_path)
         return new_files
-
+    
     def mark_as_indexed(self, file_path: Path):
         self.indexed_files.add(file_path)
 
@@ -974,6 +976,8 @@ async def pipeline_enqueue_file(
                     | ".bat"
                     | ".sh"
                     | ".c"
+                      ".cs"
+                      ".rel"
                     | ".cpp"
                     | ".py"
                     | ".java"
