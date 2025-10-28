@@ -3000,7 +3000,9 @@ async def kg_query(
     )
 
     # Build system prompt
-    sys_prompt_temp = system_prompt if system_prompt else PROMPTS["rag_response"]
+    sys_prompt_temp = system_prompt if system_prompt else PROMPTS["code_rag_response"]
+    # sys_prompt_temp = system_prompt if system_prompt else PROMPTS["rag_response"]
+    
     sys_prompt = sys_prompt_temp.format(
         response_type=response_type,
         user_prompt=user_prompt,

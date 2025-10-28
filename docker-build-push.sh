@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-IMAGE_NAME="ghcr.io/hkuds/lightrag"
+IMAGE_NAME="lightrag-own-fork"
 DOCKERFILE="Dockerfile"
 TAG="latest"
 
@@ -19,21 +19,21 @@ echo "=================================="
 echo ""
 
 # Check Docker login status (skip if CR_PAT is set for CI/CD)
-if [ -z "$CR_PAT" ]; then
-    if ! docker info 2>/dev/null | grep -q "Username"; then
-        echo "⚠️  Warning: Not logged in to Docker registry"
-        echo "Please login first: docker login ghcr.io"
-        echo "Or set CR_PAT environment variable for automated login"
-        echo ""
-        read -p "Continue anyway? (y/n) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
-    fi
-else
-    echo "Using CR_PAT environment variable for authentication"
-fi
+# if [ -z "$CR_PAT" ]; then
+#     if ! docker info 2>/dev/null | grep -q "Username"; then
+#         echo "⚠️  Warning: Not logged in to Docker registry"
+#         echo "Please login first: docker login ghcr.io"
+#         echo "Or set CR_PAT environment variable for automated login"
+#         echo ""
+#         read -p "Continue anyway? (y/n) " -n 1 -r
+#         echo
+#         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+#             exit 1
+#         fi
+#     fi
+# else
+#     echo "Using CR_PAT environment variable for authentication"
+# fi
 
 # Check if buildx builder exists, create if not
 if ! docker buildx ls | grep -q "desktop-linux"; then
@@ -46,17 +46,27 @@ else
 fi
 
 echo ""
-echo "Building and pushing multi-architecture image..."
+# echo "Building and pushing multi-architecture image..."
+echo "Building and loading multi-architecture image..."
 echo ""
 
 # Build and push
+#docker buildx build \
+#  --platform linux/amd64,linux/arm64 \
+#  --file ${DOCKERFILE} \
+#  --tag ${IMAGE_NAME}:${TAG} \
+#  --tag ${IMAGE_NAME}:${VERSION} \
+#  --push \
+#  .
+
+# build and load locally
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --file ${DOCKERFILE} \
-  --tag ${IMAGE_NAME}:${TAG} \
-  --tag ${IMAGE_NAME}:${VERSION} \
-  --push \
-  .
+  --tag fakupara/lightrag-fork:${VERSION} \
+  --tag fakupara/lightrag-fork:latest \
+  --load \
+
 
 echo ""
 echo "✓ Build and push complete!"
