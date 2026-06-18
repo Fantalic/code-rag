@@ -21,8 +21,6 @@ from .models import (
     LabelsResponse, EntityExistsResponse, EntityUpdateResponse, RelationUpdateResponse,
     HealthResponse, TextDocument, RelatedFilesResponse
 )
-from .relation_graph_tool.c_sharp_tool import main as create_relations
-
 
 
 # Custom Exception Hierarchy
@@ -482,7 +480,7 @@ class LightRAGClient:
 
     async def update_relations(self, path) -> List[str]:
         """Update relations based on recent code changes."""
-        create_relations(path, "relation_graph_txt")
+        # create_relations(path, "relation_graph_txt")
         return [ 
             "creation of relational graph complete."+
             "you find the files under the folder relation_graph_txt."+
