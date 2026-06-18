@@ -16,7 +16,7 @@ from fastapi import HTTPException, Security, Request, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from starlette.status import HTTP_403_FORBIDDEN
 from .auth import auth_handler
-from .config import ollama_server_infos, global_args, get_env_value
+from .config import ollama_server_infos, get_global_args, get_env_value
 
 
 def check_env_file():
@@ -38,7 +38,7 @@ def check_env_file():
 
 
 # Get whitelist paths from global_args, only once during initialization
-whitelist_paths = global_args.whitelist_paths.split(",")
+whitelist_paths = get_global_args().whitelist_paths.split(",")
 
 # Pre-compile path matching patterns
 whitelist_patterns: List[Tuple[str, bool]] = []

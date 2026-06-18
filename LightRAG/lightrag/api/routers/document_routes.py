@@ -25,7 +25,7 @@ from lightrag import LightRAG
 from lightrag.base import DeletionResult, DocProcessingStatus, DocStatus
 from lightrag.utils import generate_track_id
 from lightrag.api.utils_api import get_combined_auth_dependency
-from ..config import global_args
+from ..config import get_global_args
 
 
 # Function to format datetime to ISO format string with timezone information
@@ -398,7 +398,9 @@ class DocStatusResponse(BaseModel):
     metadata: Optional[dict[str, Any]] = Field(
         default=None, description="Additional metadata about the document"
     )
-    file_path: str = Field(description="Path to the document file")
+    file_path: Optional[str] = Field(
+        default=None, description="Path to the document file"
+    )
 
     class Config:
         json_schema_extra = {
@@ -1050,7 +1052,7 @@ async def pipeline_enqueue_file(
 
                 case ".pdf":
                     try:
-                        if global_args.document_loading_engine == "DOCLING":
+                        if get_global_args().document_loading_engine == "DOCLING":
                             if not pm.is_installed("docling"):  # type: ignore
                                 pm.install("docling")
                             from docling.document_converter import DocumentConverter  # type: ignore
@@ -1087,7 +1089,7 @@ async def pipeline_enqueue_file(
 
                 case ".docx":
                     try:
-                        if global_args.document_loading_engine == "DOCLING":
+                        if get_global_args().document_loading_engine == "DOCLING":
                             if not pm.is_installed("docling"):  # type: ignore
                                 pm.install("docling")
                             from docling.document_converter import DocumentConverter  # type: ignore
@@ -1128,7 +1130,7 @@ async def pipeline_enqueue_file(
 
                 case ".pptx":
                     try:
-                        if global_args.document_loading_engine == "DOCLING":
+                        if get_global_args().document_loading_engine == "DOCLING":
                             if not pm.is_installed("docling"):  # type: ignore
                                 pm.install("docling")
                             from docling.document_converter import DocumentConverter  # type: ignore
@@ -1167,7 +1169,7 @@ async def pipeline_enqueue_file(
 
                 case ".xlsx":
                     try:
-                        if global_args.document_loading_engine == "DOCLING":
+                        if get_global_args().document_loading_engine == "DOCLING":
                             if not pm.is_installed("docling"):  # type: ignore
                                 pm.install("docling")
                             from docling.document_converter import DocumentConverter  # type: ignore

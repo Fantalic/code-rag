@@ -751,6 +751,10 @@ class DocProcessingStatus:
     """Error message if failed"""
     metadata: dict[str, Any] = field(default_factory=dict)
     """Additional metadata"""
+    retry_count: int = 0
+    """Number of times this document has been retried after failure"""
+    max_retries: int = 3
+    """Maximum number of retries before giving up"""
 
 
 @dataclass

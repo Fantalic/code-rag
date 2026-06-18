@@ -27,7 +27,7 @@ from lightrag.api.utils_api import (
     check_env_file,
 )
 from .config import (
-    global_args,
+    get_global_args,
     update_uvicorn_mode_config,
     get_default_host,
 )
@@ -168,7 +168,8 @@ def check_frontend_build():
             "Note: Make sure you have Bun installed. Visit https://bun.sh for installation."
         )
         ASCIIColors.red("=" * 80 + "\n")
-        sys.exit(1)  # Exit immediately
+        ASCIIColors.yellow("Continuing in API-only mode (no WebUI).\n")
+        return  # Don't exit — allow API-only mode
 
     # 2. Check if this is a development environment (source directory exists)
     try:
@@ -333,7 +334,10 @@ def create_app(args):
             # Data migration regardless of storage implementation
             await rag.check_and_migrate_data()
 
-            ASCIIColors.green("\nServer is ready to accept connections! 🚀\n")
+            try:
+                ASCIIColors.green("\nServer is ready to accept connections! 🚀\n")
+            except UnicodeEncodeError:
+                ASCIIColors.green("\nServer is ready to accept connections!\n")
 
             yield
 
@@ -405,7 +409,7 @@ def create_app(args):
         """Get allowed origins from global_args
         Returns a list of allowed origins, defaults to ["*"] if not set
         """
-        origins_str = global_args.cors_origins
+        origins_str = get_global_args().cors_origins
         if origins_str == "*":
             return ["*"]
         return [origin.strip() for origin in origins_str.split(",")]
@@ -952,7 +956,7 @@ def create_app(args):
 def get_application(args=None):
     """Factory function for creating the FastAPI application"""
     if args is None:
-        args = global_args
+        args = get_global_args()
     return create_app(args)
 
 
@@ -1074,32 +1078,32 @@ def main():
     # Configure logging before parsing args
     configure_logging()
     update_uvicorn_mode_config()
-    display_splash_screen(global_args)
+    display_splash_screen(get_global_args())
 
     # Setup signal handlers for graceful shutdown
     setup_signal_handlers()
 
     # Create application instance directly instead of using factory function
-    app = create_app(global_args)
+    app = create_app(get_global_args())
 
     # Start Uvicorn in single process mode
     uvicorn_config = {
         "app": app,  # Pass application instance directly instead of string path
-        "host": global_args.host,
-        "port": global_args.port,
+        "host": get_global_args().host,
+        "port": get_global_args().port,
         "log_config": None,  # Disable default config
     }
 
-    if global_args.ssl:
+    if get_global_args().ssl:
         uvicorn_config.update(
             {
-                "ssl_certfile": global_args.ssl_certfile,
-                "ssl_keyfile": global_args.ssl_keyfile,
+                "ssl_certfile": get_global_args().ssl_certfile,
+                "ssl_keyfile": get_global_args().ssl_keyfile,
             }
         )
 
     print(
-        f"Starting Uvicorn server in single-process mode on {global_args.host}:{global_args.port}"
+        f"Starting Uvicorn server in single-process mode on {get_global_args().host}:{get_global_args().port}"
     )
     uvicorn.run(**uvicorn_config)
 

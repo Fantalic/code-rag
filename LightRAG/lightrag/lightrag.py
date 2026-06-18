@@ -1514,6 +1514,7 @@ class LightRAG:
         # Reset PROCESSING and FAILED documents that pass consistency checks to PENDING status
         docs_to_reset = {}
         reset_count = 0
+        exhausted_count = 0
 
         for doc_id, status_doc in to_process_docs.items():
             # Check if document has corresponding content in full_docs (consistency check)
@@ -1524,6 +1525,17 @@ class LightRAG:
                     DocStatus.PROCESSING,
                     DocStatus.FAILED,
                 ]:
+                    retry_count = getattr(status_doc, "retry_count", 0)
+                    max_retries = getattr(status_doc, "max_retries", 3)
+
+                    # Skip FAILED docs that have exhausted retries
+                    if status_doc.status == DocStatus.FAILED and retry_count >= max_retries:
+                        exhausted_count += 1
+                        continue
+
+                    # Increment retry count for FAILED docs being reset
+                    new_retry_count = retry_count + 1 if status_doc.status == DocStatus.FAILED else 0
+
                     # Prepare document for status reset to PENDING
                     docs_to_reset[doc_id] = {
                         "status": DocStatus.PENDING,
@@ -1536,10 +1548,13 @@ class LightRAG:
                         # Clear any error messages and processing metadata
                         "error_msg": "",
                         "metadata": {},
+                        "retry_count": new_retry_count,
+                        "max_retries": max_retries,
                     }
 
                     # Update the status in to_process_docs as well
                     status_doc.status = DocStatus.PENDING
+                    status_doc.retry_count = new_retry_count
                     reset_count += 1
 
         # Update doc_status storage if there are documents to reset
@@ -1551,6 +1566,11 @@ class LightRAG:
                 logger.info(reset_message)
                 pipeline_status["latest_message"] = reset_message
                 pipeline_status["history_messages"].append(reset_message)
+                if exhausted_count > 0:
+                    exhausted_message = f"Skipped {exhausted_count} documents that exceeded max retries ({max_retries})"
+                    logger.warning(exhausted_message)
+                    pipeline_status["latest_message"] = exhausted_message
+                    pipeline_status["history_messages"].append(exhausted_message)
 
         return to_process_docs
 
@@ -1849,6 +1869,8 @@ class LightRAG:
                                             "processing_start_time": processing_start_time,
                                             "processing_end_time": processing_end_time,
                                         },
+                                        "retry_count": getattr(status_doc, "retry_count", 0),
+                                        "max_retries": getattr(status_doc, "max_retries", 3),
                                     }
                                 }
                             )
@@ -1950,6 +1972,8 @@ class LightRAG:
                                                 "processing_start_time": processing_start_time,
                                                 "processing_end_time": processing_end_time,
                                             },
+                                            "retry_count": getattr(status_doc, "retry_count", 0),
+                                            "max_retries": getattr(status_doc, "max_retries", 3),
                                         }
                                     }
                                 )

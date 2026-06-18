@@ -59,11 +59,12 @@ class TestLightRAGAPI:
         old_argv = sys.argv
         sys.argv = ["lightrag-server"]
         try:
-            from lightrag.api.config import global_args
-            assert hasattr(global_args, "host")
-            assert hasattr(global_args, "port")
-            assert hasattr(global_args, "llm_binding")
-            assert hasattr(global_args, "embedding_binding")
+            from lightrag.api.config import get_global_args
+            args = get_global_args()
+            assert hasattr(args, "host")
+            assert hasattr(args, "port")
+            assert hasattr(args, "llm_binding")
+            assert hasattr(args, "embedding_binding")
         finally:
             sys.argv = old_argv
 

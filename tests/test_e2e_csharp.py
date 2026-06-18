@@ -27,15 +27,10 @@ import lightrag.api.lightrag_server as ls_mod
 ls_mod.check_frontend_build = lambda: None
 
 from ascii_colors import ASCIIColors
-ASCIIColors.green = lambda t, **k: None
-ASCIIColors.yellow = lambda t, **k: None
-ASCIIColors.cyan = lambda t, **k: None
-ASCIIColors.red = lambda t, **k: None
-
 from lightrag.api.lightrag_server import create_app
-from lightrag.api.config import global_args
+from lightrag.api.config import get_global_args
 
-app = create_app(global_args)
+app = create_app(get_global_args())
 
 import uvicorn
 from threading import Thread

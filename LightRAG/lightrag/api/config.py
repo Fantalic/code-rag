@@ -404,14 +404,22 @@ def parse_args() -> argparse.Namespace:
 
 
 def update_uvicorn_mode_config():
+    _args = get_global_args()
     # If in uvicorn mode and workers > 1, force it to 1 and log warning
-    if global_args.workers > 1:
-        original_workers = global_args.workers
-        global_args.workers = 1
+    if _args.workers > 1:
+        original_workers = _args.workers
+        _args.workers = 1
         # Log warning directly here
         logging.warning(
             f">> Forcing workers=1 in uvicorn mode(Ignoring workers={original_workers})"
         )
 
 
-global_args = parse_args()
+_global_args = None
+
+
+def get_global_args() -> argparse.Namespace:
+    global _global_args
+    if _global_args is None:
+        _global_args = parse_args()
+    return _global_args
