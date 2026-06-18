@@ -478,7 +478,7 @@ async def openai_complete(
     history_messages=None,
     keyword_extraction=False,
     **kwargs,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if history_messages is None:
         history_messages = []
     keyword_extraction = kwargs.pop("keyword_extraction", None)

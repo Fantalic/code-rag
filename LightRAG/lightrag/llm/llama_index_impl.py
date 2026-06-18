@@ -93,7 +93,7 @@ async def llama_index_complete_if_cache(
     model: str,
     prompt: str,
     system_prompt: Optional[str] = None,
-    history_messages: List[dict] = [],
+    history_messages: list[dict] = [],
     enable_cot: bool = False,
     chat_kwargs={},
 ) -> str:

@@ -29,16 +29,16 @@ load_dotenv(dotenv_path=".env", override=False)
 )
 async def generic_rerank_api(
     query: str,
-    documents: List[str],
+    documents: list[str],
     model: str,
     base_url: str,
     api_key: Optional[str],
     top_n: Optional[int] = None,
     return_documents: Optional[bool] = None,
-    extra_body: Optional[Dict[str, Any]] = None,
+    extra_body: Optional[dict[str, Any]] = None,
     response_format: str = "standard",  # "standard" (Jina/Cohere) or "aliyun"
     request_format: str = "standard",  # "standard" (Jina/Cohere) or "aliyun"
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Generic rerank API call for Jina/Cohere/Aliyun models.
 
@@ -171,13 +171,13 @@ async def generic_rerank_api(
 
 async def cohere_rerank(
     query: str,
-    documents: List[str],
+    documents: list[str],
     top_n: Optional[int] = None,
     api_key: Optional[str] = None,
     model: str = "rerank-v3.5",
     base_url: str = "https://api.cohere.com/v2/rerank",
-    extra_body: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    extra_body: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
     """
     Rerank documents using Cohere API.
 
@@ -211,13 +211,13 @@ async def cohere_rerank(
 
 async def jina_rerank(
     query: str,
-    documents: List[str],
+    documents: list[str],
     top_n: Optional[int] = None,
     api_key: Optional[str] = None,
     model: str = "jina-reranker-v2-base-multilingual",
     base_url: str = "https://api.jina.ai/v1/rerank",
-    extra_body: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    extra_body: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
     """
     Rerank documents using Jina AI API.
 
@@ -251,13 +251,13 @@ async def jina_rerank(
 
 async def ali_rerank(
     query: str,
-    documents: List[str],
+    documents: list[str],
     top_n: Optional[int] = None,
     api_key: Optional[str] = None,
     model: str = "gte-rerank-v2",
     base_url: str = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
-    extra_body: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
+    extra_body: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
     """
     Rerank documents using Aliyun DashScope API.
 

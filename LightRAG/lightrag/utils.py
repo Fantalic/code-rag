@@ -18,14 +18,11 @@ from hashlib import md5
 from typing import (
     Any,
     Protocol,
-    Callable,
     TYPE_CHECKING,
     List,
     Optional,
-    Iterable,
-    Sequence,
-    Collection,
 )
+from collections.abc import Callable, Iterable, Sequence, Collection
 import numpy as np
 from dotenv import load_dotenv
 
@@ -916,11 +913,11 @@ class TokenizerInterface(Protocol):
     Defines the interface for a tokenizer, requiring encode and decode methods.
     """
 
-    def encode(self, content: str) -> List[int]:
+    def encode(self, content: str) -> list[int]:
         """Encodes a string into a list of tokens."""
         ...
 
-    def decode(self, tokens: List[int]) -> str:
+    def decode(self, tokens: list[int]) -> str:
         """Decodes a list of tokens into a string."""
         ...
 
@@ -941,7 +938,7 @@ class Tokenizer:
         self.model_name: str = model_name
         self.tokenizer: TokenizerInterface = tokenizer
 
-    def encode(self, content: str) -> List[int]:
+    def encode(self, content: str) -> list[int]:
         """
         Encodes a string into a list of tokens using the underlying tokenizer.
 
@@ -953,7 +950,7 @@ class Tokenizer:
         """
         return self.tokenizer.encode(content)
 
-    def decode(self, tokens: List[int]) -> str:
+    def decode(self, tokens: list[int]) -> str:
         """
         Decodes a list of tokens into a string using the underlying tokenizer.
 

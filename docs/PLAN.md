@@ -42,6 +42,13 @@ Single build system, shared config, consistent imports.
 ## Phase 4 — Modernise
 Python 3.10+ features, Pydantic V2, clean async patterns.
 
+| Step | Status |
+|------|--------|
+| 4.1 Pydantic V2 ConfigDict (17 blocks, 0 warnings) | ✅ Done |
+| 4.2 Python 3.10+ type annotations (271 auto-fixes) | ✅ Done |
+| 4.3 Async patterns (TaskGroup) | ⏸️ Deferred — low impact, risky |
+| 4.4 Match/case | ⏸️ Deferred — cosmetic only |
+
 ## Phase 5 — Own Tests
 Targeted test suite for the unified codebase.
 

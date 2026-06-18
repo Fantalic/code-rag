@@ -40,7 +40,7 @@ async def _ollama_model_if_cache(
     history_messages=[],
     enable_cot: bool = False,
     **kwargs,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if enable_cot:
         logger.debug("enable_cot=True is not supported for ollama and will be ignored.")
     stream = True if kwargs.get("stream") else False
@@ -127,7 +127,7 @@ async def ollama_model_complete(
     enable_cot: bool = False,
     keyword_extraction=False,
     **kwargs,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     keyword_extraction = kwargs.pop("keyword_extraction", None)
     if keyword_extraction:
         kwargs["format"] = "json"

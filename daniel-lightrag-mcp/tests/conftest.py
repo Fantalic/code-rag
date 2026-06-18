@@ -4,7 +4,8 @@ Pytest configuration and fixtures for daniel-lightrag-mcp tests.
 
 import pytest
 import asyncio
-from typing import Dict, Any, AsyncGenerator
+from typing import Dict, Any
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 import httpx
 
@@ -38,7 +39,7 @@ def lightrag_client(mock_httpx_client):
 @pytest.fixture
 def mock_response():
     """Create a mock HTTP response."""
-    def _create_response(status_code: int = 200, json_data: Dict[str, Any] = None, text: str = ""):
+    def _create_response(status_code: int = 200, json_data: dict[str, Any] = None, text: str = ""):
         response = MagicMock()
         response.status_code = status_code
         response.json.return_value = json_data or {}

@@ -4,7 +4,8 @@ from functools import partial
 import asyncio
 import json
 import json_repair
-from typing import Any, AsyncIterator, overload, Literal
+from typing import Any, overload, Literal
+from collections.abc import AsyncIterator
 from collections import Counter, defaultdict
 
 from lightrag.utils import (

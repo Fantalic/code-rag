@@ -73,7 +73,7 @@ class QueryRequest(BaseModel):
         ge=1,
     )
 
-    conversation_history: Optional[List[Dict[str, Any]]] = Field(
+    conversation_history: Optional[list[dict[str, Any]]] = Field(
         default=None,
         description="Stores past conversation history to maintain context. Format: [{'role': 'user/assistant', 'content': 'message'}].",
     )
@@ -106,8 +106,8 @@ class QueryRequest(BaseModel):
     @field_validator("conversation_history", mode="after")
     @classmethod
     def conversation_history_role_check(
-        cls, conversation_history: List[Dict[str, Any]] | None
-    ) -> List[Dict[str, Any]] | None:
+        cls, conversation_history: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]] | None:
         if conversation_history is None:
             return None
         for msg in conversation_history:
@@ -132,7 +132,7 @@ class QueryResponse(BaseModel):
     response: str = Field(
         description="The generated response",
     )
-    references: Optional[List[Dict[str, str]]] = Field(
+    references: Optional[list[dict[str, str]]] = Field(
         default=None,
         description="Reference list (Disabled when include_references=False, /query/data always includes references.)",
     )
@@ -141,10 +141,10 @@ class QueryResponse(BaseModel):
 class QueryDataResponse(BaseModel):
     status: str = Field(description="Query execution status")
     message: str = Field(description="Status message")
-    data: Dict[str, Any] = Field(
+    data: dict[str, Any] = Field(
         description="Query result data containing entities, relationships, chunks, and references"
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         description="Query metadata including mode, keywords, and processing information"
     )
 
@@ -152,7 +152,7 @@ class QueryDataResponse(BaseModel):
 class StreamChunkResponse(BaseModel):
     """Response model for streaming chunks in NDJSON format"""
 
-    references: Optional[List[Dict[str, str]]] = Field(
+    references: Optional[list[dict[str, str]]] = Field(
         default=None,
         description="Reference list (only in first chunk when include_references=True)",
     )

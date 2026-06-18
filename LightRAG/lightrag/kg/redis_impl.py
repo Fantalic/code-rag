@@ -882,7 +882,7 @@ class RedisDocStatusStorage(DocStatusStorage):
                 raise
 
     @redis_retry
-    async def get_by_id(self, id: str) -> Union[dict[str, Any], None]:
+    async def get_by_id(self, id: str) -> dict[str, Any] | None:
         async with self._get_redis_connection() as redis:
             try:
                 data = await redis.get(f"{self.final_namespace}:{id}")
@@ -1043,7 +1043,7 @@ class RedisDocStatusStorage(DocStatusStorage):
 
         return counts
 
-    async def get_doc_by_file_path(self, file_path: str) -> Union[dict[str, Any], None]:
+    async def get_doc_by_file_path(self, file_path: str) -> dict[str, Any] | None:
         """Get document by file path
 
         Args:

@@ -18,7 +18,7 @@ from tenacity import (
 import sys
 
 if sys.version_info < (3, 9):
-    from typing import AsyncIterator
+    from collections.abc import AsyncIterator
 else:
     from collections.abc import AsyncIterator
 from typing import Union
@@ -49,7 +49,7 @@ async def bedrock_complete_if_cache(
     aws_secret_access_key=None,
     aws_session_token=None,
     **kwargs,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if enable_cot:
         import logging
 
@@ -240,7 +240,7 @@ async def bedrock_complete_if_cache(
 # Generic Bedrock completion function
 async def bedrock_complete(
     prompt, system_prompt=None, history_messages=[], keyword_extraction=False, **kwargs
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     kwargs.pop("keyword_extraction", None)
     model_name = kwargs["hashing_kv"].global_config["llm_model_name"]
     result = await bedrock_complete_if_cache(

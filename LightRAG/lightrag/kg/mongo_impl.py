@@ -376,7 +376,7 @@ class MongoDocStatusStorage(DocStatusStorage):
                 self.db = None
                 self._data = None
 
-    async def get_by_id(self, id: str) -> Union[dict[str, Any], None]:
+    async def get_by_id(self, id: str) -> dict[str, Any] | None:
         return await self._data.find_one({"_id": id})
 
     async def get_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
@@ -714,7 +714,7 @@ class MongoDocStatusStorage(DocStatusStorage):
 
         return counts
 
-    async def get_doc_by_file_path(self, file_path: str) -> Union[dict[str, Any], None]:
+    async def get_doc_by_file_path(self, file_path: str) -> dict[str, Any] | None:
         """Get document by file path
 
         Args:

@@ -6,7 +6,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
+from collections.abc import Sequence
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
@@ -56,7 +57,7 @@ mcp_server = Server("daniel-lightrag-mcp")
 lightrag_client: Optional[LightRAGClient] = None
 
 
-def _validate_tool_arguments(tool_name: str, arguments: Dict[str, Any]) -> None:
+def _validate_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> None:
     """Validate tool arguments against expected schemas."""
     # Define required arguments for each tool
     required_args = {
@@ -306,7 +307,7 @@ def _create_error_response(error: Exception, tool_name: str) -> dict:
 
 
 @mcp_server.list_tools()
-async def handle_list_tools() -> List[Tool]:#ListToolsResult:
+async def handle_list_tools() -> list[Tool]:#ListToolsResult:
     """List available tools."""
     logger.info("=" * 80)
     logger.info("LISTING AVAILABLE MCP TOOLS")

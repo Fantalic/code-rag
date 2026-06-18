@@ -41,7 +41,7 @@ def check_env_file():
 whitelist_paths = get_global_args().whitelist_paths.split(",")
 
 # Pre-compile path matching patterns
-whitelist_patterns: List[Tuple[str, bool]] = []
+whitelist_patterns: list[tuple[str, bool]] = []
 for path in whitelist_paths:
     path = path.strip()
     if path:

@@ -99,7 +99,7 @@ class BindingOptions:
         group = parser.add_argument_group(f"{cls._binding_name} binding options")
         for arg_item in cls.args_env_name_type_value():
             # Handle JSON parsing for list types
-            if arg_item["type"] is List[str]:
+            if arg_item["type"] is list[str]:
 
                 def json_list_parser(value):
                     try:
@@ -285,7 +285,7 @@ class BindingOptions:
                     sample_stream.write(f"# {arg_item['help']}\n")
 
                 # Handle JSON formatting for list and dict types
-                if arg_item["type"] is List[str] or arg_item["type"] is dict:
+                if arg_item["type"] is list[str] or arg_item["type"] is dict:
                     default_value = json.dumps(arg_item["default"])
                 else:
                     default_value = arg_item["default"]
@@ -400,7 +400,7 @@ class _OllamaOptionsMixin:
 
     # Output control
     penalize_newline: bool = True  # Penalize newline tokens
-    stop: List[str] = field(default_factory=list)  # Stop sequences
+    stop: list[str] = field(default_factory=list)  # Stop sequences
 
     # optional help strings
     _help: ClassVar[dict[str, str]] = {
@@ -478,7 +478,7 @@ class OpenAILLMOptions(BindingOptions):
     reasoning_effort: str = "medium"  # Reasoning effort level (low, medium, high)
     safety_identifier: str = ""  # Safety identifier for content filtering
     service_tier: str = ""  # Service tier for API usage
-    stop: List[str] = field(default_factory=list)  # Stop sequences
+    stop: list[str] = field(default_factory=list)  # Stop sequences
     temperature: float = DEFAULT_TEMPERATURE  # Controls randomness (0.0 to 2.0)
     top_p: float = 1.0  # Nucleus sampling parameter (0.0 to 1.0)
     max_tokens: int = None  # Maximum number of tokens to generate(deprecated, use max_completion_tokens instead)

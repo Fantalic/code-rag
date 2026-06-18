@@ -38,7 +38,7 @@ class TextDocument(BaseModel):
     """Text document model."""
     title: Optional[str] = None
     content: str = Field(..., description="Document content")
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class PaginationInfo(BaseModel):
@@ -53,14 +53,14 @@ class PaginationInfo(BaseModel):
 
 class ValidationError(BaseModel):
     """Validation error model."""
-    loc: List[Union[str, int]]
+    loc: list[str | int]
     msg: str
     type: str
 
 
 class HTTPValidationError(BaseModel):
     """HTTP validation error model."""
-    detail: List[ValidationError]
+    detail: list[ValidationError]
 
 
 # Document Management Request Models
@@ -72,13 +72,13 @@ class InsertTextRequest(BaseModel):
 
 class InsertTextsRequest(BaseModel):
     """Request model for inserting multiple text documents."""
-    texts: List[str] = Field(..., description="List of text strings to insert")
-    file_sources: List[str] = Field(default_factory=list, description="List of file sources for the texts")
+    texts: list[str] = Field(..., description="List of text strings to insert")
+    file_sources: list[str] = Field(default_factory=list, description="List of file sources for the texts")
 
 
 class DeleteDocRequest(BaseModel):
     """Request model for deleting a document by ID."""
-    doc_ids: List[str] = Field(..., description="List of document IDs to delete")
+    doc_ids: list[str] = Field(..., description="List of document IDs to delete")
 
 
 class DeleteEntityRequest(BaseModel):
@@ -120,7 +120,7 @@ class EntityUpdateRequest(BaseModel):
     """Request model for updating an entity."""
     entity_id: str = Field(..., description="ID of the entity to update")
     entity_name: str = Field(..., description="Name of the entity to update")
-    updated_data: Dict[str, Any] = Field(..., description="Updated data for the entity")
+    updated_data: dict[str, Any] = Field(..., description="Updated data for the entity")
 
 
 class RelationUpdateRequest(BaseModel):
@@ -128,11 +128,11 @@ class RelationUpdateRequest(BaseModel):
     # relation_id: str = Field(..., description="ID of the relation to update")
     source_id: str = Field(..., description="Source entity ID")
     target_id: str = Field(..., description="Target entity ID")
-    updated_data: Dict[str, Any] = Field(..., description="Updated data for the relation")
+    updated_data: dict[str, Any] = Field(..., description="Updated data for the relation")
 
 class BatchRelationUpdateRequest(BaseModel):
     """Request model for batch updating relations."""
-    updates: List[RelationUpdateRequest] = Field(..., description="List of relation updates")
+    updates: list[RelationUpdateRequest] = Field(..., description="List of relation updates")
 
 class RelatedFilesRequest(BaseModel):
     """Request model for getting related files."""
@@ -142,7 +142,7 @@ class RelatedFilesRequest(BaseModel):
 
 class RelatedFilesResponse(BaseModel):
     """Response model for related files."""
-    related_files: List['DocumentInfo'] = Field(default_factory=list, description="List of related document info")
+    related_files: list['DocumentInfo'] = Field(default_factory=list, description="List of related document info")
     query: str = Field(..., description="Original query")
     total_found: int = Field(0, description="Total number of related files found")
 
@@ -174,7 +174,7 @@ class ScanResponse(BaseModel):
     status: str = Field(..., description="Scanning status")
     message: str = Field(..., description="Status message")
     track_id: str = Field(..., description="Tracking ID for the scan operation")
-    new_documents: List[str] = Field(default_factory=list, description="List of new document names")
+    new_documents: list[str] = Field(default_factory=list, description="List of new document names")
 
 
 
@@ -192,19 +192,19 @@ class DocumentInfo(BaseModel):
     status: DocStatus = Field(..., description="Document status")
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class DocumentsResponse(BaseModel):
     """Response model for retrieving documents."""
-    statuses: Dict[str, Any] = Field(default_factory=dict, description="Document statuses")
+    statuses: dict[str, Any] = Field(default_factory=dict, description="Document statuses")
 
 
 class PaginatedDocsResponse(BaseModel):
     """Response model for paginated documents."""
-    documents: List[DocumentInfo] = Field(default_factory=list)
+    documents: list[DocumentInfo] = Field(default_factory=list)
     pagination: PaginationInfo = Field(..., description="Pagination information")
-    status_counts: Dict[str, int] = Field(default_factory=dict, description="Status counts")
+    status_counts: dict[str, int] = Field(default_factory=dict, description="Status counts")
 
 
 class DeleteDocByIdResponse(BaseModel):
@@ -231,8 +231,8 @@ class PipelineStatusResponse(BaseModel):
     cur_batch: Optional[int] = None
     request_pending: Optional[bool] = None
     latest_message: Optional[str] = None
-    history_messages: Optional[List[str]] = None
-    update_status: Optional[Dict[str, Any]] = None
+    history_messages: Optional[list[str]] = None
+    update_status: Optional[dict[str, Any]] = None
     progress: Optional[float] = Field(None, ge=0, le=100, description="Progress percentage")
     current_task: Optional[str] = None
     message: Optional[str] = None
@@ -241,14 +241,14 @@ class PipelineStatusResponse(BaseModel):
 class TrackStatusResponse(BaseModel):
     """Response model for track status."""
     track_id: str = Field(..., description="Track ID")
-    documents: List[Dict[str, Any]] = Field(default_factory=list, description="Documents in track")
+    documents: list[dict[str, Any]] = Field(default_factory=list, description="Documents in track")
     total_count: int = Field(0, description="Total document count")
-    status_summary: Dict[str, Any] = Field(default_factory=dict, description="Status summary")
+    status_summary: dict[str, Any] = Field(default_factory=dict, description="Status summary")
 
 
 class StatusCountsResponse(BaseModel):
     """Response model for document status counts."""
-    status_counts: Dict[str, int] = Field(..., description="Status counts mapping")
+    status_counts: dict[str, int] = Field(..., description="Status counts mapping")
 
 
 class ClearCacheResponse(BaseModel):
@@ -273,14 +273,14 @@ class QueryResult(BaseModel):
     document_id: str = Field(..., description="Document ID")
     snippet: str = Field(..., description="Text snippet")
     score: Optional[float] = Field(None, ge=0, le=1)
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class QueryResponse(BaseModel):
     """Response model for text queries."""
     response: str = Field(..., description="Query response text")
     query: Optional[str] = None
-    results: Optional[List[QueryResult]] = None
+    results: Optional[list[QueryResult]] = None
     total_results: Optional[int] = None
     processing_time: Optional[float] = None
     context: Optional[str] = None
@@ -292,7 +292,7 @@ class EntityInfo(BaseModel):
     id: str = Field(..., description="Entity ID")
     name: str = Field(..., description="Entity name")
     type: Optional[str] = None
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -303,7 +303,7 @@ class RelationInfo(BaseModel):
     source_entity: str = Field(..., description="Source entity ID")
     target_entity: str = Field(..., description="Target entity ID")
     type: str = Field(..., description="Relation type")
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
     weight: Optional[float] = Field(None, ge=0, le=1)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -311,25 +311,25 @@ class RelationInfo(BaseModel):
 
 class GraphResponse(BaseModel):
     """Response model for knowledge graph."""
-    nodes: List[Dict[str, Any]] = Field(default_factory=list, description="Graph nodes (entities)")
-    edges: List[Dict[str, Any]] = Field(default_factory=list, description="Graph edges (relations)")
+    nodes: list[dict[str, Any]] = Field(default_factory=list, description="Graph nodes (entities)")
+    edges: list[dict[str, Any]] = Field(default_factory=list, description="Graph edges (relations)")
     is_truncated: bool = Field(False, description="Whether the graph is truncated")
     
     @property
-    def entities(self) -> List[Dict[str, Any]]:
+    def entities(self) -> list[dict[str, Any]]:
         """Alias for nodes to maintain backward compatibility."""
         return self.nodes
     
     @property
-    def relations(self) -> List[Dict[str, Any]]:
+    def relations(self) -> list[dict[str, Any]]:
         """Alias for edges to maintain backward compatibility."""
         return self.edges
 
 
 class LabelsResponse(BaseModel):
     """Response model for graph labels."""
-    entity_labels: List[str] = Field(default_factory=list)
-    relation_labels: List[str] = Field(default_factory=list)
+    entity_labels: list[str] = Field(default_factory=list)
+    relation_labels: list[str] = Field(default_factory=list)
 
 
 class EntityExistsResponse(BaseModel):
@@ -343,14 +343,14 @@ class EntityUpdateResponse(BaseModel):
     """Response model for entity update."""
     status: str = Field(..., description="Update status")
     message: str = Field(..., description="Update message")
-    data: Dict[str, Any] = Field(..., description="Updated entity data")
+    data: dict[str, Any] = Field(..., description="Updated entity data")
 
 
 class RelationUpdateResponse(BaseModel):
     """Response model for relation update."""
     status: str = Field(..., description="Update status")
     message: str = Field(..., description="Update message")
-    data: Dict[str, Any] = Field(..., description="Updated relation data")
+    data: dict[str, Any] = Field(..., description="Updated relation data")
 
 
 # System Management Response Models
@@ -387,12 +387,12 @@ class OllamaVersionResponse(BaseModel):
 
 class OllamaTagsResponse(BaseModel):
     """Response model for Ollama tags."""
-    models: List[Dict[str, Any]] = Field(default_factory=list)
+    models: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class OllamaProcessResponse(BaseModel):
     """Response model for Ollama running processes."""
-    models: List[Dict[str, Any]] = Field(default_factory=list)
+    models: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class OllamaGenerateRequest(BaseModel):
@@ -411,7 +411,7 @@ class OllamaChatMessage(BaseModel):
 class OllamaChatRequest(BaseModel):
     """Request model for Ollama chat."""
     model: str = Field(..., description="Model name")
-    messages: List[OllamaChatMessage] = Field(..., description="Chat messages")
+    messages: list[OllamaChatMessage] = Field(..., description="Chat messages")
     stream: bool = Field(False, description="Whether to stream response")
 
 
@@ -437,5 +437,5 @@ class DocStatusResponse(BaseModel):
 
 class DocsStatusesResponse(BaseModel):
     """Response model for multiple document statuses."""
-    statuses: List[DocStatusResponse] = Field(default_factory=list)
+    statuses: list[DocStatusResponse] = Field(default_factory=list)
     total: int = Field(0, ge=0)

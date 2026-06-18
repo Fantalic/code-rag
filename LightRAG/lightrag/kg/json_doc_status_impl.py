@@ -201,7 +201,7 @@ class JsonDocStatusStorage(DocStatusStorage):
         async with self._storage_lock:
             return len(self._data) == 0
 
-    async def get_by_id(self, id: str) -> Union[dict[str, Any], None]:
+    async def get_by_id(self, id: str) -> dict[str, Any] | None:
         async with self._storage_lock:
             return self._data.get(id)
 
@@ -339,7 +339,7 @@ class JsonDocStatusStorage(DocStatusStorage):
             if any_deleted:
                 await set_all_update_flags(self.final_namespace)
 
-    async def get_doc_by_file_path(self, file_path: str) -> Union[dict[str, Any], None]:
+    async def get_doc_by_file_path(self, file_path: str) -> dict[str, Any] | None:
         """Get document by file path
 
         Args:

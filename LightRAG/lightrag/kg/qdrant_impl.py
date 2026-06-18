@@ -245,7 +245,7 @@ class QdrantVectorDBStorage(BaseVectorStorage):
         # Qdrant handles persistence automatically
         pass
 
-    async def delete(self, ids: List[str]) -> None:
+    async def delete(self, ids: list[str]) -> None:
         """Delete vectors with specified IDs
 
         Args:

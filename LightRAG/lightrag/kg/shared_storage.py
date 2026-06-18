@@ -57,9 +57,9 @@ _workers = None
 _manager = None
 
 # Global singleton data for multi-process keyed locks
-_lock_registry: Optional[Dict[str, mp.synchronize.Lock]] = None
-_lock_registry_count: Optional[Dict[str, int]] = None
-_lock_cleanup_data: Optional[Dict[str, time.time]] = None
+_lock_registry: Optional[dict[str, mp.synchronize.Lock]] = None
+_lock_registry_count: Optional[dict[str, int]] = None
+_lock_cleanup_data: Optional[dict[str, time.time]] = None
 _registry_guard = None
 # Timeout for keyed locks in seconds (Default 300)
 CLEANUP_KEYED_LOCKS_AFTER_SECONDS = 300
@@ -75,9 +75,9 @@ _last_mp_cleanup_time: Optional[float] = None
 _initialized = None
 
 # shared data for storage across processes
-_shared_dicts: Optional[Dict[str, Any]] = None
-_init_flags: Optional[Dict[str, bool]] = None  # namespace -> initialized
-_update_flags: Optional[Dict[str, bool]] = None  # namespace -> updated
+_shared_dicts: Optional[dict[str, Any]] = None
+_init_flags: Optional[dict[str, bool]] = None  # namespace -> initialized
+_update_flags: Optional[dict[str, bool]] = None  # namespace -> updated
 
 # locks for mutex access
 _storage_lock: Optional[LockType] = None
@@ -89,7 +89,7 @@ _data_init_lock: Optional[LockType] = None
 _storage_keyed_lock: Optional["KeyedUnifiedLock"] = None
 
 # async locks for coroutine synchronization in multiprocess mode
-_async_locks: Optional[Dict[str, asyncio.Lock]] = None
+_async_locks: Optional[dict[str, asyncio.Lock]] = None
 
 DEBUG_LOCKS = False
 _debug_n_locks_acquired: int = 0
@@ -122,7 +122,7 @@ class UnifiedLock(Generic[T]):
 
     def __init__(
         self,
-        lock: Union[ProcessLock, asyncio.Lock],
+        lock: ProcessLock | asyncio.Lock,
         is_async: bool,
         name: str = "unnamed",
         enable_logging: bool = True,
@@ -287,9 +287,9 @@ def _get_combined_key(factory_name: str, key: str) -> str:
 
 def _perform_lock_cleanup(
     lock_type: str,
-    cleanup_data: Dict[str, float],
-    lock_registry: Optional[Dict[str, Any]],
-    lock_count: Optional[Dict[str, int]],
+    cleanup_data: dict[str, float],
+    lock_registry: Optional[dict[str, Any]],
+    lock_count: Optional[dict[str, int]],
     earliest_cleanup_time: Optional[float],
     last_cleanup_time: Optional[float],
     current_time: float,
@@ -503,14 +503,14 @@ class KeyedUnifiedLock:
 
     def __init__(self, *, default_enable_logging: bool = True) -> None:
         self._default_enable_logging = default_enable_logging
-        self._async_lock: Dict[str, asyncio.Lock] = {}  # local keyed locks
-        self._async_lock_count: Dict[
+        self._async_lock: dict[str, asyncio.Lock] = {}  # local keyed locks
+        self._async_lock_count: dict[
             str, int
         ] = {}  # local keyed locks referenced count
-        self._async_lock_cleanup_data: Dict[
+        self._async_lock_cleanup_data: dict[
             str, time.time
         ] = {}  # local keyed locks timeout
-        self._mp_locks: Dict[
+        self._mp_locks: dict[
             str, mp.synchronize.Lock
         ] = {}  # multi-process lock proxies
         self._earliest_async_cleanup_time: Optional[float] = (
@@ -622,7 +622,7 @@ class KeyedUnifiedLock:
         self._release_async_lock(combined_key)
         _release_shared_raw_mp_lock(namespace, key)
 
-    def cleanup_expired_locks(self) -> Dict[str, Any]:
+    def cleanup_expired_locks(self) -> dict[str, Any]:
         """
         Cleanup expired locks for both async and multiprocess locks following the same
         conditions as _release_shared_raw_mp_lock and _release_async_lock functions.
@@ -730,7 +730,7 @@ class KeyedUnifiedLock:
             "current_status": current_status,
         }
 
-    def get_lock_status(self) -> Dict[str, int]:
+    def get_lock_status(self) -> dict[str, int]:
         """
         Get current status of both async and multiprocess locks.
 
@@ -797,7 +797,7 @@ class _KeyedLockContext:
             if enable_logging is not None
             else parent._default_enable_logging
         )
-        self._ul: Optional[List["UnifiedLock"]] = None  # set in __aenter__
+        self._ul: Optional[list["UnifiedLock"]] = None  # set in __aenter__
 
     # ----- enter -----
     async def __aenter__(self):
@@ -897,7 +897,7 @@ def get_data_init_lock(enable_logging: bool = False) -> UnifiedLock:
     )
 
 
-def cleanup_keyed_lock() -> Dict[str, Any]:
+def cleanup_keyed_lock() -> dict[str, Any]:
     """
     Force cleanup of expired keyed locks and return comprehensive status information.
 
@@ -925,7 +925,7 @@ def cleanup_keyed_lock() -> Dict[str, Any]:
     return _storage_keyed_lock.cleanup_expired_locks()
 
 
-def get_keyed_lock_status() -> Dict[str, Any]:
+def get_keyed_lock_status() -> dict[str, Any]:
     """
     Get current status of keyed locks without performing cleanup.
 
@@ -1146,7 +1146,7 @@ async def clear_all_update_flags(namespace: str):
             _update_flags[namespace][i].value = False
 
 
-async def get_all_update_flags_status() -> Dict[str, list]:
+async def get_all_update_flags_status() -> dict[str, list]:
     """
     Get update flags status for all namespaces.
 
@@ -1196,7 +1196,7 @@ async def try_initialize_namespace(namespace: str) -> bool:
 
 async def get_namespace_data(
     namespace: str, first_init: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """get the shared data reference for specific namespace
 
     Args:

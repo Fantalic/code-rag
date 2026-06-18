@@ -17,9 +17,9 @@ class MockLightRAGServer:
     """Mock LightRAG server for integration testing."""
     
     def __init__(self):
-        self.documents: Dict[str, Dict[str, Any]] = {}
-        self.entities: Dict[str, Dict[str, Any]] = {}
-        self.relations: Dict[str, Dict[str, Any]] = {}
+        self.documents: dict[str, dict[str, Any]] = {}
+        self.entities: dict[str, dict[str, Any]] = {}
+        self.relations: dict[str, dict[str, Any]] = {}
         self.next_doc_id = 1
         self.next_entity_id = 1
         self.next_relation_id = 1
@@ -44,7 +44,7 @@ class MockLightRAGServer:
         self.next_relation_id += 1
         return relation_id
     
-    def insert_text(self, content: str, title: str = None) -> Dict[str, Any]:
+    def insert_text(self, content: str, title: str = None) -> dict[str, Any]:
         """Mock text insertion."""
         doc_id = self.generate_doc_id()
         self.documents[doc_id] = {
@@ -56,7 +56,7 @@ class MockLightRAGServer:
         }
         return {"id": doc_id, "status": "success", "message": "Document inserted successfully"}
     
-    def insert_texts(self, texts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def insert_texts(self, texts: list[dict[str, Any]]) -> dict[str, Any]:
         """Mock multiple text insertion."""
         doc_ids = []
         for text_data in texts:
@@ -77,7 +77,7 @@ class MockLightRAGServer:
             "document_ids": doc_ids
         }
     
-    def get_documents(self) -> Dict[str, Any]:
+    def get_documents(self) -> dict[str, Any]:
         """Mock document retrieval."""
         documents = [
             {
@@ -90,7 +90,7 @@ class MockLightRAGServer:
         ]
         return {"documents": documents, "total": len(documents)}
     
-    def delete_document(self, document_id: str) -> Dict[str, Any]:
+    def delete_document(self, document_id: str) -> dict[str, Any]:
         """Mock document deletion."""
         if document_id in self.documents:
             del self.documents[document_id]
@@ -98,7 +98,7 @@ class MockLightRAGServer:
         else:
             return {"deleted": False, "document_id": document_id, "message": "Document not found"}
     
-    def query_text(self, query: str, mode: str = "hybrid", only_need_context: bool = False) -> Dict[str, Any]:
+    def query_text(self, query: str, mode: str = "hybrid", only_need_context: bool = False) -> dict[str, Any]:
         """Mock text query."""
         # Simple mock: return documents that contain query terms
         results = []
@@ -119,7 +119,7 @@ class MockLightRAGServer:
             "context": f"Found {len(results)} relevant documents"
         }
     
-    def get_knowledge_graph(self) -> Dict[str, Any]:
+    def get_knowledge_graph(self) -> dict[str, Any]:
         """Mock knowledge graph retrieval."""
         entities = [
             {
@@ -151,7 +151,7 @@ class MockLightRAGServer:
             "total_relations": len(relations)
         }
     
-    def get_health(self) -> Dict[str, Any]:
+    def get_health(self) -> dict[str, Any]:
         """Mock health check."""
         return {
             "status": "healthy",
@@ -162,7 +162,7 @@ class MockLightRAGServer:
             "message": "All systems operational"
         }
     
-    def clear_cache(self) -> Dict[str, Any]:
+    def clear_cache(self) -> dict[str, Any]:
         """Mock cache clearing."""
         self.cache_cleared = True
         return {"cleared": True, "cache_type": "all", "message": "Cache cleared successfully"}

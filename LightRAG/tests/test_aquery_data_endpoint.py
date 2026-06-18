@@ -22,7 +22,7 @@ BASE_URL = "http://localhost:9621"
 AUTH_HEADERS = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 
 
-def validate_references_format(references: List[Dict[str, Any]]) -> bool:
+def validate_references_format(references: list[dict[str, Any]]) -> bool:
     """Validate the format of references list"""
     if not isinstance(references, list):
         print(f"❌ References should be a list, got {type(references)}")
@@ -50,7 +50,7 @@ def validate_references_format(references: List[Dict[str, Any]]) -> bool:
 
 def parse_streaming_response(
     response_text: str,
-) -> tuple[Optional[List[Dict]], List[str], List[str]]:
+) -> tuple[Optional[list[dict]], list[str], list[str]]:
     """Parse streaming response and extract references, response chunks, and errors"""
     references = None
     response_chunks = []
@@ -533,7 +533,7 @@ def test_aquery_data_endpoint():
         print(f"❌ Error occurred: {str(e)}")
 
 
-def print_query_results(data: Dict[str, Any]):
+def print_query_results(data: dict[str, Any]):
     """Format and print query results"""
 
     # Check for new data format with status and message

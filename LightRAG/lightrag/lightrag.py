@@ -11,9 +11,6 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import (
     Any,
-    AsyncIterator,
-    Callable,
-    Iterator,
     cast,
     final,
     Literal,
@@ -21,6 +18,7 @@ from typing import (
     List,
     Dict,
 )
+from collections.abc import AsyncIterator, Callable, Iterator
 from lightrag.prompt import PROMPTS
 from lightrag.constants import (
     DEFAULT_MAX_GLEANING,
@@ -242,7 +240,7 @@ class LightRAG:
             int,
             int,
         ],
-        List[Dict[str, Any]],
+        list[dict[str, Any]],
     ] = field(default_factory=lambda: chunking_by_token_size)
     """
     Custom chunking function for splitting text into chunks before processing.

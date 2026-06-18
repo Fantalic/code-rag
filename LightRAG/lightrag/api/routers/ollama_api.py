@@ -29,14 +29,14 @@ class SearchMode(str, Enum):
 class OllamaMessage(BaseModel):
     role: str
     content: str
-    images: Optional[List[str]] = None
+    images: Optional[list[str]] = None
 
 
 class OllamaChatRequest(BaseModel):
     model: str
-    messages: List[OllamaMessage]
+    messages: list[OllamaMessage]
     stream: bool = True
-    options: Optional[Dict[str, Any]] = None
+    options: Optional[dict[str, Any]] = None
     system: Optional[str] = None
 
 
@@ -52,7 +52,7 @@ class OllamaGenerateRequest(BaseModel):
     prompt: str
     system: Optional[str] = None
     stream: bool = False
-    options: Optional[Dict[str, Any]] = None
+    options: Optional[dict[str, Any]] = None
 
 
 class OllamaGenerateResponse(BaseModel):
@@ -60,7 +60,7 @@ class OllamaGenerateResponse(BaseModel):
     created_at: str
     response: str
     done: bool
-    context: Optional[List[int]]
+    context: Optional[list[int]]
     total_duration: Optional[int]
     load_duration: Optional[int]
     prompt_eval_count: Optional[int]
@@ -77,7 +77,7 @@ class OllamaModelDetails(BaseModel):
     parent_model: str
     format: str
     family: str
-    families: List[str]
+    families: list[str]
     parameter_size: str
     quantization_level: str
 
@@ -92,14 +92,14 @@ class OllamaModel(BaseModel):
 
 
 class OllamaTagResponse(BaseModel):
-    models: List[OllamaModel]
+    models: list[OllamaModel]
 
 
 class OllamaRunningModelDetails(BaseModel):
     parent_model: str
     format: str
     family: str
-    families: List[str]
+    families: list[str]
     parameter_size: str
     quantization_level: str
 
@@ -115,11 +115,11 @@ class OllamaRunningModel(BaseModel):
 
 
 class OllamaPsResponse(BaseModel):
-    models: List[OllamaRunningModel]
+    models: list[OllamaRunningModel]
 
 
 async def parse_request_body(
-    request: Request, model_class: Type[BaseModel]
+    request: Request, model_class: type[BaseModel]
 ) -> BaseModel:
     """
     Parse request body based on Content-Type header.

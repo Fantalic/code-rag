@@ -13,7 +13,8 @@ import requests
 import json
 import argparse
 import time
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, List
+from collections.abc import Callable
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
@@ -93,7 +94,7 @@ class TestStats:
     """Test statistics"""
 
     def __init__(self):
-        self.results: List[TestResult] = []
+        self.results: list[TestResult] = []
         self.start_time = datetime.now()
 
     def add_result(self, result: TestResult):
@@ -141,7 +142,7 @@ class TestStats:
 
 
 def make_request(
-    url: str, data: Dict[str, Any], stream: bool = False, check_status: bool = True
+    url: str, data: dict[str, Any], stream: bool = False, check_status: bool = True
 ) -> requests.Response:
     """Send an HTTP request with retry mechanism
     Args:
@@ -174,7 +175,7 @@ def make_request(
             time.sleep(retry_delay)
 
 
-def load_config() -> Dict[str, Any]:
+def load_config() -> dict[str, Any]:
     """Load configuration file
 
     First try to load from config.json in the current directory,
@@ -189,7 +190,7 @@ def load_config() -> Dict[str, Any]:
     return DEFAULT_CONFIG
 
 
-def print_json_response(data: Dict[str, Any], title: str = "", indent: int = 2) -> None:
+def print_json_response(data: dict[str, Any], title: str = "", indent: int = 2) -> None:
     """Format and print JSON response data
     Args:
         data: Data dictionary to print
@@ -221,8 +222,8 @@ def create_chat_request_data(
     content: str,
     stream: bool = False,
     model: str = None,
-    conversation_history: List[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+    conversation_history: list[dict[str, str]] = None,
+) -> dict[str, Any]:
     """Create chat request data
     Args:
         content: User message content
@@ -248,8 +249,8 @@ def create_generate_request_data(
     system: str = None,
     stream: bool = False,
     model: str = None,
-    options: Dict[str, Any] = None,
-) -> Dict[str, Any]:
+    options: dict[str, Any] = None,
+) -> dict[str, Any]:
     """Create generate request data
     Args:
         prompt: Generation prompt
@@ -409,7 +410,7 @@ def test_query_modes() -> None:
         )
 
 
-def create_error_test_data(error_type: str) -> Dict[str, Any]:
+def create_error_test_data(error_type: str) -> dict[str, Any]:
     """Create request data for error testing
     Args:
         error_type: Error type, supported:
@@ -726,7 +727,7 @@ def test_generate_concurrent() -> None:
         raise
 
 
-def get_test_cases() -> Dict[str, Callable]:
+def get_test_cases() -> dict[str, Callable]:
     """Get all available test cases
     Returns:
         A dictionary mapping test names to test functions

@@ -15,14 +15,14 @@ router = APIRouter(tags=["graph"])
 
 class EntityUpdateRequest(BaseModel):
     entity_name: str
-    updated_data: Dict[str, Any]
+    updated_data: dict[str, Any]
     allow_rename: bool = False
 
 
 class RelationUpdateRequest(BaseModel):
     source_id: str
     target_id: str
-    updated_data: Dict[str, Any]
+    updated_data: dict[str, Any]
 
 
 class EntityMergeRequest(BaseModel):
@@ -47,7 +47,7 @@ class EntityCreateRequest(BaseModel):
         min_length=1,
         examples=["Tesla"],
     )
-    entity_data: Dict[str, Any] = Field(
+    entity_data: dict[str, Any] = Field(
         ...,
         description="Dictionary containing entity properties. Common fields include 'description' and 'entity_type'.",
         examples=[
@@ -72,7 +72,7 @@ class RelationCreateRequest(BaseModel):
         min_length=1,
         examples=["Tesla"],
     )
-    relation_data: Dict[str, Any] = Field(
+    relation_data: dict[str, Any] = Field(
         ...,
         description="Dictionary containing relationship properties. Common fields include 'description', 'keywords', and 'weight'.",
         examples=[

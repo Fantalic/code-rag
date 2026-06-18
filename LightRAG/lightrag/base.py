@@ -10,12 +10,11 @@ from typing import (
     Literal,
     TypedDict,
     TypeVar,
-    Callable,
     Optional,
     Dict,
     List,
-    AsyncIterator,
 )
+from collections.abc import Callable, AsyncIterator
 from .utils import EmbeddingFunc
 from .types import KnowledgeGraph
 from .constants import (
@@ -857,11 +856,11 @@ class QueryResult:
 
     content: Optional[str] = None
     response_iterator: Optional[AsyncIterator[str]] = None
-    raw_data: Optional[Dict[str, Any]] = None
+    raw_data: Optional[dict[str, Any]] = None
     is_streaming: bool = False
 
     @property
-    def reference_list(self) -> List[Dict[str, str]]:
+    def reference_list(self) -> list[dict[str, str]]:
         """
         Convenient property to extract reference list from raw_data.
 
@@ -874,7 +873,7 @@ class QueryResult:
         return []
 
     @property
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         """
         Convenient property to extract metadata from raw_data.
 
@@ -897,9 +896,9 @@ class QueryContextResult:
     """
 
     context: str
-    raw_data: Dict[str, Any]
+    raw_data: dict[str, Any]
 
     @property
-    def reference_list(self) -> List[Dict[str, str]]:
+    def reference_list(self) -> list[dict[str, str]]:
         """Convenient property to extract reference list from raw_data."""
         return self.raw_data.get("data", {}).get("references", [])

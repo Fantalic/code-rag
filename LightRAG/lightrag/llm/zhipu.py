@@ -44,11 +44,11 @@ from typing import Union, List, Optional, Dict
     ),
 )
 async def zhipu_complete_if_cache(
-    prompt: Union[str, List[Dict[str, str]]],
+    prompt: str | list[dict[str, str]],
     model: str = "glm-4-flashx",  # The most cost/performance balance model in glm-4 series
     api_key: Optional[str] = None,
     system_prompt: Optional[str] = None,
-    history_messages: List[Dict[str, str]] = [],
+    history_messages: list[dict[str, str]] = [],
     enable_cot: bool = False,
     **kwargs,
 ) -> str:

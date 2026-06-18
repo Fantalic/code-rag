@@ -6,7 +6,8 @@ import asyncio
 import os
 import json
 import logging
-from typing import Any, Dict, List, Optional, AsyncGenerator
+from typing import Any, Dict, List, Optional
+from collections.abc import AsyncGenerator
 import httpx
 from .models import (
     # Request models
@@ -27,13 +28,13 @@ from .models import (
 class LightRAGError(Exception):
     """Base exception for LightRAG client errors."""
     
-    def __init__(self, message: str, status_code: Optional[int] = None, response_data: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, status_code: Optional[int] = None, response_data: Optional[dict[str, Any]] = None):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.response_data = response_data or {}
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for logging/serialization."""
         return {
             "error_type": self.__class__.__name__,
@@ -99,7 +100,7 @@ class LightRAGClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.client.aclose()
     
-    def _map_http_error(self, status_code: int, response_text: str, response_data: Optional[Dict[str, Any]] = None) -> LightRAGError:
+    def _map_http_error(self, status_code: int, response_text: str, response_data: Optional[dict[str, Any]] = None) -> LightRAGError:
         """Map HTTP status codes to appropriate exception types."""
         error_message = f"HTTP {status_code}: {response_text}"
         
@@ -139,10 +140,10 @@ class LightRAGClient:
         self, 
         method: str, 
         endpoint: str, 
-        data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        files: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        data: Optional[dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
+        files: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """Make HTTP request to LightRAG API."""
         url = f"{self.base_url}{endpoint}"
         
@@ -215,7 +216,7 @@ class LightRAGClient:
         self, 
         method: str, 
         endpoint: str, 
-        data: Optional[Dict[str, Any]] = None
+        data: Optional[dict[str, Any]] = None
     ) -> AsyncGenerator[str, None]:
         """Make streaming HTTP request to LightRAG API."""
         url = f"{self.base_url}{endpoint}"
@@ -281,7 +282,7 @@ class LightRAGClient:
                 raise LightRAGValidationError(f"Request validation failed: {str(e)}")
             raise LightRAGError(f"Text insertion failed: {str(e)}")
     
-    async def insert_texts(self, texts: List[TextDocument]) -> InsertResponse:
+    async def insert_texts(self, texts: list[TextDocument]) -> InsertResponse:
         """Insert multiple text documents into LightRAG."""
         # Convert TextDocument objects to strings (content only)
         text_strings = []
@@ -437,7 +438,7 @@ class LightRAGClient:
         response_data = await self._make_request("GET", "/graph/entity/exists", params=params)
         return EntityExistsResponse(**response_data)
     
-    async def update_entity(self, entity_id: str, properties: Dict[str, Any], entity_name: Optional[str] = None) -> EntityUpdateResponse:
+    async def update_entity(self, entity_id: str, properties: dict[str, Any], entity_name: Optional[str] = None) -> EntityUpdateResponse:
         """Update an entity in the knowledge graph."""
         # Use entity_id as entity_name if not provided
         if entity_name is None:
@@ -452,7 +453,7 @@ class LightRAGClient:
     #     response_data = await self._make_request("POST", "/graph/relation/edit", request_data.model_dump())
     #     return RelationUpdateResponse(**response_data)
 
-    async def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any]) -> RelationUpdateResponse:
+    async def update_relation(self, source_id: str, target_id: str, updated_data: dict[str, Any]) -> RelationUpdateResponse:
         """Update a relation in the knowledge graph."""
         request_data = RelationUpdateRequest(
             source_id=source_id,
@@ -478,7 +479,7 @@ class LightRAGClient:
 #     return results
 
 
-    async def update_relations(self, path) -> List[str]:
+    async def update_relations(self, path) -> list[str]:
         """Update relations based on recent code changes."""
         # create_relations(path, "relation_graph_txt")
         return [ 

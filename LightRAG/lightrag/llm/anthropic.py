@@ -3,11 +3,12 @@ import sys
 import os
 import logging
 import numpy as np
-from typing import Any, Union, AsyncIterator
+from typing import Any, Union
+from collections.abc import AsyncIterator
 import pipmaster as pm  # Pipmaster for dynamic library install
 
 if sys.version_info < (3, 9):
-    from typing import AsyncIterator
+    from collections.abc import AsyncIterator
 else:
     from collections.abc import AsyncIterator
 
@@ -63,7 +64,7 @@ async def anthropic_complete_if_cache(
     base_url: str | None = None,
     api_key: str | None = None,
     **kwargs: Any,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if history_messages is None:
         history_messages = []
     if enable_cot:
@@ -157,7 +158,7 @@ async def anthropic_complete(
     history_messages: list[dict[str, Any]] | None = None,
     enable_cot: bool = False,
     **kwargs: Any,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if history_messages is None:
         history_messages = []
     model_name = kwargs["hashing_kv"].global_config["llm_model_name"]
@@ -178,7 +179,7 @@ async def claude_3_opus_complete(
     history_messages: list[dict[str, Any]] | None = None,
     enable_cot: bool = False,
     **kwargs: Any,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if history_messages is None:
         history_messages = []
     return await anthropic_complete_if_cache(
@@ -198,7 +199,7 @@ async def claude_3_sonnet_complete(
     history_messages: list[dict[str, Any]] | None = None,
     enable_cot: bool = False,
     **kwargs: Any,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if history_messages is None:
         history_messages = []
     return await anthropic_complete_if_cache(
@@ -218,7 +219,7 @@ async def claude_3_haiku_complete(
     history_messages: list[dict[str, Any]] | None = None,
     enable_cot: bool = False,
     **kwargs: Any,
-) -> Union[str, AsyncIterator[str]]:
+) -> str | AsyncIterator[str]:
     if history_messages is None:
         history_messages = []
     return await anthropic_complete_if_cache(

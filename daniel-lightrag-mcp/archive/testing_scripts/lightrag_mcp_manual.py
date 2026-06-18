@@ -384,7 +384,7 @@ class LightRAGMCPServer:
         }
         return json.dumps(response)
     
-    async def _handle_call_tool(self, request: Dict[str, Any], request_id: int) -> str:
+    async def _handle_call_tool(self, request: dict[str, Any], request_id: int) -> str:
         """Handle tool call request."""
         params = request.get("params", {})
         tool_name = params.get("name")

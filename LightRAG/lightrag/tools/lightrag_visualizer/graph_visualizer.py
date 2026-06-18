@@ -48,8 +48,8 @@ class GraphViewer:
     def __init__(self):
         self.glctx = None  # ModernGL context
         self.graph: Optional[nx.Graph] = None
-        self.nodes: List[Node3D] = []
-        self.id_node_map: Dict[str, Node3D] = {}
+        self.nodes: list[Node3D] = []
+        self.id_node_map: dict[str, Node3D] = {}
         self.communities = None
         self.community_colors = None
 
@@ -700,7 +700,7 @@ class GraphViewer:
             1000.0,  # Far plane
         )
 
-    def find_node_at(self, screen_pos: Tuple[int, int]) -> Optional[Node3D]:
+    def find_node_at(self, screen_pos: tuple[int, int]) -> Optional[Node3D]:
         """Find the node at a specific screen position"""
         if (
             self.node_id_texture_np is None
@@ -729,7 +729,7 @@ class GraphViewer:
             return None
         return self.nodes[index]
 
-    def is_node_visible_at(self, screen_pos: Tuple[int, int], node_idx: int) -> bool:
+    def is_node_visible_at(self, screen_pos: tuple[int, int], node_idx: int) -> bool:
         """Check if a node exists at a specific screen position"""
         node = self.find_node_at(screen_pos)
         return node is not None and node.idx == node_idx
@@ -956,7 +956,7 @@ class GraphViewer:
         self.pitch = 0.0
 
 
-def generate_colors(n: int) -> List[glm.vec3]:
+def generate_colors(n: int) -> list[glm.vec3]:
     """Generate n distinct colors using HSV color space"""
     colors = []
     for i in range(n):
@@ -981,7 +981,7 @@ def show_file_dialog() -> Optional[str]:
     return file_path if file_path else None
 
 
-def create_sphere(sectors: int = 32, rings: int = 16) -> Tuple:
+def create_sphere(sectors: int = 32, rings: int = 16) -> tuple:
     """
     Creates a sphere.
     """

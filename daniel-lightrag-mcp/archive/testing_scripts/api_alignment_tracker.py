@@ -52,7 +52,7 @@ class TestResults:
     broken_tools: int
     success_rate: float
     phase: str
-    tools: List[Dict]
+    tools: list[dict]
 
 class APIAlignmentTracker:
     """Tracks API alignment progress with automated testing."""
@@ -166,7 +166,7 @@ class APIAlignmentTracker:
         return self.client
     
     # Test functions for each tool
-    async def _test_insert_text(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_insert_text(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.insert_text("Test document for API alignment")
@@ -174,7 +174,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_insert_texts(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_insert_texts(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             texts = [{"title": "Test 1", "content": "Content 1"}, {"title": "Test 2", "content": "Content 2"}]
@@ -183,7 +183,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_upload_document(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_upload_document(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             # This will fail until we implement multipart form-data
@@ -192,7 +192,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_scan_documents(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_scan_documents(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.scan_documents()
@@ -200,7 +200,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_documents(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_documents(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_documents()
@@ -210,7 +210,7 @@ class APIAlignmentTracker:
                 return ToolStatus.BLOCKED, "Server-side validation error"
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_documents_paginated(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_documents_paginated(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_documents_paginated(1, 10)
@@ -220,7 +220,7 @@ class APIAlignmentTracker:
                 return ToolStatus.BLOCKED, "Server-side validation error"
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_delete_document(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_delete_document(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.delete_document("test_doc_id")
@@ -230,7 +230,7 @@ class APIAlignmentTracker:
                 return ToolStatus.BROKEN, "HTTP DELETE with JSON issue"
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_clear_documents(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_clear_documents(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.clear_documents()
@@ -238,7 +238,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_query_text(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_query_text(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.query_text("test query", mode="hybrid")
@@ -246,7 +246,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_query_text_stream(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_query_text_stream(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             chunks = []
@@ -258,7 +258,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_knowledge_graph(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_knowledge_graph(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_knowledge_graph()
@@ -266,7 +266,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_graph_labels(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_graph_labels(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_graph_labels()
@@ -274,7 +274,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_check_entity_exists(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_check_entity_exists(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.check_entity_exists("test_entity")
@@ -282,7 +282,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_update_entity(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_update_entity(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.update_entity("test_entity_id", {"name": "updated"})
@@ -290,7 +290,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_update_relation(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_update_relation(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.update_relation("test_relation_id", {"weight": 0.9})
@@ -298,7 +298,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_delete_entity(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_delete_entity(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.delete_entity("test_entity_id")
@@ -308,7 +308,7 @@ class APIAlignmentTracker:
                 return ToolStatus.BROKEN, "HTTP DELETE with JSON issue"
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_delete_relation(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_delete_relation(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.delete_relation("test_relation_id")
@@ -318,7 +318,7 @@ class APIAlignmentTracker:
                 return ToolStatus.BROKEN, "HTTP DELETE with JSON issue"
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_pipeline_status(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_pipeline_status(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_pipeline_status()
@@ -326,7 +326,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_track_status(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_track_status(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_track_status("test_track_id")
@@ -334,7 +334,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_document_status_counts(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_document_status_counts(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_document_status_counts()
@@ -342,7 +342,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_clear_cache(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_clear_cache(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.clear_cache()
@@ -350,7 +350,7 @@ class APIAlignmentTracker:
         except Exception as e:
             return ToolStatus.BROKEN, str(e)
     
-    async def _test_get_health(self) -> Tuple[ToolStatus, Optional[str]]:
+    async def _test_get_health(self) -> tuple[ToolStatus, Optional[str]]:
         try:
             client = await self._get_client()
             result = await client.get_health()
@@ -494,11 +494,11 @@ Based on current results, focus on:
         with open(self.progress_file, 'w') as f:
             f.write(report)
     
-    def get_tools_by_issue_category(self, category: IssueCategory) -> List[ToolTest]:
+    def get_tools_by_issue_category(self, category: IssueCategory) -> list[ToolTest]:
         """Get all tools with a specific issue category."""
         return [tool for tool in self.tools if tool.issue_category == category]
     
-    def get_tools_by_priority(self, priority: str) -> List[ToolTest]:
+    def get_tools_by_priority(self, priority: str) -> list[ToolTest]:
         """Get all tools with a specific priority."""
         return [tool for tool in self.tools if tool.priority == priority]
 

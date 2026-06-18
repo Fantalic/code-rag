@@ -5,7 +5,8 @@ import re
 import datetime
 from datetime import timezone
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, TypeVar, Union, final
+from typing import Any, TypeVar, Union, final
+from collections.abc import Awaitable, Callable
 import numpy as np
 import configparser
 import ssl
@@ -2616,7 +2617,7 @@ class PGDocStatusStorage(DocStatusStorage):
             )
             raise
 
-    async def get_by_id(self, id: str) -> Union[dict[str, Any], None]:
+    async def get_by_id(self, id: str) -> dict[str, Any] | None:
         sql = "select * from LIGHTRAG_DOC_STATUS where workspace=$1 and id=$2"
         params = {"workspace": self.workspace, "id": id}
         result = await self.db.query(sql, list(params.values()), True)
@@ -2712,7 +2713,7 @@ class PGDocStatusStorage(DocStatusStorage):
 
         return ordered_results
 
-    async def get_doc_by_file_path(self, file_path: str) -> Union[dict[str, Any], None]:
+    async def get_doc_by_file_path(self, file_path: str) -> dict[str, Any] | None:
         """Get document by file path
 
         Args:
@@ -3186,7 +3187,7 @@ class PGDocStatusStorage(DocStatusStorage):
 class PGGraphQueryException(Exception):
     """Exception for the AGE queries."""
 
-    def __init__(self, exception: Union[str, dict[str, Any]]) -> None:
+    def __init__(self, exception: str | dict[str, Any]) -> None:
         if isinstance(exception, dict):
             self.message = exception["message"] if "message" in exception else "unknown"
             self.details = exception["details"] if "details" in exception else "unknown"
@@ -3436,7 +3437,7 @@ class PGGraphStorage(BaseGraphStorage):
 
     @staticmethod
     def _format_properties(
-        properties: dict[str, Any], _id: Union[str, None] = None
+        properties: dict[str, Any], _id: str | None = None
     ) -> str:
         """
         Convert a dictionary of properties to a string representation that
