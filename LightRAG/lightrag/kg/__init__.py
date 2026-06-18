@@ -53,11 +53,6 @@ STORAGE_ENV_REQUIREMENTS: dict[str, list[str]] = {
     "Neo4JStorage": ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"],
     "MongoGraphStorage": [],
     "MemgraphStorage": ["MEMGRAPH_URI"],
-    "AGEStorage": [
-        "AGE_POSTGRES_DB",
-        "AGE_POSTGRES_USER",
-        "AGE_POSTGRES_PASSWORD",
-    ],
     "PGGraphStorage": [
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
@@ -66,7 +61,6 @@ STORAGE_ENV_REQUIREMENTS: dict[str, list[str]] = {
     # Vector Storage Implementations
     "NanoVectorDBStorage": [],
     "MilvusVectorDBStorage": [],
-    "ChromaVectorDBStorage": [],
     "PGVectorStorage": ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DATABASE"],
     "FaissVectorDBStorage": [],
     "QdrantVectorDBStorage": ["QDRANT_URL"],  # QDRANT_API_KEY has default value None
@@ -92,10 +86,8 @@ STORAGES = {
     "MongoVectorDBStorage": ".kg.mongo_impl",
     "RedisKVStorage": ".kg.redis_impl",
     "RedisDocStatusStorage": ".kg.redis_impl",
-    "ChromaVectorDBStorage": ".kg.chroma_impl",
     "PGKVStorage": ".kg.postgres_impl",
     "PGVectorStorage": ".kg.postgres_impl",
-    "AGEStorage": ".kg.age_impl",
     "PGGraphStorage": ".kg.postgres_impl",
     "PGDocStatusStorage": ".kg.postgres_impl",
     "FaissVectorDBStorage": ".kg.faiss_impl",

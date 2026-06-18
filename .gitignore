@@ -1,17 +1,29 @@
-# Python-related files
+# Python-related files (root + daniel-lightrag-mcp sources)
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 .eggs/
+*.egg
 *.tgz
 *.tar.gz
+*.so
+MANIFEST
+*.manifest
+*.spec
 
 # Virtual Environment
 .venv/
 venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # Environment Variable Files
 .env
+.env.local
+.env.*.local
 
 # Build / Distribution
 dist/
@@ -21,8 +33,12 @@ site/
 # Logs / Reports
 *.log
 *.log.*
+*.logfire
 *.coverage/
 log/
+htmlcov/
+.coverage
+.coverage.*
 
 # Caches
 .cache/
@@ -32,10 +48,17 @@ log/
 .gradio/
 .history/
 temp/
+.ipynb_checkpoints
+.hypothesis/
 
 # IDE / Editor Files
 .idea/
 .vscode/
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 
 # OS files
 .DS_Store
@@ -50,10 +73,34 @@ test-csharp-project/output/
 inputs/
 rag_storage/
 data/
+examples/input/
+examples/output/
+output*/
 # Project docs (working documents, not source)
 # (docs/ is now tracked — removed from gitignore)
 
+# Node / Frontend
+node_modules/
+dist-ssr/
+LightRAG/lightrag/api/webui/
+
+# Framework-specific
+local_neo4jWorkDir/
+neo4jWorkDir/
+
 # Project-specific
 *.ignore.*
+*.ini
+*.tmp
+*.temp
+*~
+*.local
 memory-bank/
 mcp-server/
+TODO.md
+ignore_this.txt
+book.txt
+LightRAG.pdf
+download_models_hf.py
+lightrag-dev/
+gui/

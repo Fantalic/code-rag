@@ -7,7 +7,8 @@ consistency and makes maintenance easier.
 """
 
 # Default values for server settings
-DEFAULT_WOKERS = 2
+DEFAULT_WORKERS = 2
+DEFAULT_WOKERS = DEFAULT_WORKERS  # Deprecated alias, use DEFAULT_WORKERS
 DEFAULT_MAX_GRAPH_NODES = 1000
 
 # Default values for extraction settings
