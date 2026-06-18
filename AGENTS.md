@@ -1,39 +1,75 @@
-# Repository Guidelines
+# CodeGraph Agent Guidelines
 
-LightRAG is an advanced Retrieval-Augmented Generation (RAG) framework designed to enhance information retrieval and generation through graph-based knowledge representation.
+This is a **forked monorepo** based on LightRAG, extended with an MCP server, code analysers, and a file watchdog. The project transforms codebases into knowledge graphs for AI agent consumption.
 
-## Project Structure & Module Organization
-- `lightrag/`: Core Python package with orchestrators (`lightrag/lightrag.py`), storage adapters in `kg/`, LLM bindings in `llm/`, and helpers such as `operate.py` and `utils_*.py`.
-- `lightrag-api/`: FastAPI service (`lightrag_server.py`) with routers under `routers/` and Gunicorn launcher `run_with_gunicorn.py`.
-- `lightrag_webui/`: React 19 + TypeScript client driven by Bun + Vite; UI components live in `src/`.
-- Tests live in `tests/` and root-level `test_*.py`. Working datasets stay in `inputs/`, `rag_storage/`, `temp/`; deployment collateral lives in `docs/`, `k8s-deploy/`, and `docker-compose.yml`.
+## Project Structure
+
+```
+code-lightrag/
+├── LightRAG/                    ← Main fork: RAG engine + API + WebUI
+│   ├── lightrag/                ← Core Python package
+│   ├── lightrag-api/            ← FastAPI service
+│   └── lightrag_webui/          ← React 19 + TypeScript UI
+├── daniel-lightrag-mcp/         ← MCP server (22 tools for agent access)
+│   ├── src/daniel_lightrag_mcp/ ← Python MCP server code
+│   └── analysers/               ← Code analysers (C#, etc.)
+├── watchdog/                    ← File change watcher for auto-ingestion
+│   └── main.py                  ← Watchdog script
+├── .opencode/                   ← CodeGraph prompts (scan-complete, scan-targeted, code-graph)
+└── .clinerules/                 ← Agent rules
+```
 
 ## Build, Test, and Development Commands
-- `python -m venv .venv && source .venv/bin/activate`: set up the Python runtime.
-- `pip install -e .` / `pip install -e .[api]`: install the package and API extras in editable mode.
-- `lightrag-server` or `uvicorn lightrag.api.lightrag_server:app --reload`: start the API locally; ensure `.env` is present.
-- `python -m pytest tests` or `python test_graph_storage.py`: run the full suite or a targeted script.
-- `ruff check .`: lint Python sources before committing.
-- `bun install`, `bun run dev`, `bun run build`, `bun test`: manage the web UI workflow (Bun is mandatory).
 
-## Coding Style & Naming Conventions
-- Backend code follow PEP 8 with four-space indentation, annotate functions, and reach for dataclasses when modelling state.
-- Use `lightrag.utils.logger` instead of `print`; respect logger configuration flags.
-- Extend storage or pipeline abstractions via `lightrag.base` and keep reusable helpers in the existing `utils_*.py`.
-- Python modules remain lowercase with underscores; React components use `PascalCase.tsx` and hooks-first patterns.
-- Front-end code should remain in TypeScript with two-space indentation, rely on functional React components with hooks, and follow Tailwind utility style.
+### LightRAG core
+- `pip install -e .` / `pip install -e .[api]`: install package
+- `lightrag-server` or `uvicorn lightrag.api.lightrag_server:app --reload`: start API
+- `ruff check .`: lint Python sources
+- `python -m pytest tests`: run tests
 
-## Testing Guidelines
-- Add pytest cases beside the affected module or the relevant `test_*.py`; functions should start with `test_`.
-- Export required `LIGHTRAG_*` environment variables before running integration or storage tests.
-- For UI updates, pair code with Vitest specs and run `bun test`.
+### MCP Server
+- `pip install -e ".[dev]"`: install in dev mode
+- `pytest tests/`: run all tests
+- `ruff check src/`: lint
+- `python -m daniel_lightrag_mcp`: start MCP server
 
-## Commit & Pull Request Guidelines
-- Use concise, imperative commit subjects (e.g., `Fix lock key normalization`) and add body context only when necessary.
-- PRs should include a summary, operational impact, linked issues, and screenshots or API samples for user-facing work.
-- Verify `ruff check .`, `python -m pytest`, and affected Bun commands succeed before requesting review; note the runs in the PR text.
+### Watchdog
+- `python main.py`: run the file watcher
 
-## Security & Configuration Tips
-- Copy `.env.example` and `config.ini.example`; never commit secrets or real connection strings.
-- Configure storage backends through `LIGHTRAG_*` variables and validate them with `docker-compose` services when needed.
-- Treat `lightrag.log*` as local artefacts; purge sensitive information before sharing logs or outputs.
+### Web UI
+- `cd lightrag_webui && bun install && bun run dev`: start UI dev server
+
+## Coding Style
+
+### Python
+- PEP 8 with four-space indentation, line length 88 (Black)
+- Type annotations on all functions
+- Use `lightrag.utils.logger` instead of `print`
+- snake_case for functions/variables, PascalCase for classes
+- Imports grouped: stdlib → third-party → local (isort with Black profile)
+
+### TypeScript/React
+- Two-space indentation
+- Functional components with hooks
+- PascalCase.tsx for component files
+- Tailwind utility styling
+
+### C# (Analyser)
+- .NET standard conventions
+- PascalCase for types/methods, camelCase for locals
+
+## Testing
+- pytest for Python (functions start with `test_`)
+- Vitest for UI components
+- Export required `LIGHTRAG_*` env vars before integration tests
+
+## CodeGraph Scanning
+See `.opencode/` for detailed agent instructions on scanning codebases:
+- `code-graph.md`: Knowledge graph entity/relationship model
+- `scan-complete.md`: Full project scanning (6-task approach)
+- `scan-targeted.md`: Targeted entry-point scanning (6-task approach)
+
+## Security
+- Never commit `.env` or secrets
+- Copy `.env.example` and `config.ini.example` for configuration
+- Use `LIGHTRAG_*` environment variables for storage backends
