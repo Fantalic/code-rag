@@ -87,6 +87,9 @@ ruff check .
 ## Project Docs
 See `docs/` for project plan, context tracking, and documentation.
 
+## Current Task
+The active sub-task prompt is in `docs/TASK.md`. Read it first before starting any work on the current phase.
+
 ## CodeGraph Scanning
 See `.opencode/` for detailed agent instructions on scanning codebases:
 - `code-graph.md`: Knowledge graph entity/relationship model
