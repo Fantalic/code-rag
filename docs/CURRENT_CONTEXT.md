@@ -45,11 +45,17 @@ tests/test_mcp_edge_cases.py        —  5 tests ✅ (3 MCP edge + 2 env var)
 
 ### 6.1 Full test suite ✅
 - **39 tests pass** in clean `venv` (setup.ps1) — all unit, smoke, MCP edge cases
-- Integration tests not run (they need a full server startup and timeout in CI)
 - AGENTS.md updated: venv-first workflow, activation step in Testing section
-- Only pre-existing issue: integration tests timeout due to ASGI app creation with mocked LLM (slow on Windows)
-- MCP edge case tests (connection refused, empty query, invalid mode) all pass now that starlette/fastapi versions are compatible in the venv
 
-### Remaining (post-6.1)
-- Integration tests (12 tests) — needs `pytest tests/ -v --tb=short --timeout=300` or comparable timeout
-- Future: CI/CD pipeline, performance profiling, Windows compat edge cases
+### 6.2 WebUI build ✅
+- WebUI (React 19 + Vite + Tailwind CSS v4) built successfully — 113 assets
+- Build output at `LightRAG/lightrag/api/webui/`
+- `check_frontend_build()` now detects the build and prints "Frontend build is up-to-date"
+- No more need for `lambda: None` patch — server mounts webui automatically
+- `setup.ps1` updated: builds webui automatically after Python install (if Bun available)
+- Built webui is `.gitignore`d (standard practice for build artifacts)
+
+### Remaining (post-6.2)
+- Integration tests (12 tests) — needs `pytest tests/ -v --tb=short --timeout=300`
+- WebUI not covered by Python tests (React/Vite — needs separate Vitest setup)
+- Future: CI/CD pipeline, performance profiling

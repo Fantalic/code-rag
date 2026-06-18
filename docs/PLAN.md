@@ -67,4 +67,5 @@ Targeted test suite for the unified codebase.
 |------|--------|
 | 6.1 Run full test suite | ✅ Done — 39/39 pass (unit + smoke + MCP edge) |
 | 6.2 Fix regressions | ✅ Done — no regressions, venv fixes starlette conflict |
-| 6.3 Clean up docs | 🔄 WIP (commit pending) |
+| 6.3 Build and verify WebUI | ✅ Done — 113 assets, auto-build in setup.ps1 |
+| 6.4 Clean up docs | 🔄 WIP (commit pending) |
