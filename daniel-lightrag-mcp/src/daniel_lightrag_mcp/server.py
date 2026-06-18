@@ -50,7 +50,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)  # Reduce httpx noise
 logging.getLogger("mcp").setLevel(logging.INFO)
 
 # Initialize the MCP server
-server = Server("daniel-lightrag-mcp")
+mcp_server = Server("daniel-lightrag-mcp")
 
 # Global client instance
 lightrag_client: Optional[LightRAGClient] = None
@@ -305,7 +305,7 @@ def _create_error_response(error: Exception, tool_name: str) -> dict:
     return error_response
 
 
-@server.list_tools()
+@mcp_server.list_tools()
 async def handle_list_tools() -> List[Tool]:#ListToolsResult:
     """List available tools."""
     logger.info("=" * 80)
@@ -313,8 +313,8 @@ async def handle_list_tools() -> List[Tool]:#ListToolsResult:
     logger.info("=" * 80)
     logger.info("LIST_TOOLS HANDLER STARTED:")
     logger.info(f"  - Function: handle_list_tools")
-    logger.info(f"  - Server: {server}")
-    logger.info(f"  - Server type: {type(server)}")
+    logger.info(f"  - Server: {mcp_server}")
+    logger.info(f"  - Server type: {type(mcp_server)}")
     
     # Create tools list with explicit validation
     tools = []
@@ -871,7 +871,7 @@ async def handle_list_tools() -> List[Tool]:#ListToolsResult:
     
     return tools
 
-@server.call_tool()
+@mcp_server.call_tool()
 async def handle_call_tool(self, request: CallToolRequest) -> dict:
     """Handle tool calls."""
     global lightrag_client
@@ -2300,8 +2300,8 @@ async def main():
         logger.info("SERVER INITIALIZATION:")
         logger.info("  - Validating server configuration...")
         logger.info(f"  - Server name: daniel-lightrag-mcp")
-        logger.info(f"  - Server object: {server}")
-        logger.info(f"  - Server type: {type(server)}")
+        logger.info(f"  - Server object: {mcp_server}")
+        logger.info(f"  - Server type: {type(mcp_server)}")
         
         logger.info("STDIO SERVER SETUP:")
         async with stdio_server() as (read_stream, write_stream):
@@ -2312,7 +2312,7 @@ async def main():
             
             # Initialize server capabilities
             logger.info("CAPABILITIES INITIALIZATION:")
-            capabilities = server.get_capabilities(
+            capabilities = mcp_server.get_capabilities(
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             )
@@ -2330,7 +2330,7 @@ async def main():
             logger.info(f"  - Init options type: {type(init_options)}")
             
             logger.info("STARTING SERVER RUN LOOP:")
-            await server.run(
+            await mcp_server.run(
                 read_stream,
                 write_stream,
                 init_options,

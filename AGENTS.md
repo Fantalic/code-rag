@@ -19,25 +19,46 @@ code-lightrag/
 └── .clinerules/                 ← Agent rules
 ```
 
-## Build, Test, and Development Commands
+## Quick Start (one command)
 
-### LightRAG core
-- `pip install -e .` / `pip install -e .[api]`: install package
-- `lightrag-server` or `uvicorn lightrag.api.lightrag_server:app --reload`: start API
-- `ruff check .`: lint Python sources
-- `python -m pytest tests`: run tests
+```powershell
+.\scripts\setup.ps1          # Full install: LightRAG[api] + MCP + watchdog
+```
 
-### MCP Server
-- `pip install -e ".[dev]"`: install in dev mode
-- `pytest tests/`: run all tests
-- `ruff check src/`: lint
-- `python -m daniel_lightrag_mcp`: start MCP server
+Or manually:
 
-### Watchdog
-- `python main.py`: run the file watcher
+```bash
+pip install -e LightRAG\[api]
+pip install -e daniel-lightrag-mcp\[dev]
+pip install watchdog
+```
 
-### Web UI
-- `cd lightrag_webui && bun install && bun run dev`: start UI dev server
+## Development Commands
+
+### LightRAG server
+```bash
+lightrag-server              # or uvicorn lightrag.api.lightrag_server:app --reload
+```
+
+### MCP server (connects to running LightRAG on :9621)
+```bash
+python -m daniel_lightrag_mcp
+```
+
+### Watchdog (auto-ingest files into LightRAG)
+```bash
+python watchdog/main.py
+```
+
+### Test (root suite, 39+ tests)
+```bash
+pytest tests/ -v
+```
+
+### Lint
+```bash
+ruff check .
+```
 
 ## Coding Style
 
@@ -63,11 +84,21 @@ code-lightrag/
 - Vitest for UI components
 - Export required `LIGHTRAG_*` env vars before integration tests
 
+## Project Docs
+See `docs/` for project plan, context tracking, and documentation.
+
 ## CodeGraph Scanning
 See `.opencode/` for detailed agent instructions on scanning codebases:
 - `code-graph.md`: Knowledge graph entity/relationship model
 - `scan-complete.md`: Full project scanning (6-task approach)
 - `scan-targeted.md`: Targeted entry-point scanning (6-task approach)
+
+## Git Workflow (inline with KEEPTRACK.md)
+- Work with git and make commits frequently — commit after each completed task
+- Follow KEEPTRACK.md steps 5-6-7: write before acting, update after acting, keep PLAN.md current
+- Before committing: `git status`, `git diff` to verify only intended files are staged
+- Write concise commit messages that match the repo style
+- Never commit `.env`, secrets, or generated build artifacts
 
 ## Security
 - Never commit `.env` or secrets

@@ -41,10 +41,17 @@ temp/
 .DS_Store
 Thumbs.db
 
+# C# build artifacts
+test-csharp-project/**/bin/
+test-csharp-project/**/obj/
+test-csharp-project/output/
+
 # Data & Storage
 inputs/
 rag_storage/
 data/
+# Project docs (working documents, not source)
+# (docs/ is now tracked — removed from gitignore)
 
 # Project-specific
 *.ignore.*

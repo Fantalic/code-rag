@@ -7,11 +7,14 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import logging
+import httpx
 
 # CONFIGURABLES
 INPUT_DIR = os.environ.get("INPUT_DIR", "./rag_input")  # directory to watch
 DEBOUNCE_SECONDS = float(os.environ.get("DEBOUNCE_SECONDS", "0.5"))  # debounce per path
 MAX_WORKERS = int(os.environ.get("WATCHER_WORKERS", "4"))
+LIGHTRAG_URL = os.environ.get("LIGHTRAG_URL", "http://localhost:9621").rstrip("/")
+LIGHTRAG_API_KEY = os.environ.get("LIGHTRAG_API_KEY", None)
 
 # Ensure INPUT_DIR exists
 Path(INPUT_DIR).mkdir(parents=True, exist_ok=True)
@@ -19,22 +22,42 @@ Path(INPUT_DIR).mkdir(parents=True, exist_ok=True)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Ingestion function placeholder
+
 def ingest_file(file_path: str, change_type: str):
-    """
-    Implement your LightRAG ingestion logic here.
-    - file_path: path to the file that changed
-    - change_type: 'created', 'modified', 'deleted', 'moved'
-    This function must be idempotent:
-      - For created/modified: upsert embeddings and update graph
-      - For deleted: remove embeddings and prune graph edges
-    """
-    # Replace with your actual ingestion call, e.g.:
-    # rag.ingest_file(file_path, change_type=change_type)
-    logger.info(f"Processing {change_type}: {file_path}")
-    # Replace with your actual ingestion call, e.g.:
-    # rag.ingest_file(file_path, change_type=change_type)
-    time.sleep(1)  # Simulate processing
+    headers = {}
+    if LIGHTRAG_API_KEY:
+        headers["X-API-Key"] = LIGHTRAG_API_KEY
+
+    if change_type in ("created", "modified"):
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as e:
+            logger.error(f"Cannot read {file_path}: {e}")
+            return
+
+        resp = httpx.post(
+            f"{LIGHTRAG_URL}/documents/text",
+            json={"text": content, "file_source": file_path},
+            headers=headers,
+            timeout=30,
+        )
+        if resp.is_success:
+            logger.info(f"Ingested {change_type}: {file_path}")
+        else:
+            logger.error(f"Failed to ingest {file_path}: {resp.status_code} {resp.text}")
+
+    elif change_type in ("deleted",):
+        resp = httpx.delete(
+            f"{LIGHTRAG_URL}/documents",
+            json={"file_source": file_path},
+            headers=headers,
+            timeout=30,
+        )
+        if resp.is_success:
+            logger.info(f"Deleted: {file_path}")
+        else:
+            logger.warning(f"Delete {file_path}: {resp.status_code} {resp.text}")
 
 # Debounce manager
 class DebounceManager:

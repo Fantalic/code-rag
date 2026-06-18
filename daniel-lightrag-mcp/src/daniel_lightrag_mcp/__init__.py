@@ -7,7 +7,7 @@ __author__ = "Daniel Simpkins"
 __description__ = "MCP server for LightRAG integration"
 
 from .client import LightRAGClient, LightRAGError
-from .server import server
+from .server import mcp_server
 from .models import *
 
 __all__ = [
