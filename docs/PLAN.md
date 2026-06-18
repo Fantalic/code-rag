@@ -15,13 +15,29 @@ Get all three components working together as a single system.
 | 1.3 LightRAG server starts (with mocked LLM fallback) | ⏸️ Deferred — blocked by `config.parse_args()` at module level |
 | 1.4 MCP server connects to LightRAG | ✅ Done — 4 integration tests pass |
 | 1.5 Watchdog ingests via API | ✅ Done — `ingest_file` now HTTP POSTs to LightRAG |
-| 1.6 Verifiable — one command starts all, tests pass | 🔄 WIP — pipeline mechanic works, needs faster LLM or batch tuning |
+| 1.6 Verifiable — one command starts all, tests pass | ✅ Done — `scripts/start_all.ps1`, server starts without patches, 11/12 integration tests pass |
 
 ## Phase 2 — Strip & Simplify
 Remove dead code, flatten duplicate configs, drop orphaned scripts.
 
+| Step | Status |
+|------|--------|
+| Fix .cs/.rel broken extension bug | ✅ Done |
+| Fix DEFAULT_WOKERS typo | ✅ Done |
+| Remove dead AGEStorage + ChromaVectorDBStorage entries | ✅ Done |
+| Remove duplicate requirements-offline-*.txt (4 files) | ✅ Done |
+| Remove legacy setup.py shim | ✅ Done |
+| Consolidate 6 .gitignore files → 1 root | ✅ Done |
+
 ## Phase 3 — Unify
 Single build system, shared config, consistent imports.
+
+| Step | Status |
+|------|--------|
+| 3.1 Single build system (root pyproject.toml) | ✅ Done |
+| 3.2 Shared config (env vars + .env.example) | ✅ Done |
+| 3.3 Consistent imports (codelightrag namespace) | ✅ Done |
+| 3.4 Dependency unification (MCP/watchdog pyproject) | ✅ Done |
 
 ## Phase 4 — Modernise
 Python 3.10+ features, Pydantic V2, clean async patterns.

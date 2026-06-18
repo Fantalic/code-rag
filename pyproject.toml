@@ -20,8 +20,16 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 
+[project.optional-dependencies]
+full = [
+    "codelightrag-watchdog",
+]
+mcp = [
+    "daniel-lightrag-mcp",
+]
+
 [tool.setuptools.packages.find]
-include = []  # Meta-package only — no Python sources at root
+include = ["codelightrag*"]
 
 [tool.ruff]
 line-length = 88
