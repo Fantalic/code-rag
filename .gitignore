@@ -1,0 +1,52 @@
+# Python-related files
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.tgz
+*.tar.gz
+
+# Virtual Environment
+.venv/
+venv/
+
+# Environment Variable Files
+.env
+
+# Build / Distribution
+dist/
+build/
+site/
+
+# Logs / Reports
+*.log
+*.log.*
+*.coverage/
+log/
+
+# Caches
+.cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.gradio/
+.history/
+temp/
+
+# IDE / Editor Files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data & Storage
+inputs/
+rag_storage/
+data/
+
+# Project-specific
+*.ignore.*
+memory-bank/
+mcp-server/
