@@ -1,0 +1,16 @@
+# Ignore build output directories
+bin/
+obj/
+
+# Ignore temporary files
+*.tmp
+*.temp
+
+# Ignore specific files
+temp.txt
+
+# Ignore all files in a specific directory
+temp/
+
+# Ignore files with specific pattern
+*test*
