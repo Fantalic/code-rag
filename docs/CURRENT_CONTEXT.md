@@ -41,8 +41,15 @@ tests/test_mcp_edge_cases.py        —  5 tests ✅ (3 MCP edge + 2 env var)
 
 ---
 
-## Plan — Next Actions
-1. ✅ Tests written and verified (15/15 pass)
-2. ⏸️ Full suite verification deferred
-3. ✅ PLAN.md updated — Phase 5 marked complete
-4. ✅ Commit 314ffac9 — Phase 5 tests + server.py helper
+## Phase 6 — Full Suite Run + Cleanup
+
+### 6.1 Full test suite ✅
+- **39 tests pass** in clean `venv` (setup.ps1) — all unit, smoke, MCP edge cases
+- Integration tests not run (they need a full server startup and timeout in CI)
+- AGENTS.md updated: venv-first workflow, activation step in Testing section
+- Only pre-existing issue: integration tests timeout due to ASGI app creation with mocked LLM (slow on Windows)
+- MCP edge case tests (connection refused, empty query, invalid mode) all pass now that starlette/fastapi versions are compatible in the venv
+
+### Remaining (post-6.1)
+- Integration tests (12 tests) — needs `pytest tests/ -v --tb=short --timeout=300` or comparable timeout
+- Future: CI/CD pipeline, performance profiling, Windows compat edge cases

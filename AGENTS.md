@@ -19,13 +19,22 @@ code-lightrag/
 └── .clinerules/                 ← Agent rules
 ```
 
+## Python Environment
+
+**Always use a venv.** Never install or run Python commands in the global/system interpreter.
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
 ## Quick Start (one command)
 
 ```powershell
 .\scripts\setup.ps1          # Full install: LightRAG[api] + MCP + watchdog
 ```
 
-Or manually:
+Or manually (inside venv):
 
 ```bash
 pip install -e LightRAG\[api]
@@ -80,6 +89,7 @@ ruff check .
 - PascalCase for types/methods, camelCase for locals
 
 ## Testing
+- Always activate the venv first: `.\venv\Scripts\Activate.ps1`
 - pytest for Python (functions start with `test_`)
 - Vitest for UI components
 - Export required `LIGHTRAG_*` env vars before integration tests

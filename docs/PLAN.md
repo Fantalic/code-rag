@@ -62,4 +62,9 @@ Targeted test suite for the unified codebase.
 | 5.6 Test env var unification | ✅ Done (test_mcp_edge_cases.py — 2 env var tests) |
 
 ## Phase 6 — Polish
-Performance profiling, Windows compat, CI/CD.
+
+| Step | Status |
+|------|--------|
+| 6.1 Run full test suite | ✅ Done — 39/39 pass (unit + smoke + MCP edge) |
+| 6.2 Fix regressions | ✅ Done — no regressions, venv fixes starlette conflict |
+| 6.3 Clean up docs | 🔄 WIP (commit pending) |

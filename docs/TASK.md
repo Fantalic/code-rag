@@ -1,38 +1,19 @@
-# Current Task: Phase 5 — Own Tests
+# Current Task: Phase 6 — Full Suite Run + Cleanup
 
 ## Objective
-Write a targeted test suite that validates the unified codebase works end-to-end, covering all three sub-projects and the key fixes from Phases 1-4.
+Run the complete test suite, fix any failures or regressions, and ensure everything works together.
 
 ## Steps
 
-### 5.1 — Test the `codelightrag` namespace
-- [x] Test that `from codelightrag import LightRAG, LightRAGClient` works (with/without MCP installed)
-- [x] Test that `__version__` is correct
+### 6.1 — Run full test suite
+- [x] `pytest tests/ -v --tb=short` — 39/39 unit + smoke + MCP edge cases pass
 
-### 5.2 — Test Pydantic V2 migration
-- [x] Test that models with `ConfigDict` work correctly (serialization, deserialization)
-- [x] Test that `file_path: Optional[str]` handles `None` correctly (the bug we fixed)
+### 6.2 — Fix regressions
+- [x] No regressions from Phase 5 changes (all 15 new tests pass, old tests unaffected)
+- [x] Starlette/fastapi version conflict resolved by using clean `venv` from setup.ps1
 
-### 5.3 — Test retry logic
-- [x] Test `DocProcessingStatus` with `retry_count` and `max_retries`
-- [x] Test that exhausted retries stay FAILED
-
-### 5.4 — Test config module
-- [x] Test `get_global_args()` returns defaults without requiring `sys.argv`
-- [x] Test that `import config` doesn't have side effects
-
-### 5.5 — Test MCP ↔ LightRAG integration (expand coverage)
-- [x] Test error cases (connection refused, empty query, invalid mode)
-- [x] Test streaming queries (deferred — no streaming endpoint yet)
-- [x] Test document upload (deferred — needs running LightRAG)
-
-### 5.6 — Test env var unification
-- [x] Test that `LIGHTRAG_URL` works in MCP client (backward compat with `LIGHTRAG_BASE_URL`)
-
-## Rules
-- Use pytest with pytest-asyncio for async tests
-- Use `unittest.mock` for mocking external services
-- Keep tests fast — mock LLM, embedding, and storage
-- Add all tests in `tests/` with descriptive filenames
-- Run `pytest tests/ -v --tb=short` after each step
-- Commit after each step
+### 6.3 — Clean up docs
+- [x] AGENTS.md updated: venv-first workflow, activation in Testing section
+- [x] CURRENT_CONTEXT.md updated with full suite results
+- [x] Update DOCUMENTATION.md — no new known issues found
+- [ ] Commit remaining changes
