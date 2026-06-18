@@ -940,7 +940,7 @@ async def handle_call_tool(self, request: CallToolRequest) -> dict:
             logger.info("  - Creating LightRAGClient instance...")
             
             # Get configuration from environment variables
-            base_url = os.getenv("LIGHTRAG_BASE_URL", "http://localhost:9621")
+            base_url = os.getenv("LIGHTRAG_URL", os.getenv("LIGHTRAG_BASE_URL", "http://localhost:9621"))
             api_key = os.getenv("LIGHTRAG_API_KEY", None)
             timeout = float(os.getenv("LIGHTRAG_TIMEOUT", "30.0"))
             

@@ -4,13 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "daniel-lightrag-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for LightRAG integration"
-authors = [
-    {name = "Daniel Simpkins", email = "daniel@example.com"}
-]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
