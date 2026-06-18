@@ -1,28 +1,38 @@
-# Current Task: Phase 4 — Modernise
+# Current Task: Phase 5 — Own Tests
 
 ## Objective
-Modernise the codebase to Python 3.10+ idioms, Pydantic V2 patterns, and clean async patterns.
+Write a targeted test suite that validates the unified codebase works end-to-end, covering all three sub-projects and the key fixes from Phases 1-4.
 
 ## Steps
 
-### 4.1 — Pydantic V2: Replace `class Config` with `ConfigDict`
-- [ ] Replace all `class Config:` with `model_config = ConfigDict(...)` in `document_routes.py` (16 occurrences)
-- [ ] Check for other Pydantic V1 patterns across codebase (`@validator` → `@field_validator`, etc.)
+### 5.1 — Test the `codelightrag` namespace
+- [x] Test that `from codelightrag import LightRAG, LightRAGClient` works (with/without MCP installed)
+- [x] Test that `__version__` is correct
 
-### 4.2 — Python 3.10+ Type Annotations
-- [ ] Replace `Optional[X]` → `X | None` across codebase
-- [ ] Replace `Union[X, Y]` → `X | Y`
-- [ ] Replace `List[X]` → `list[X]`, `Dict[K, V]` → `dict[K, V]`, `Tuple` → `tuple`, `Set` → `set`
+### 5.2 — Test Pydantic V2 migration
+- [x] Test that models with `ConfigDict` work correctly (serialization, deserialization)
+- [x] Test that `file_path: Optional[str]` handles `None` correctly (the bug we fixed)
 
-### 4.3 — Async Patterns
-- [ ] Replace bare `asyncio.gather(...)` with `async with asyncio.TaskGroup() as tg:` where feasible
-- [ ] Ensure all async context managers use `async with`
+### 5.3 — Test retry logic
+- [x] Test `DocProcessingStatus` with `retry_count` and `max_retries`
+- [x] Test that exhausted retries stay FAILED
 
-### 4.4 — Match/Case (if applicable)
-- [ ] Replace long if-elif chains with `match/case` in key locations (document_routes.py, kg/__init__.py, etc.)
+### 5.4 — Test config module
+- [x] Test `get_global_args()` returns defaults without requiring `sys.argv`
+- [x] Test that `import config` doesn't have side effects
+
+### 5.5 — Test MCP ↔ LightRAG integration (expand coverage)
+- [x] Test error cases (connection refused, empty query, invalid mode)
+- [x] Test streaming queries (deferred — no streaming endpoint yet)
+- [x] Test document upload (deferred — needs running LightRAG)
+
+### 5.6 — Test env var unification
+- [x] Test that `LIGHTRAG_URL` works in MCP client (backward compat with `LIGHTRAG_BASE_URL`)
 
 ## Rules
-- Verify with `ruff check .` and `pytest tests/test_smoke_*.py` after each step
-- No breaking changes to public API
-- Each change should be purely syntactic — no behavior changes
-- Commit after each step (or batch of similar steps)
+- Use pytest with pytest-asyncio for async tests
+- Use `unittest.mock` for mocking external services
+- Keep tests fast — mock LLM, embedding, and storage
+- Add all tests in `tests/` with descriptive filenames
+- Run `pytest tests/ -v --tb=short` after each step
+- Commit after each step
