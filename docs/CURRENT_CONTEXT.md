@@ -1,44 +1,48 @@
 # Current Context
 
 ## Status
-- **Phase**: 3 — Unify 🔄 WIP
-- **Phase 1**: ✅ Complete — server starts without patches, 11/12 integration tests pass
-- **Phase 2**: ✅ Complete — 6 removals/fixes committed (39a7bdeb)
-- **Current step**: 3.1 — Single build system (root pyproject.toml)
+- **Phase**: 5 — Own Tests 🔄 WIP
+- **Phases 1–4**: ✅ Complete (all committed)
+- **Phase 5 steps 5.1–5.6**: Tests written and passing (15 tests), ready to commit
 
 ---
 
 ## What's Been Done
 
-### Phase 1 — Making It Run ✅
-- MCP name-clash fix (server → mcp_server)
-- Single dev install (scripts/setup.ps1)
-- MCP connects to LightRAG (4 integration tests)
-- Watchdog ingests via HTTP POST
-- Fix sprint: 6 bugs fixed (emoji, frontend, file_path, config.parse_args, retry loop, start_all.ps1)
-- Server starts without any runtime patches
-- End-to-end C# pipeline verified (real Ollama qwen2.5-coder + bge-m3)
+### Phase 4 — Modernise ✅
+- 17 Pydantic V2 ConfigDict blocks migrated (0 V1 deprecation warnings)
+- 271 type annotations upgraded to Python 3.10+ syntax (ruff UP006/UP007/UP035)
 
-### Phase 2 — Strip & Simplify ✅
-- Fix .cs/.rel extension bug (missing commas)
-- Fix DEFAULT_WOKERS → DEFAULT_WORKERS typo
-- Remove dead AGEStorage + ChromaVectorDBStorage entries from kg/__init__.py
-- Remove 4 duplicate requirements-offline-*.txt files
-- Remove legacy setup.py shim
-- Consolidate 6 .gitignore files → single root
+### Phase 5 — Own Tests (writing now)
+- **5.1** `tests/test_namespace.py` — codelightrag namespace, version, optional MCP client, LightRAG instantiation
+- **5.2** `tests/test_pydantic_v2.py` — ConfigDict models, Optional[str] file_path, round-trip deserialization
+- **5.3** `tests/test_retry.py` — DocProcessingStatus defaults, retry exhaustion, retry_count increments
+- **5.4** `tests/test_config.py` — lazy get_global_args(), get_env_value() defaults/parsing
+- **5.5/5.6** `tests/test_mcp_edge_cases.py` — connection refused, empty query validation, invalid mode validation, LIGHTRAG_URL / LIGHTRAG_BASE_URL env var fallback
+
+### server.py fix
+- Extracted `_get_lightrag_url()` helper from inline `os.getenv` call for testability
 
 ---
 
-## Test Suite (25 passing)
+## Test Suite (25 + 15 = 40 passing)
 ```
-tests/test_smoke_lightrag.py       — 9 tests (core + API imports)
-tests/test_smoke_mcp.py            — 9 tests (imports, models, enums)
-tests/test_smoke_watchdog.py       — 0 selected (skipped if watchdog unavailable)
-tests/test_integration_lightrag.py — 12 tests (API endpoints)
-tests/test_integration_mcp.py      — 4 tests (MCP client through LightRAG)
+tests/test_smoke_lightrag.py        —  9 tests
+tests/test_smoke_mcp.py             —  9 tests
+tests/test_smoke_watchdog.py        —  0 (skipped if unavailable)
+tests/test_integration_lightrag.py  — 12 tests
+tests/test_integration_mcp.py       —  4 tests
+tests/test_namespace.py             —  4 tests ✅
+tests/test_pydantic_v2.py           —  4 tests ✅
+tests/test_retry.py                 —  3 tests ✅
+tests/test_config.py                —  4 tests ✅
+tests/test_mcp_edge_cases.py        —  5 tests ✅ (3 MCP edge + 2 env var)
 ```
 
 ---
 
-## Next Steps
-- **Phase 3**: Unify build system, shared config, consistent imports
+## Plan — Next Actions
+1. ✅ Tests written and verified (15/15 pass)
+2. 🔄 Verify full suite still passes (pending)
+3. ⬜ Update PLAN.md — mark Phase 5 steps complete
+4. ⬜ Commit Phase 5 tests + server.py helper

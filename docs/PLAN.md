@@ -52,5 +52,14 @@ Python 3.10+ features, Pydantic V2, clean async patterns.
 ## Phase 5 — Own Tests
 Targeted test suite for the unified codebase.
 
+| Step | Status |
+|------|--------|
+| 5.1 Test codelightrag namespace | ✅ Done (test_namespace.py — 4 tests) |
+| 5.2 Test Pydantic V2 migration | ✅ Done (test_pydantic_v2.py — 4 tests) |
+| 5.3 Test retry logic | ✅ Done (test_retry.py — 3 tests) |
+| 5.4 Test config module | ✅ Done (test_config.py — 4 tests) |
+| 5.5 Test MCP ↔ LightRAG integration | ✅ Done (test_mcp_edge_cases.py — 3 edge cases) |
+| 5.6 Test env var unification | ✅ Done (test_mcp_edge_cases.py — 2 env var tests) |
+
 ## Phase 6 — Polish
 Performance profiling, Windows compat, CI/CD.

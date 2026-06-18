@@ -50,6 +50,11 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # Reduce httpx noise
 logging.getLogger("mcp").setLevel(logging.INFO)
 
+def _get_lightrag_url() -> str:
+    """Get LightRAG URL from env vars. LIGHTRAG_URL takes priority."""
+    return os.getenv("LIGHTRAG_URL", os.getenv("LIGHTRAG_BASE_URL", "http://localhost:9621"))
+
+
 # Initialize the MCP server
 mcp_server = Server("daniel-lightrag-mcp")
 
@@ -941,7 +946,7 @@ async def handle_call_tool(self, request: CallToolRequest) -> dict:
             logger.info("  - Creating LightRAGClient instance...")
             
             # Get configuration from environment variables
-            base_url = os.getenv("LIGHTRAG_URL", os.getenv("LIGHTRAG_BASE_URL", "http://localhost:9621"))
+            base_url = _get_lightrag_url()
             api_key = os.getenv("LIGHTRAG_API_KEY", None)
             timeout = float(os.getenv("LIGHTRAG_TIMEOUT", "30.0"))
             
