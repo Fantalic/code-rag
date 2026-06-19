@@ -2,7 +2,7 @@
 
 ## Status
 - 🧪 **Experimental** — building the hard part
-- **Phase 11**: Efficient incremental graph updates 🔄
+- **Phase 13**: Concurrent analyser race fix ✅
 
 ## What Exists
 
@@ -30,37 +30,55 @@ MCP Client ──stdio──► MCP Server ──┘
 - `pytest tests\` — 63 integration tests ✅
 - `pytest daniel-lightrag-mcp\tests\` — 163 MCP tests ✅
 
-## What's Being Built (Phase 11)
+## What's Built (Phase 12 ✅)
 
-```
-File change → file-type router → analyser (per ext) → diff engine → graph CRUD → security filter
-```
+Go watchdog (standalone CLI binary) replacing the Python prototype.
 
-### 11.1 ✅ Done
-- File hash cache — skip unchanged files
-- Versioned re-ingest — bypass LightRAG dedup
-- Cache cleanup on delete
+All modules live under `watchdog/internal/`:
+- `crud/client.go` — graph CRUD HTTP client
+- `diff/engine.go` — diff engine (EntityAction, RelationAction, CREATE/UPDATE/DELETE)
+- `filter/security.go` — regex PII/keys/secrets filter (same patterns as Python)
+- `router/file.go` — extension → analyser mapping
+- `parser/csharp.go` — C# analyser output parser
+- `pipeline/run.go` — pipeline orchestration with relation dedup
+- `watcher/observer.go` — file watcher + worker pool + solution-level mutex
+- `cmd/watchdog/main.go` — CLI with `watch`, `start`, `status`, `stop`, `query` commands
 
-### 11.3 ✅ Done (all 7 steps)
-- ✅ `watchdog/graph_crud.py` — HTTP client for entity/relation CRUD (create_entity, create_relation, update_entity, update_relation, delete_entity, delete_relation, get_all_entities)
-- ✅ `watchdog/security_filter.py` — regex patterns for API keys, passwords, JWTs, private keys, emails, IPs, internal paths, env secrets. `[REDACTED]` replacement.
-- ✅ `watchdog/file_router.py` — extension → analyser mapping (`.cs` → c_sharp; all others → unsupported for now)
-- ✅ `watchdog/graph_diff.py` — diff engine: EntityAction and RelationAction with CREATE/UPDATE/DELETE. Compares old/new entity sets and relation sets, ignores server-managed fields.
-- ✅ `watchdog/analyser_parsers.py` — parses C# analyser `.txt` output into structured entity/relation dicts. Format: `CLASS: <name>`, `METHOD: <name> -> RETURNS -> <type>`, `PROJECT REFERENCES:` → list of project deps. Entities: class with file_path, methods list. Relations: CLASS→method (CALLS), CLASS→project_ref (DEPENDS_ON).
-- ✅ Pipeline wired into `watchdog/main.py` — `_run_pipeline()` → `_analyse_file()` → C# analyser → `parse_csharp_output()` → diff → security filter → graph CRUD. Unsupported files fall back to old `POST /documents/text` (LLM pipeline).
+## Phase 13 Fixes (done)
 
-### Future
-- Zig analysers for: Python, JS/TS, Go, Rust (performance-critical)
-- Per-language entity extraction with consistent schema
-- Watchdog → MCP server integration (instead of direct HTTP to LightRAG)
+**Problem 1 — Concurrent analyser race:**
+- Multiple workers called the analyser on the same solution simultaneously
+- Fix: solution-level mutex + analyser runs once per solution, results shared with all workers
+
+**Problem 2 — LightRAG undirected graph alphabetical swap:**
+- LightRAG uses `nx.Graph()` (undirected), serializes edges alphabetically in API response
+- Relations created as `Calculator→Add` showed up as `source=Add, target=Calculator` in queries
+- Fix: `loadCurrentRelations` reads `src_id`/`tgt_id` from edge **properties** (preserves real direction)
+
+**Problem 3 — Duplicate relation creation:**
+- Workers created same relations concurrently, LightRAG returned errors
+- Fix: `sync.Map` relation dedup set in pipeline
+
+**Files changed:**
+- `watchdog/internal/pipeline/run.go` — `AnalyserResult` type, `RunEvent`, relation dedup
+- `watchdog/internal/watcher/observer.go` — solution grouping, mutex, Event carries results
+- `watchdog/internal/parser/csharp.go` — METHOD entities now created alongside CLASS
+
+### Architecture Notes
+
+- **Initial scan**: walks project, groups files by solution, runs analyser once per sln, enqueues all files with shared results
+- **Git watcher**: polls `git diff --name-only HEAD` every 30s for changed files (USE_GIT_WATCHER env var, default true)
+- **LightRAG graph storage**: uses undirected `nx.Graph()` — edge `source`/`target` in API responses are alphabetically sorted; always read `src_id`/`tgt_id` from edge properties for real direction
 
 ## Key Technical Decisions
 
 1. **Entity-level CRUD** > document pipeline — no LLM calls for analyser output
-2. **Analysers in Zig** for future languages — performance-critical path
+2. **Analysers in Go** for now — CPU-bound parsing work, compiled, no runtime. Zig deferred.
 3. **Security filter built into pipeline** — secret data never reaches graph
 4. **File-type routing pattern** — each extension has its own analyser entry point
 5. **No `tests/__init__.py`** — causes hang with session-scoped lifespan fixture
+6. **Solution-level analyser mutex** — prevents concurrent analyse of same .sln
+7. **LightRAG undirected graph** — edge `source`/`target` alphabetically sorted in API. Always use `src_id`/`tgt_id` from edge properties for real direction.
 
 ## Learnings
 
@@ -72,3 +90,6 @@ Session-scoped async fixtures + function-scoped test event loops = deadlock. Fix
 
 ### Graph CRUD exists separately
 LightRAG has `/graph/entity/create`, `/graph/relation/create`, `/graph/entity/edit`, etc. — these operate directly on the graph + vector DB, independent of the document pipeline.
+
+### LightRAG undirected graph
+LightRAG stores edges in `nx.Graph()` (undirected). When the `/graphs` API serializes edges, it alphabetically sorts source/target to create consistent edge IDs. The real direction is preserved in `src_id`/`tgt_id` inside the edge's `properties` dict. Always read from there.
