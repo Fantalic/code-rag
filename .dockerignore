@@ -1,0 +1,13 @@
+venv/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+rag_storage/
+relations_output/
+logs/
+.git/
+.env
+*.md
+.DS_Store
+test-csharp-project/

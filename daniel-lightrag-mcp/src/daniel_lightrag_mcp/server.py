@@ -617,13 +617,22 @@ async def handle_list_tools() -> list[Tool]:#ListToolsResult:
         # ),
                 Tool(
             name="update_relations",
-            description="run this when relations in the codebase are effected in recent code changes.",
+            description=(
+                "Run the C# code analyser on a project and ingest the structured output "
+                "into LightRAG for knowledge graph construction. Provide the absolute path "
+                "to a .sln file or a directory containing one. The analyser uses Roslyn to "
+                "extract classes, methods, and project references, then LightRAG builds "
+                "entities and relationships from that structured data."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "absolute_project_root_path": {
                         "type": "string",
-                        "description": "the absolute path of your current working root dir"
+                        "description": (
+                            "Absolute path to a .sln file or a directory containing exactly one .sln file. "
+                            "The C# analyser will be invoked on this solution."
+                        )
                     }
                 },
                 "required": ["absolute_project_root_path"]

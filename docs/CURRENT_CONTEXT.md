@@ -1,61 +1,93 @@
 # Current Context
 
 ## Status
-- **Phase**: 5 — Own Tests 🔄 WIP
-- **Phases 1–4**: ✅ Complete (all committed)
-- **Phase 5 steps 5.1–5.6**: Tests written and passing (15 tests), ready to commit
+- **Phase**: 7 — Analyser Integration into MCP Server 🔄 WIP
+- **Phases 1–6**: ✅ Complete (all committed)
+- **Phase 6**: 39/39 tests pass, WebUI builds, docs updated
 
 ---
 
 ## What's Been Done
 
-### Phase 4 — Modernise ✅
-- 17 Pydantic V2 ConfigDict blocks migrated (0 V1 deprecation warnings)
-- 271 type annotations upgraded to Python 3.10+ syntax (ruff UP006/UP007/UP035)
+### Phases 1–6 ✅
+- Monorepo unified (LightRAG + MCP + watchdog), Pydantic V2, tests pass, WebUI builds
 
-### Phase 5 — Own Tests (writing now)
-- **5.1** `tests/test_namespace.py` — codelightrag namespace, version, optional MCP client, LightRAG instantiation
-- **5.2** `tests/test_pydantic_v2.py` — ConfigDict models, Optional[str] file_path, round-trip deserialization
-- **5.3** `tests/test_retry.py` — DocProcessingStatus defaults, retry exhaustion, retry_count increments
-- **5.4** `tests/test_config.py` — lazy get_global_args(), get_env_value() defaults/parsing
-- **5.5/5.6** `tests/test_mcp_edge_cases.py` — connection refused, empty query validation, invalid mode validation, LIGHTRAG_URL / LIGHTRAG_BASE_URL env var fallback
+### Phase 7 — Analyser Integration
 
-### server.py fix
-- Extracted `_get_lightrag_url()` helper from inline `os.getenv` call for testability
+**Critical discovery**: The C# analyser (`CSharpAnalyzerTool.exe`) uses Roslyn to parse C# code at the compiler level and outputs **structured plaintext summaries** (classes, methods, return types, project references). This structured output must be **fed into LightRAG** for entity extraction and knowledge graph building — NOT raw `.cs` source files.
+
+**Previous mistake**: Our earlier server run fed raw C# source code into LightRAG. The 0.5b LLM produced gibberish because it was trying to parse raw code tokens instead of clean analyser output like:
+```
+FILE: TestLib\Calculator.cs
+
+  CLASS: Calculator
+    METHOD: Add -> RETURNS -> int
+    METHOD: Subtract -> RETURNS -> int
+
+PROJECT REFERENCES:
+```
+
+**Analyser verified working** — ran successfully:
+```
+CSharpAnalyzerTool.exe test-csharp-project\TestCodebase.sln
+Loaded 2 projects.
+Analyzing project: TestConsole
+Analyzing project: TestLib
+  -> Saved all relation files in E:\_dev\_Projects\code-lightrag\relations_output
+```
+
+**Output format**: Per-file `.txt` files in `relations_output/` with structure `{ProjectName}_{FileName}.txt` plus `_index.txt` global index. Auto-generated files (AssemblyInfo, GlobalUsings) are included but should be filtered.
+
+**What remains**: Wire the analyser into the MCP server's `update_relations` tool so an AI agent can trigger: "run the C# analyser on this project → ingest output → build graph" in one MCP call. Watchdog integration (auto-trigger on C# file changes) is a future enhancement.
 
 ---
 
-## Test Suite (25 + 15 = 40 passing)
+## Test Suite (39 passing)
 ```
-tests/test_smoke_lightrag.py        —  9 tests
-tests/test_smoke_mcp.py             —  9 tests
-tests/test_smoke_watchdog.py        —  0 (skipped if unavailable)
-tests/test_integration_lightrag.py  — 12 tests
-tests/test_integration_mcp.py       —  4 tests
-tests/test_namespace.py             —  4 tests ✅
-tests/test_pydantic_v2.py           —  4 tests ✅
-tests/test_retry.py                 —  3 tests ✅
-tests/test_config.py                —  4 tests ✅
-tests/test_mcp_edge_cases.py        —  5 tests ✅ (3 MCP edge + 2 env var)
+tests/test_smoke_lightrag.py        —  9
+tests/test_smoke_mcp.py             —  9
+tests/test_smoke_watchdog.py        —  0 (skipped)
+tests/test_integration_lightrag.py  — 12
+tests/test_integration_mcp.py       —  4
+tests/test_namespace.py             —  4
+tests/test_pydantic_v2.py           —  4
+tests/test_retry.py                 —  3
+tests/test_config.py                —  4
+tests/test_mcp_edge_cases.py        —  5
 ```
 
 ---
 
-## Phase 6 — Full Suite Run + Cleanup
+## Current Integration Work
 
-### 6.1 Full test suite ✅
-- **39 tests pass** in clean `venv` (setup.ps1) — all unit, smoke, MCP edge cases
-- AGENTS.md updated: venv-first workflow, activation step in Testing section
+### Goal
+Implement `analyser_runner.py` — a Python module that:
+1. Finds the C# analyser binary (`CSharpAnalyzerTool.exe`) relative to its own package location
+2. Takes a project path (.sln file or directory containing .sln)
+3. Runs the analyser via `subprocess` in a temp or specified output directory
+4. Filters output files (skips auto-generated `obj/` artifacts, `_index.txt`)
+5. Returns metadata about generated files
 
-### 6.2 WebUI build ✅
-- WebUI (React 19 + Vite + Tailwind CSS v4) built successfully — 113 assets
-- Build output at `LightRAG/lightrag/api/webui/`
-- `check_frontend_build()` now detects the build and prints "Frontend build is up-to-date"
-- No more need for `lambda: None` patch — server mounts webui automatically
-- `setup.ps1` updated: builds webui automatically after Python install (if Bun available)
-- Built webui is `.gitignore`d (standard practice for build artifacts)
+Then wire it into `client.py:update_relations()` to:
+1. Run the analyser on the given project path
+2. Read each output `.txt` file
+3. POST each to LightRAG `/documents/text` for embedding + graph building
+4. Return structured results
 
-### Remaining (post-6.2)
-- Integration tests (12 tests) — needs `pytest tests/ -v --tb=short --timeout=300`
-- WebUI not covered by Python tests (React/Vite — needs separate Vitest setup)
-- Future: CI/CD pipeline, performance profiling
+### Key design decisions
+- Analyser output goes to `<project>/.rag/` directory (consistent, not temp)
+- Filters out `AssemblyInfo`, `GlobalUsings`, `AssemblyAttributes` (auto-generated noise)
+- Uses `insert_text` API endpoint (same as watchdog)
+- Path to analyser binary resolved relative to `__file__` in the Python package
+
+### Blockers
+- .NET 9 runtime required for analyser (available: ✅ 9.0.17)
+- Docker Hub blocked on this network (Dockerfiles written but untestable locally)
+- 0.5b LLM too weak for entity extraction even from clean analyser output (need 1.5b+)
+
+### Next Steps
+1. ✅ Read all relevant code (server.py, client.py, watchdog, analyser output)
+2. ⬜ Implement `analyser_runner.py`
+3. ⬜ Wire into `client.py:update_relations()`
+4. ⬜ Update `server.py` tool description
+5. ⬜ Test end-to-end: run analyser → ingest → query

@@ -68,4 +68,16 @@ Targeted test suite for the unified codebase.
 | 6.1 Run full test suite | ✅ Done — 39/39 pass (unit + smoke + MCP edge) |
 | 6.2 Fix regressions | ✅ Done — no regressions, venv fixes starlette conflict |
 | 6.3 Build and verify WebUI | ✅ Done — 113 assets, auto-build in setup.ps1 |
-| 6.4 Clean up docs | 🔄 WIP (commit pending) |
+| 6.4 Clean up docs | ✅ Done — AGENTS.md venv workflow, current context updated |
+
+## Phase 7 — Analyser Integration into MCP Server
+
+| Step | Status |
+|------|--------|
+| 7.1 Inventory existing C# analysers + Docker files | ✅ Done |
+| 7.2 Create C# test project for analysis | ✅ Done (test-csharp-project with TestCodebase.sln) |
+| 7.3 Create Docker setup | ✅ Done (Dockerfile + docker-compose.yml, untestable locally) |
+| 7.4 Create analyser_runner.py module | 🔄 WIP |
+| 7.5 Wire update_relations to run analyser + ingest into LightRAG | ⬜ |
+| 7.6 Test end-to-end pipeline with real analyser output | ⬜ |
+| 7.7 Document findings and commit | ⬜ |

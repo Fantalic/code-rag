@@ -72,6 +72,8 @@ test-csharp-project/output/
 # Data & Storage
 inputs/
 rag_storage/
+relations_output/
+
 data/
 examples/input/
 examples/output/

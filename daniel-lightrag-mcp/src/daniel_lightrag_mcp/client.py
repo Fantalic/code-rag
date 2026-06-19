@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from collections.abc import AsyncGenerator
 import httpx
+from .analyser_runner import run_analysis
 from .models import (
     # Request models
     InsertTextRequest, InsertTextsRequest, QueryRequest, EntityUpdateRequest,
@@ -479,14 +480,50 @@ class LightRAGClient:
 #     return results
 
 
-    async def update_relations(self, path) -> list[str]:
-        """Update relations based on recent code changes."""
-        # create_relations(path, "relation_graph_txt")
-        return [ 
-            "creation of relational graph complete."+
-            "you find the files under the folder relation_graph_txt."+
-            "Lightrag still has to tranform these into a graph. It will take a while"
+    async def update_relations(self, path: str) -> list[str]:
+        """Run C# analyser on a project and ingest output into LightRAG."""
+        self.logger.info(f"update_relations: analysing project at {path}")
+
+        # Step 1: Run the analyser
+        try:
+            analysis_results = run_analysis(path)
+        except Exception as e:
+            self.logger.error(f"Analyser failed: {e}")
+            return [f"ERROR: C# analyser failed: {e}"]
+
+        if not analysis_results:
+            return ["WARNING: C# analyser produced no output files to ingest"]
+
+        # Step 2: Ingest each analyser output file into LightRAG
+        self.logger.info(f"Ingesting {len(analysis_results)} analyser output files into LightRAG")
+        track_ids: list[str] = []
+        errors: list[str] = []
+
+        for filename, content in analysis_results:
+            try:
+                # Use filename as title for traceability
+                title = filename.replace(".txt", "")
+                result = await self.insert_text(content, title=title)
+                if hasattr(result, 'track_id') and result.track_id:
+                    track_ids.append(result.track_id)
+                self.logger.info(f"Ingested {filename} → track_id={getattr(result, 'track_id', 'N/A')}")
+            except Exception as e:
+                msg = f"Failed to ingest {filename}: {e}"
+                self.logger.error(msg)
+                errors.append(msg)
+
+        # Step 3: Return summary
+        summary_parts: list[str] = [
+            f"Analyser generated {len(analysis_results)} output files for {path}",
+            f"Ingested {len(track_ids)} files into LightRAG",
         ]
+        if errors:
+            summary_parts.append(f"Errors: {'; '.join(errors)}")
+        summary_parts.append(
+            "LightRAG is now processing the analyser output to build the knowledge graph. "
+            "This may take a few minutes depending on LLM speed."
+        )
+        return summary_parts
 
     async def get_related_files(self, query: str, mode: str = "hybrid", limit: int = 10) -> RelatedFilesResponse:
         """Get files related to a query or keywords."""

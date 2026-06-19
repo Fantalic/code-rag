@@ -1,0 +1,39 @@
+services:
+  ollama:
+    profiles: ["ollama-docker"]
+    image: ollama/ollama:latest
+    container_name: lightrag-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  lightrag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lightrag-server
+    ports:
+      - "9621:9621"
+    volumes:
+      - rag_data:/app/data
+      - ./rag_input:/app/data/inputs
+    environment:
+      - LLM_BINDING_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - EMBEDDING_BINDING_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - LLM_MODEL=qwen3-coder:480b-cloud
+      - EMBEDDING_MODEL=bge-m3:latest
+      - EMBEDDING_DIM=1024
+      - WORKING_DIR=/app/data/rag_storage
+      - INPUT_DIR=/app/data/inputs
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  rag_data:
