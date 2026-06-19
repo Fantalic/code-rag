@@ -1,57 +1,85 @@
 # 🔥 Phase 11 — Efficient Incremental Graph Updates
 
-## The Problem
+## The Vision
 
-Right now, the watchdog detects file changes but does the dumb thing:
-
-```
-File changes → re-read entire file → re-embed everything → replace in graph
-```
-
-This is wasteful and slow. For a real codebase, you'd re-process thousands of lines just because one function signature changed.
-
-## What We Want
+A watchdog that watches your codebase and updates the knowledge graph through **two paths**:
 
 ```
-File changes → parse the file → compare with existing graph entities →
-update/create/delete only the entities and relations that actually changed →
-no redundant embeddings → minimal API calls to LightRAG
+Path A (direct graph CRUD, no LLM):
+  File change → file_router → analyser → diff → security_filter → graph CRUD
+
+Path B (LLM pipeline via insert_text):
+  File change → POST /documents/text → LLM extraction → graph
 ```
 
-## Steps
+- **Path A** — only changed entities/relations get updated. No LLM calls for structured analyser output.
+- **Path B** — kept intentionally. LLM re-parsing adds value for complex/unstructured files.
+- **Security filter** strips PII/keys before anything reaches the graph.
 
-### 11.1 — Inventory current watchdog flow
-- [ ] Read `watchdog/main.py` — what does it do on file change?
-- [ ] Read LightRAG insert/update API — what granularity does it support?
-- [ ] Read MCP `update_relations` tool — how does the C# analyser pipeline work?
-- [ ] Document the full current pipeline
+## 11.1 ✅ Done — File hash tracking + dedup fix
 
-### 11.2 — Entity-level tracking
-- [ ] Design: how to map file paths → existing graph entities
-- [ ] If LightRAG supports entity-level updates: expose them via MCP
-- [ ] If not: implement a diff layer between watchdog and LightRAG
+- `watchdog/main.py`: MD5 hash cache skips unchanged files
+- Versioned file_source (`file#v1`, `file#v2`) bypasses LightRAG dedup on re-ingest
+- Cache cleanup on file deletion
 
-### 11.3 — Diff-based updates
-- [ ] For each changed file: parse, extract current entities, compare with graph state
-- [ ] Generate minimal update payload (only changed relations)
-- [ ] Batch API calls to avoid N+1
+## 11.3 ✅ Done — Generic graph diff pipeline
 
-### 11.4 — Avoid redundant work
-- [ ] Track file hashes to skip unchanged files entirely
-- [ ] Skip embedding for entities that haven't changed
+### Architecture
 
-### 11.5 — Stress test
-- [ ] Watch a real project (this repo?), measure graph drift
-- [ ] Verify: change one method → only that method's relations update
+```
+watchdog/main.py
+  │ file change event (path, change_type)
+  ▼
+watchdog/file_router.py       ← routes by extension
+  │ .cs → C# analyser
+  │ .py/.js/etc → ignored (future: Zig)
+  ▼
+watchdog/graph_diff.py         ← old vs new entities → CRUD actions
+watchdog/security_filter.py    ← strips PII/keys/secrets
+watchdog/graph_crud.py         ← calls LightRAG entity/relation endpoints
+  ▼
+LightRAG Graph (no LLM pipeline)
+```
 
-## Verification
+### Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Read LightRAG graph CRUD API request/response formats | ✅ |
+| 2 | Create `watchdog/graph_crud.py` — HTTP client for entity/relation CRUD | ✅ |
+| 3 | Create `watchdog/graph_diff.py` — diff engine (old vs new → CRUD actions) | ✅ |
+| 4 | Create `watchdog/security_filter.py` — regex patterns for PII/keys/secrets | ✅ |
+| 5 | Create `watchdog/file_router.py` — extension → analyser mapping | ✅ |
+| 6 | Wire pipeline into `watchdog/main.py` (fallback to old POST for unsupported) | ✅ |
+| 7 | Connect C# analyser output to graph CRUD (bypass `insert_text`) | ✅ |
+
+### Pipeline behavior
+
+- **Supported files** (e.g. `.cs`): routed to analyser → entities+relations extracted → diffed against graph → security filtered → graph CRUD applied
+- **Unsupported files**: falls back to old-style `POST /documents/text` (LLM pipeline)
+- The pipeline skeleton is wired; step 7 will add structured entity extraction from the C# analyser output
+
+### Security filter patterns (must catch)
+
+| Pattern | Example | Risk |
+|---------|---------|------|
+| API keys | `sk-...`, `ghp_...`, `AKIA...` | High |
+| Passwords | `password=...`, `PASS=...` | High |
+| Tokens | `token=...`, `eyJ...` (JWT) | High |
+| Emails | `user@domain.com` | Medium |
+| IPs | `192.168.x.x`, `10.x.x.x` | Medium |
+| Private keys | `-----BEGIN RSA PRIVATE KEY-----` | Critical |
+
+## Key Files
+
+- `watchdog/main.py` — entry point, already has hash tracking
+- `watchdog/` — new modules go here
+- `LightRAG/lightrag/api/routers/graph_routes.py` — graph CRUD endpoints
+- `LightRAG/lightrag/api/routers/document_routes.py` — document dedup logic
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` — reference for HTTP calls
+
+## Verify
 
 - `pytest tests\` → 63 passed
 - `pytest daniel-lightrag-mcp\tests\` → 163 passed
-- Manual: edit a file, watch the graph update without full rebuild
-
-## Key Files
-- `watchdog/main.py` — starting point
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/server.py` — MCP `update_relations` tool
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/models.py` — entity/relation models
-- `daniel-lightrag-mcp/analysers/` — C# analyser runner
+- Manual: edit a supported file → watchdog detects change → routes through pipeline (Path A or fallback to Path B)

@@ -2,40 +2,88 @@
 
 ## The Big Idea
 
-Make a **live, minimal-work knowledge graph** for codebases. When you save a file, the graph updates — only the changed parts, no full rebuilds, no wasted tokens.
+A **live, minimal-work knowledge graph** for codebases. When you save a file, only the affected entities and relations update — no full rebuilds, no wasted tokens, no secrets leaked.
 
 ## What We Have ✅
 
-All foundation:
-- LightRAG + MCP server + watchdog working together as a monorepo
-- 22 MCP tools for AI agents to query the graph
-- C# analyser pipeline (extracts entities + relations)
+- Monorepo: LightRAG + MCP server + watchdog working together
+- 22 MCP tools for AI agents to query the knowledge graph
+- C# analyser (Roslyn-based, compiled binary) — extracts classes, methods, inheritance, deps
+- File-watch with debouncing + hash tracking (skips no-op events)
 - 226 passing tests (63 root + 163 MCP)
-- Pydantic V2, Python 3.10+ types
-- Docker Compose deploy
-- CI workflow
 
-## The Hard Part — Next Up 🔥
+## Phase 11 — Efficient Incremental Updates 🔥
 
-### Phase 11 — Efficient Incremental Graph Updates
+### Architecture
 
-The actual hard problem. Watchdog detects changes, but right now it only re-ingests whole files. We need **entity-level granularity**.
+```
+[File changes] ──► [Watchdog] ──► [File-type router]
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              ▼                        ▼                        ▼
+      ┌──────────────┐       ┌──────────────┐        ┌──────────────┐
+      │  C# analyser │       │  Zig analyser │        │  JSON/TXT    │
+      │  (Roslyn)    │       │  (future)     │        │  analyser    │
+      └──────┬───────┘       └──────┬────────┘        └──────┬───────┘
+             │                      │                        │
+             └──────────────────────┼────────────────────────┘
+                                    ▼
+                    ┌──────────────────────────────┐
+                    │        Diff engine            │
+                    │  old entities vs new entities  │
+                    └──────────────┬───────────────┘
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │    Graph CRUD executor        │
+                    │  create/update/delete entities│
+                    │  & relations via LightRAG API │
+                    └──────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │   Security filter (PII/keys)  │
+                    │   Strip secrets before embed  │
+                    └──────────────────────────────┘
+```
 
-| Step | Status |
-|------|--------|
-| 11.1 — Analyse what changes per file event | ⬜ |
-| 11.2 — Map file paths → existing graph entities | ⬜ |
-| 11.3 — Diff-based relation updates (create/modify/delete) | ⬜ |
-| 11.4 — Avoid redundant embeddings on unchanged entities | ⬜ |
-| 11.5 — Stress test: watch a real project, measure graph drift | ⬜ |
+### Current state
 
-### Phase 12 — Beyond C# (maybe)
+| Layer | Status |
+|-------|--------|
+| File hash tracking (skip unchanged) | ✅ Done (11.1) |
+| Versioned re-ingest (bypass dedup) | ✅ Done (11.1) |
+| C# analyser pipeline | ✅ Done (Phase 7) |
+| File-type routing (ignore unsupported) | ⬜ Next |
+| Wire watchdog → C# analyser on .cs changes | ⬜ Next |
+| Graph CRUD (direct endpoints, no LLM) | ⬜ Next |
+| Diff engine (old vs new entities) | ⬜ Next |
+| Security filter (PII, keys, secrets) | ⬜ Next |
+| Zig analysers (multi-language) | ⬜ Future |
 
-Language-agnostic analyser? YAML? Python self-analysis? TBD after Phase 11 proves the pattern.
+### File type plan
 
-## What We're Not Doing
+| Extension | Analyser | Status |
+|-----------|----------|--------|
+| `.cs` | C# Roslyn (existing) | ✅ Working, needs graph CRUD |
+| `.py`, `.js`, `.ts`, `.go`, `.rs` | Zig (future) | ⏸️ |
+| `.md`, `.txt`, `.json`, `.yaml`, `.ini`, `.toml` | Zig (future) | ⏸️ |
+| Everything else | Ignored | ✅ Default |
 
-- ❌ PyPI publishing (not useful as a library)
-- ❌ Premature corporate docs (CHANGELOG, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY — deleted, not ready for them yet)
-- ❌ Perfection — this is an **experimental fun project** that ships
-- ❌ GitHub CI workflows / issue templates — premature, deleted
+### Security
+
+All analysers **must** filter before inserting into the graph:
+- 🔴 API keys, tokens, passwords (`sk-...`, `ghp_...`, etc.)
+- 🔴 Email addresses, usernames, personal names
+- 🔴 IP addresses, internal URLs, server paths
+- 🔴 Any `SECRETS`/`PASSWORDS`/`TOKENS` env var values
+
+The security filter lives in the pipeline **after** extraction but **before** graph insertion. This prevents sensitive data from ever reaching the vector DB.
+
+---
+
+## What We're Not Doing (Yet)
+
+- ❌ PyPI publishing
+- ❌ Premature corporate docs
+- ❌ Full-language support before the pipeline pattern is proven with C#
+- ❌ Perfection — experimental project that ships

@@ -95,8 +95,17 @@ ruff check .
 - Vitest for UI components
 - Export required `LIGHTRAG_*` env vars before integration tests
 
-## Project Docs
-See `docs/` for project plan, context tracking, and documentation.
+## Documentation
+
+| File | What it's for | Keep updated |
+|------|---------------|--------------|
+| `docs/DOCUMENTATION.md` | High-level system reference — architecture, components, pipeline, security | ✅ **Always** — update when adding/modifying endpoints, analysers, or flow |
+| `docs/API_REFERENCE.md` | Detailed API schemas — every endpoint with request/response, internal function refs | ✅ **Always** — update when adding/changing endpoints or internal graph functions |
+| `docs/PLAN.md` | High-level roadmap — where we're going, what's next | ✅ Update when phases change |
+| `docs/CURRENT_CONTEXT.md` | Session memory — current state, what's been done, key decisions | ✅ Update after each task |
+| `docs/TASK.md` | Active task breakdown — detailed steps for what we're building now | ✅ Update before/after each task |
+
+**Rule**: If you change how a component works, update `DOCUMENTATION.md` in the same commit. It's the single source of truth for the system.
 
 ## Current Task
 The active sub-task prompt is in `docs/TASK.md`. Read it first before starting any work on the current phase.

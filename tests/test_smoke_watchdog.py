@@ -11,6 +11,8 @@ WATCHDOG_FILE = os.path.join(WATCHDOG_DIR, "main.py")
 @pytest.fixture(scope="session")
 def watchdog_mod():
     import importlib.util
+
+    sys.path.insert(0, WATCHDOG_DIR)
     spec = importlib.util.spec_from_file_location(
         "watchdog_main", WATCHDOG_FILE
     )
