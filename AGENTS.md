@@ -59,9 +59,10 @@ python -m daniel_lightrag_mcp
 python watchdog/main.py
 ```
 
-### Test (root suite, 39+ tests)
+### Test (root suite, 63 tests)
 ```bash
 pytest tests/ -v
+pytest daniel-lightrag-mcp/tests/ -v  # MCP test suite (163 tests)
 ```
 
 ### Lint

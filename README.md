@@ -1,77 +1,118 @@
-# CodeGraph — Codebase Knowledge Graph System
+# 🔥 CodeLightRAG — An AI That *Sees* Your Codebase Grow
 
-**CodeGraph** transforms codebases into knowledge graphs for AI agent consumption. It uses a graph-based RAG engine to store classes, methods, and their relationships as a semantic knowledge graph, so agents can search and understand codebases without reading every source file.
+> Stop serializing your whole repo into a prompt. Give your AI a live knowledge graph that breathes with every commit.
 
-## Architecture
+CodeLightRAG watches your filesystem, builds a **semantic knowledge graph** of entities, classes, functions, and their relationships — and exposes it to AI agents via 22 [Model Context Protocol](https://modelcontextprotocol.io) tools. No more "please read these 400 files before answering."
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  C# Analyzer │───▶│   LightRAG   │◀───│   Watchdog   │
-│  (extracts   │    │  (knowledge  │    │  (auto-      │
-│   relations) │    │   graph DB)  │    │   ingests)   │
-└──────────────┘    └──────┬───────┘    └──────────────┘
-                           │
-                    ┌──────▼───────┐
-                    │  MCP Server  │
-                    │  (22 tools   │
-                    │   for agents)│
-                    └──────────────┘
+[You code] ──► [Watchdog] ──► [LightRAG Graph] ◄──► [MCP Server] ◄──► [AI Agent]
 ```
 
-- **LightRAG** — Forked RAG engine that stores code entities and relations in a graph database for semantic search
-- **C# Analyzer** (`daniel-lightrag-mcp/analysers/`) — Extracts classes, methods, inheritance, and dependency relations from C# codebases
-- **MCP Server** (`daniel-lightrag-mcp/`) — 22 Model Context Protocol tools for AI agents to query the codebase knowledge graph
-- **Watchdog** (`watchdog/`) — File system watcher that auto-ingests changed files into LightRAG
+---
 
-## Getting Started
+## 🚀 What Makes This Different
 
-```bash
-# LightRAG core
-cd LightRAG
-pip install -e .
-# or with API: pip install -e .[api]
+Most "AI for code" tools dump raw files into context. CodeLightRAG does something harder:
 
-# MCP server
-cd ../daniel-lightrag-mcp
-pip install -e ".[dev]"
+| Approach | What happens |
+|----------|-------------|
+| ❌ Naive RAG | Chunk every file → embed → retrieve snippets. No structure. |
+| ✅ **CodeLightRAG** | Parse code into **entities** (classes, functions) + **relations** (inherits, calls, imports) → store as a knowledge graph → agents query relationships, not text. |
 
-# Watchdog
-cd ../watchdog
-pip install watchdog
+**The result**: An AI agent can ask "what does `handleRequest` depend on?" and get back a graph traversal instead of 12 irrelevant code blocks.
+
+---
+
+## ✨ Features That Actually Matter
+
+- 🔍 **22 MCP tools** — health, insert, query, knowledge graph, document management, system tools
+- 🤖 **Agent-native** — speaks MCP, the protocol Claude Desktop, Cursor, and others understand natively
+- ⚡ **Live indexing** — watchdog sees your `git checkout` and updates the graph automatically
+- 🧩 **Multi-language C# analyser** — extracts classes, methods, inheritance, deps from .NET projects
+- 🐳 **Docker-ready** — LightRAG + MCP server deploy in containers
+- 🕸️ **Web UI** — React 19 interface for visual graph exploration (113 built assets)
+- 🧪 **226 passing tests** — because "it works on my machine" isn't a strategy
+
+---
+
+## ⚡ Quick Start
+
+```powershell
+# One command — venv, deps, everything
+.\scripts\setup.ps1
+
+# Three terminals, one system:
+lightrag-server          # Terminal 1: RAG API on :9621
+python -m daniel_lightrag_mcp   # Terminal 2: MCP bridge
+python watchdog\main.py         # Terminal 3: file watcher
 ```
 
-## License & Attribution
+Or smash them all at once:
+```powershell
+.\scripts\start_all.ps1
+```
 
-This project incorporates code from several sources:
+---
 
-### LightRAG (MIT)
-- **Source**: [https://github.com/HKUDS/LightRAG](https://github.com/HKUDS/LightRAG)
-- **Copyright**: (c) 2025 LightRAG Team (HKUDS)
-- **License**: MIT — see [LightRAG/LICENSE](LightRAG/LICENSE)
-- **Changes**: Heavily forked with modifications to core, API, web UI, and storage backends
+## 🧪 Where We Are
 
-### daniel-lightrag-mcp (MIT)
-- **Source**: [https://github.com/desimpkins/daniel-lightrag-mcp](https://github.com/desimpkins/daniel-lightrag-mcp)
-- **Copyright**: (c) 2025 Daniel Simpkins
-- **License**: MIT — see [daniel-lightrag-mcp/LICENSE](daniel-lightrag-mcp/LICENSE)
+**Status**: `experimental` 🧪 · **Build**: `226 tests passing` ✅
 
-### watchdog
-- User's own work
-- **License**: MIT
+| Suite | Tests |
+|-------|-------|
+| Root integration | 63 ✅ |
+| MCP server | 163 ✅ |
+| Lint (ruff) | ... we'll get there 😅 |
 
-### Additional Code
-All new code, analysers, agent prompts, and modifications in this fork:
-- **License**: MIT (see root [LICENSE](LICENSE))
+---
 
-## Project Structure
+## 🗺️ What's Next
+
+The big technical meat of this project — and the reason it exists — is **efficient incremental graph updates**. Current state:
+
+- ✅ **Watchdog detects file changes** (create, modify, delete)
+- ✅ **LightRAG stores entities + relations** in a queryable graph
+- ❌ **Watchdog only re-ingests whole files** — no diff-based relation updates
+- ❌ **No entity-level granularity** — changing one method re-parses the entire file
+
+**Next phase**: wire the watchdog to the analyser pipeline so that when you change a single function signature, only the affected relations get updated in the graph. No full rebuilds. No redundant embeddings.
+
+If that sounds like a fun systems problem — it is. That's the part I'm building right now.
+
+---
+
+## 🔧 Stack
+
+| Layer | What |
+|-------|------|
+| **RAG Engine** | LightRAG (forked) — FastAPI, Pydantic V2, asyncio |
+| **Agent Protocol** | MCP Server — 22 tools, stdio transport |
+| **File Watch** | `watchdog` Python library |
+| **Analyser** | C# .NET 9 (compiled binary) |
+| **Storage** | LightRAG graph store (pluggable backends) |
+| **Tests** | pytest + pytest-asyncio — 226 passing |
+| **Python** | 3.10+ (yes, 3.8 is finally gone) |
+| **Container** | Docker Compose — LightRAG + MCP |
+
+---
+
+## 📁 Structure
 
 ```
 code-lightrag/
-├── LightRAG/                    ← Forked RAG engine (main project)
-├── daniel-lightrag-mcp/         ← MCP server + code analysers
-├── watchdog/                    ← File change watcher
-├── .opencode/                   ← CodeGraph agent scanning prompts
-├── .clinerules/                 ← Agent rules
-├── AGENTS.md                    ← Development guidelines
-└── LICENSE                      ← MIT license
+├── LightRAG/                  ← RAG engine (forked)
+│   ├── lightrag/              ← Python core
+│   ├── lightrag-api/          ← FastAPI service
+│   └── lightrag_webui/        ← React 19 UI
+├── daniel-lightrag-mcp/       ← MCP server + code analysers
+├── watchdog/                  ← File change watcher
+├── scripts/                   │  Dev tooling
+├── tests/                     │  63 integration tests
+└── docs/                      │  Plans, context, decisions
 ```
+
+---
+
+## 📜 License
+
+MIT. This monorepo builds on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [daniel-lightrag-mcp](https://github.com/desimpkins/daniel-lightrag-mcp) (MIT) — both excellent projects that made this possible.

@@ -13,9 +13,9 @@ from daniel_lightrag_mcp.client import LightRAGClient
 from daniel_lightrag_mcp.server import mcp_server as server
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def event_loop():
-    """Create an instance of the default event loop for the test session."""
+    """Create an instance of the default event loop for each test."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
@@ -131,6 +131,15 @@ def sample_query_response():
 def sample_documents_response():
     """Sample documents response for testing."""
     return {
+        "documents": [
+            {
+                "id": "doc_123",
+                "title": "Test Document",
+                "status": "processed",
+                "created_at": "2024-01-01T00:00:00Z",
+                "metadata": {"author": "test"}
+            }
+        ],
         "statuses": {}
     }
 
@@ -139,27 +148,29 @@ def sample_documents_response():
 def sample_graph_response():
     """Sample knowledge graph response for testing."""
     return {
-        "entities": [
+        "nodes": [
             {
                 "id": "entity_123",
                 "name": "Test Entity",
                 "type": "concept",
                 "properties": {"description": "A test entity"},
-                "created_at": "2024-01-01T00:00:00Z"
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": None
             }
         ],
-        "relations": [
+        "edges": [
             {
                 "id": "rel_123",
                 "source_entity": "entity_123",
                 "target_entity": "entity_456",
                 "type": "related_to",
                 "properties": {"strength": "high"},
-                "weight": 0.8
+                "weight": 0.8,
+                "created_at": None,
+                "updated_at": None
             }
         ],
-        "total_entities": 1,
-        "total_relations": 1
+        "is_truncated": False
     }
 
 

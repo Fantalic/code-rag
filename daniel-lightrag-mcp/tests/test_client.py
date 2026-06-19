@@ -133,8 +133,8 @@ class TestDocumentManagementMethods:
         
         # Verify request data
         request_data = call_args[1]["json"]
-        assert request_data["content"] == "test content"
-        assert request_data["title"] == "Test Title"
+        assert request_data["text"] == "test content"
+        assert request_data["file_source"] == "Test Title.txt"
     
     async def test_insert_text_empty_content(self, lightrag_client, mock_response, sample_insert_response):
         """Test text insertion with empty content (should be allowed)."""
@@ -256,7 +256,7 @@ class TestDocumentManagementMethods:
         # Setup mock
         delete_response = {"deleted": True, "document_id": "doc_123"}
         response = mock_response(200, delete_response)
-        lightrag_client.client.delete = AsyncMock(return_value=response)
+        lightrag_client.client.request = AsyncMock(return_value=response)
         
         # Execute
         result = await lightrag_client.delete_document("doc_123")
@@ -264,7 +264,7 @@ class TestDocumentManagementMethods:
         # Verify
         assert result.deleted is True
         assert result.document_id == "doc_123"
-        lightrag_client.client.delete.assert_called_once()
+        lightrag_client.client.request.assert_called_once()
     
     async def test_clear_documents_success(self, lightrag_client, mock_response):
         """Test successful document clearing."""
@@ -378,7 +378,7 @@ class TestKnowledgeGraphMethods:
         assert result.entities[0].id == "entity_123"
         assert result.relations[0].id == "rel_123"
         lightrag_client.client.get.assert_called_once_with(
-            "http://localhost:9621/graphs", params=None
+            "http://localhost:9621/graphs", params={"label": "*"}
         )
     
     async def test_get_graph_labels_success(self, lightrag_client, mock_response):
@@ -419,7 +419,7 @@ class TestKnowledgeGraphMethods:
         assert result.entity_id == "ent_123"
         lightrag_client.client.get.assert_called_once_with(
             "http://localhost:9621/graph/entity/exists", 
-            params={"entity_name": "Test Entity"}
+            params={"name": "Test Entity"}
         )
     
     async def test_update_entity_success(self, lightrag_client, mock_response):
@@ -442,8 +442,8 @@ class TestKnowledgeGraphMethods:
         call_args = lightrag_client.client.post.call_args
         request_data = call_args[1]["json"]
         assert request_data["entity_id"] == "ent_123"
-        assert request_data["properties"] == properties
-    
+        assert request_data["updated_data"] == properties
+
     async def test_update_relation_success(self, lightrag_client, mock_response):
         """Test successful relation update."""
         # Setup mock
@@ -453,7 +453,7 @@ class TestKnowledgeGraphMethods:
         
         # Execute
         properties = {"type": "strongly_related", "weight": 0.9}
-        result = await lightrag_client.update_relation("rel_123", properties)
+        result = await lightrag_client.update_relation("ent_123", "ent_456", properties)
         
         # Verify
         assert result.updated is True
@@ -465,7 +465,7 @@ class TestKnowledgeGraphMethods:
         # Setup mock
         delete_response = {"deleted": True, "id": "ent_123", "type": "entity"}
         response = mock_response(200, delete_response)
-        lightrag_client.client.delete = AsyncMock(return_value=response)
+        lightrag_client.client.request = AsyncMock(return_value=response)
         
         # Execute
         result = await lightrag_client.delete_entity("ent_123")
@@ -474,14 +474,14 @@ class TestKnowledgeGraphMethods:
         assert result.deleted is True
         assert result.id == "ent_123"
         assert result.type == "entity"
-        lightrag_client.client.delete.assert_called_once()
+        lightrag_client.client.request.assert_called_once()
     
     async def test_delete_relation_success(self, lightrag_client, mock_response):
         """Test successful relation deletion."""
         # Setup mock
         delete_response = {"deleted": True, "id": "rel_123", "type": "relation"}
         response = mock_response(200, delete_response)
-        lightrag_client.client.delete = AsyncMock(return_value=response)
+        lightrag_client.client.request = AsyncMock(return_value=response)
         
         # Execute
         result = await lightrag_client.delete_relation("rel_123")
@@ -490,7 +490,7 @@ class TestKnowledgeGraphMethods:
         assert result.deleted is True
         assert result.id == "rel_123"
         assert result.type == "relation"
-        lightrag_client.client.delete.assert_called_once()
+        lightrag_client.client.request.assert_called_once()
 
 
 @pytest.mark.asyncio

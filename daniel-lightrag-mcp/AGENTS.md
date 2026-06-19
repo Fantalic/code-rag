@@ -11,7 +11,7 @@ This is an MCP server for LightRAG.
 ## Lint and Format Commands
 - Format code: black src/ tests/ --line-length 88
 - Sort imports: isort src/ tests/ --profile black
-- Type checking: mypy src/ --python-version 3.8 --disallow-untyped-defs --warn-return-any
+- Type checking: mypy src/ --python-version 3.10 --disallow-untyped-defs --warn-return-any
 - Run all lint: black --check src/ tests/ && isort --check-only src/ tests/ && mypy src/
 
 ## Test Commands
@@ -22,13 +22,13 @@ This is an MCP server for LightRAG.
 - Async tests: pytest -m asyncio tests/
 
 ## Code Style Guidelines
-- **Formatting**: Use Black (line-length=88, target Python 3.8+). No manual formatting.
+- **Formatting**: Use Black (line-length=88, target Python 3.10+). No manual formatting.
 - **Imports**: isort with Black profile. Group standard lib, third-party, local imports. Absolute imports preferred.
 - **Typing**: Full type annotations using typing/Pydantic. Enums for statuses/modes. Strict mypy: disallow untyped defs, warn on unused configs.
 - **Naming**: snake_case for functions/variables, PascalCase for classes/models. Descriptive names (e.g., InsertTextRequest).
 - **Error Handling**: Use Pydantic validation for inputs. Try-except for runtime errors (e.g., KeyboardInterrupt, HTTP errors). Log exceptions with context.
 - **Structure**: Models in models.py with BaseModel. CLI in cli.py. Use asyncio for async ops. No inline comments unless necessary.
-- **Conventions**: Python 3.8+. Follow PEP 8. Pydantic for API models. Test with pytest-asyncio for async.
+- **Conventions**: Python 3.10+. Follow PEP 8. Pydantic for API models. Test with pytest-asyncio for async.
 
 ## Additional Notes
 - Always run lint/typecheck after changes: black, isort, mypy.

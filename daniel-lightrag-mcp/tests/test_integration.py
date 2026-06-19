@@ -10,7 +10,10 @@ from typing import Dict, Any, List
 
 from mcp.types import CallToolRequest, CallToolResult
 from daniel_lightrag_mcp.server import handle_call_tool, handle_list_tools
-from daniel_lightrag_mcp.client import LightRAGClient, LightRAGError
+from daniel_lightrag_mcp.client import (
+    LightRAGClient, LightRAGError, LightRAGValidationError,
+    LightRAGConnectionError, LightRAGAPIError
+)
 
 
 class MockLightRAGServer:
@@ -192,180 +195,109 @@ async def mock_client_with_server(mock_lightrag_server):
     return client
 
 
-@pytest.mark.asyncio
 class TestFullWorkflowIntegration:
     """Test complete workflows using the MCP server with mock responses."""
     
-    @patch('daniel_lightrag_mcp.server.lightrag_client')
-    async def test_document_management_workflow(self, mock_client, mock_client_with_server, mock_lightrag_server):
+    @pytest.mark.asyncio
+    async def test_document_management_workflow(self, mock_client_with_server, mock_lightrag_server):
         """Test complete document management workflow."""
-        # Setup mock client
-        mock_client.return_value = mock_client_with_server
-        mock_client.insert_text = mock_client_with_server.insert_text
-        mock_client.get_documents = mock_client_with_server.get_documents
-        mock_client.delete_document = mock_client_with_server.delete_document
-        
-        # Step 1: Insert a document
-        insert_request = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "insert_text",
-                "arguments": {"text": "This is a test document about artificial intelligence."}
-            }
-        )
-        
-        insert_result = await handle_call_tool(insert_request)
-        assert not insert_result.isError
-        
-        insert_data = json.loads(insert_result.content[0].text)
-        assert insert_data["status"] == "success"
-        doc_id = insert_data["id"]
-        
-        # Step 2: Verify document was inserted by retrieving all documents
-        get_docs_request = CallToolRequest(
-            method="tools/call",
-            params={"name": "get_documents", "arguments": {}}
-        )
-        
-        get_docs_result = await handle_call_tool(get_docs_request)
-        assert not get_docs_result.isError
-        
-        docs_data = json.loads(get_docs_result.content[0].text)
-        assert docs_data["total"] == 1
-        assert docs_data["documents"][0]["id"] == doc_id
-        
-        # Step 3: Delete the document
-        delete_request = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "delete_document",
-                "arguments": {"document_id": doc_id}
-            }
-        )
-        
-        delete_result = await handle_call_tool(delete_request)
-        assert not delete_result.isError
-        
-        delete_data = json.loads(delete_result.content[0].text)
-        assert delete_data["deleted"] is True
-        assert delete_data["document_id"] == doc_id
-        
-        # Step 4: Verify document was deleted
-        get_docs_result2 = await handle_call_tool(get_docs_request)
-        assert not get_docs_result2.isError
-        
-        docs_data2 = json.loads(get_docs_result2.content[0].text)
-        assert docs_data2["total"] == 0
-    
-    @patch('daniel_lightrag_mcp.server.lightrag_client')
-    async def test_query_workflow(self, mock_client, mock_client_with_server, mock_lightrag_server):
-        """Test query workflow with document insertion and querying."""
-        # Setup mock client
-        mock_client.return_value = mock_client_with_server
-        mock_client.insert_text = mock_client_with_server.insert_text
-        mock_client.query_text = mock_client_with_server.query_text
-        
-        # Step 1: Insert test documents
-        documents = [
-            "Artificial intelligence is transforming the world.",
-            "Machine learning algorithms are powerful tools.",
-            "Natural language processing enables human-computer interaction."
-        ]
-        
-        for doc_content in documents:
-            insert_request = CallToolRequest(
-                method="tools/call",
-                params={
-                    "name": "insert_text",
-                    "arguments": {"text": doc_content}
-                }
-            )
+        with patch('daniel_lightrag_mcp.server.lightrag_client') as mock_client:
+            # Setup mock client
+            mock_client.return_value = mock_client_with_server
+            mock_client.insert_text = mock_client_with_server.insert_text
+            mock_client.get_documents = mock_client_with_server.get_documents
+            mock_client.delete_document = mock_client_with_server.delete_document
             
-            insert_result = await handle_call_tool(insert_request)
-            assert not insert_result.isError
-        
-        # Step 2: Query for documents about "artificial intelligence"
-        query_request = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "query_text",
-                "arguments": {
+            # Step 1: Insert a document
+            insert_result = await handle_call_tool(
+                "insert_text",
+                {"text": "This is a test document about artificial intelligence."}
+            )
+            assert insert_result["status"] == "success"
+            doc_id = insert_result["id"]
+            
+            # Step 2: Verify document was inserted by retrieving all documents
+            get_docs_result = await handle_call_tool("get_documents", {})
+            assert get_docs_result["total"] == 1
+            assert get_docs_result["documents"][0]["id"] == doc_id
+            
+            # Step 3: Delete the document
+            delete_result = await handle_call_tool("delete_document", {"document_id": doc_id})
+            assert delete_result["deleted"] is True
+            assert delete_result["document_id"] == doc_id
+            
+            # Step 4: Verify document was deleted
+            get_docs_result2 = await handle_call_tool("get_documents", {})
+            assert get_docs_result2["total"] == 0
+    
+    @pytest.mark.asyncio
+    async def test_query_workflow(self, mock_client_with_server, mock_lightrag_server):
+        """Test query workflow with document insertion and querying."""
+        with patch('daniel_lightrag_mcp.server.lightrag_client') as mock_client:
+            # Setup mock client
+            mock_client.return_value = mock_client_with_server
+            mock_client.insert_text = mock_client_with_server.insert_text
+            mock_client.query_text = mock_client_with_server.query_text
+            
+            # Step 1: Insert test documents
+            documents = [
+                "Artificial intelligence is transforming the world.",
+                "Machine learning algorithms are powerful tools.",
+                "Natural language processing enables human-computer interaction."
+            ]
+            
+            for doc_content in documents:
+                insert_result = await handle_call_tool("insert_text", {"text": doc_content})
+                assert insert_result["status"] == "success"
+            
+            # Step 2: Query for documents about "artificial intelligence"
+            query_result = await handle_call_tool(
+                "query_text",
+                {
                     "query": "artificial intelligence",
                     "mode": "hybrid",
                     "only_need_context": False
                 }
-            }
-        )
-        
-        query_result = await handle_call_tool(query_request)
-        assert not query_result.isError
-        
-        query_data = json.loads(query_result.content[0].text)
-        assert query_data["query"] == "artificial intelligence"
-        assert query_data["total_results"] == 1  # Only one document contains "artificial intelligence"
-        assert len(query_data["results"]) == 1
-        assert "artificial intelligence" in query_data["results"][0]["snippet"].lower()
-        
-        # Step 3: Query for documents about "machine learning"
-        query_request2 = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "query_text",
-                "arguments": {
+            )
+            assert query_result["query"] == "artificial intelligence"
+            assert query_result["total_results"] == 1
+            assert len(query_result["results"]) == 1
+            assert "artificial intelligence" in query_result["results"][0]["snippet"].lower()
+            
+            # Step 3: Query for documents about "machine learning"
+            query_result2 = await handle_call_tool(
+                "query_text",
+                {
                     "query": "machine learning",
                     "mode": "local"
                 }
-            }
-        )
-        
-        query_result2 = await handle_call_tool(query_request2)
-        assert not query_result2.isError
-        
-        query_data2 = json.loads(query_result2.content[0].text)
-        assert query_data2["total_results"] == 1
-        assert "machine learning" in query_data2["results"][0]["snippet"].lower()
+            )
+            assert query_result2["total_results"] == 1
+            assert "machine learning" in query_result2["results"][0]["snippet"].lower()
     
-    @patch('daniel_lightrag_mcp.server.lightrag_client')
-    async def test_system_management_workflow(self, mock_client, mock_client_with_server):
+    @pytest.mark.asyncio
+    async def test_system_management_workflow(self, mock_client_with_server):
         """Test system management workflow."""
-        # Setup mock client
-        mock_client.return_value = mock_client_with_server
-        mock_client.get_health = mock_client_with_server.get_health
-        mock_client.clear_cache = mock_client_with_server.clear_cache
-        
-        # Step 1: Check system health
-        health_request = CallToolRequest(
-            method="tools/call",
-            params={"name": "get_health", "arguments": {}}
-        )
-        
-        health_result = await handle_call_tool(health_request)
-        assert not health_result.isError
-        
-        health_data = json.loads(health_result.content[0].text)
-        assert health_data["status"] == "healthy"
-        assert health_data["database_status"] == "connected"
-        assert health_data["cache_status"] == "active"
-        
-        # Step 2: Clear cache
-        clear_cache_request = CallToolRequest(
-            method="tools/call",
-            params={"name": "clear_cache", "arguments": {}}
-        )
-        
-        clear_result = await handle_call_tool(clear_cache_request)
-        assert not clear_result.isError
-        
-        clear_data = json.loads(clear_result.content[0].text)
-        assert clear_data["cleared"] is True
-        assert clear_data["cache_type"] == "all"
-        
-        # Step 3: Check health again to verify cache status changed
-        health_result2 = await handle_call_tool(health_request)
-        assert not health_result2.isError
-        
-        health_data2 = json.loads(health_result2.content[0].text)
-        assert health_data2["cache_status"] == "cleared"
+        with patch('daniel_lightrag_mcp.server.lightrag_client') as mock_client:
+            # Setup mock client
+            mock_client.return_value = mock_client_with_server
+            mock_client.get_health = mock_client_with_server.get_health
+            mock_client.clear_cache = mock_client_with_server.clear_cache
+            
+            # Step 1: Check system health
+            health_result = await handle_call_tool("get_health", {})
+            assert health_result["status"] == "healthy"
+            assert health_result["database_status"] == "connected"
+            assert health_result["cache_status"] == "active"
+            
+            # Step 2: Clear cache
+            clear_result = await handle_call_tool("clear_cache", {})
+            assert clear_result["cleared"] is True
+            assert clear_result["cache_type"] == "all"
+            
+            # Step 3: Check health again to verify cache status changed
+            health_result2 = await handle_call_tool("get_health", {})
+            assert health_result2["cache_status"] == "cleared"
 
 
 @pytest.mark.asyncio
@@ -375,74 +307,33 @@ class TestErrorScenarios:
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_connection_error_handling(self, mock_client):
         """Test handling of connection errors during tool execution."""
-        from daniel_lightrag_mcp.client import LightRAGConnectionError
-        
         # Setup mock client to raise connection error
         mock_client.get_health = AsyncMock(
             side_effect=LightRAGConnectionError("Connection failed to LightRAG server")
         )
         
-        # Execute health check
-        health_request = CallToolRequest(
-            method="tools/call",
-            params={"name": "get_health", "arguments": {}}
-        )
-        
-        result = await handle_call_tool(health_request)
-        
-        # Verify error response
-        assert result.isError
-        error_data = json.loads(result.content[0].text)
-        assert error_data["error_type"] == "LightRAGConnectionError"
-        assert "Connection failed" in error_data["message"]
+        # Execute health check - connection errors propagate as raises
+        with pytest.raises(LightRAGConnectionError, match="Connection failed"):
+            await handle_call_tool("get_health", {})
     
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_validation_error_handling(self, mock_client):
         """Test handling of validation errors during tool execution."""
-        # Test with invalid pagination parameters
-        request = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "get_documents_paginated",
-                "arguments": {"page": 0, "page_size": 10}  # Invalid page number
-            }
-        )
-        
-        result = await handle_call_tool(request)
-        
-        # Verify error response
-        assert result.isError
-        error_data = json.loads(result.content[0].text)
-        assert error_data["error_type"] == "LightRAGValidationError"
-        assert "Page must be a positive integer" in error_data["message"]
+        # Test with invalid pagination parameters - validation errors propagate as raises
+        with pytest.raises(LightRAGValidationError, match="Page must be a positive integer"):
+            await handle_call_tool("get_documents_paginated", {"page": 0, "page_size": 10})
     
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_api_error_handling(self, mock_client):
         """Test handling of API errors during tool execution."""
-        from daniel_lightrag_mcp.client import LightRAGAPIError
-        
         # Setup mock client to raise API error
         mock_client.delete_document = AsyncMock(
             side_effect=LightRAGAPIError("Document not found", status_code=404)
         )
         
-        # Execute document deletion
-        delete_request = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "delete_document",
-                "arguments": {"document_id": "nonexistent_doc"}
-            }
-        )
-        
-        result = await handle_call_tool(delete_request)
-        
-        # Verify error response
-        assert result.isError
-        error_data = json.loads(result.content[0].text)
-        assert error_data["error_type"] == "LightRAGAPIError"
-        assert "Document not found" in error_data["message"]
-        assert error_data["status_code"] == 404
+        # Execute document deletion - API errors propagate as raises
+        with pytest.raises(LightRAGAPIError, match="Document not found"):
+            await handle_call_tool("delete_document", {"document_id": "nonexistent_doc"})
 
 
 @pytest.mark.asyncio
@@ -475,21 +366,15 @@ class TestStreamingIntegration:
         mock_client.query_text_stream = mock_stream_func
         
         # Execute streaming query
-        stream_request = CallToolRequest(
-            method="tools/call",
-            params={
-                "name": "query_text_stream",
-                "arguments": {
-                    "query": "Tell me about artificial intelligence",
-                    "mode": "hybrid"
-                }
+        result = await handle_call_tool(
+            "query_text_stream",
+            {
+                "query": "Tell me about artificial intelligence",
+                "mode": "hybrid"
             }
         )
         
-        result = await handle_call_tool(stream_request)
-        
         # Verify successful streaming response
-        assert not result.isError
         response_data = json.loads(result.content[0].text)
         assert "streaming_response" in response_data
         
@@ -520,23 +405,16 @@ class TestConcurrentOperations:
         # Execute multiple concurrent insertions
         tasks = []
         for i in range(5):
-            request = CallToolRequest(
-                method="tools/call",
-                params={
-                    "name": "insert_text",
-                    "arguments": {"text": f"Concurrent document {i}"}
-                }
+            tasks.append(
+                handle_call_tool("insert_text", {"text": f"Concurrent document {i}"})
             )
-            tasks.append(handle_call_tool(request))
         
         # Wait for all operations to complete
         results = await asyncio.gather(*tasks)
         
         # Verify all operations succeeded
         for result in results:
-            assert not result.isError
-            response_data = json.loads(result.content[0].text)
-            assert response_data["status"] == "success"
+            assert result["status"] == "success"
         
         # Verify all documents were inserted
         assert len(mock_lightrag_server.documents) == 5
@@ -548,37 +426,40 @@ class TestToolListingIntegration:
     
     async def test_tool_listing_completeness(self):
         """Test that all required tools are listed with correct schemas."""
-        result = await handle_list_tools()
+        tools = await handle_list_tools()
         
-        # Verify all 22 tools are present
-        assert len(result.tools) == 22
+        # handle_list_tools returns a list of Tool objects directly
+        assert len(tools) == 22
         
         # Group tools by category and verify counts
-        tool_names = [tool.name for tool in result.tools]
+        tool_names = [tool.name for tool in tools]
         
         document_tools = [name for name in tool_names if name in [
             "insert_text", "insert_texts", "upload_document", "scan_documents",
-            "get_documents", "get_documents_paginated", "delete_document", "clear_documents"
+            "get_documents", "get_documents_paginated", "delete_document"
         ]]
-        assert len(document_tools) == 8
+        assert len(document_tools) == 7
         
-        query_tools = [name for name in tool_names if name in ["query_text", "query_text_stream"]]
-        assert len(query_tools) == 2
+        query_tools = [name for name in tool_names if name in [
+            "query_text", "query_text_stream", "get_related_files"
+        ]]
+        assert len(query_tools) == 3
         
         graph_tools = [name for name in tool_names if name in [
             "get_knowledge_graph", "get_graph_labels", "check_entity_exists",
-            "update_entity", "update_relation", "delete_entity", "delete_relation"
+            "update_entity", "update_relation", "update_relations",
+            "delete_entity", "delete_relation"
         ]]
-        assert len(graph_tools) == 7
+        assert len(graph_tools) == 8
         
         system_tools = [name for name in tool_names if name in [
             "get_pipeline_status", "get_track_status", "get_document_status_counts",
-            "clear_cache", "get_health"
+            "get_health"
         ]]
-        assert len(system_tools) == 5
+        assert len(system_tools) == 4
         
         # Verify each tool has proper schema structure
-        for tool in result.tools:
+        for tool in tools:
             assert tool.name is not None
             assert tool.description is not None
             assert tool.inputSchema is not None
@@ -590,10 +471,10 @@ class TestToolListingIntegration:
     
     async def test_tool_schema_validation(self):
         """Test that tool schemas are valid and complete."""
-        result = await handle_list_tools()
+        tools = await handle_list_tools()
         
         # Find specific tools and verify their schemas
-        tools_by_name = {tool.name: tool for tool in result.tools}
+        tools_by_name = {tool.name: tool for tool in tools}
         
         # Test insert_text schema
         insert_text_tool = tools_by_name["insert_text"]

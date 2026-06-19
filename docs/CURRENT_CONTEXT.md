@@ -1,64 +1,59 @@
 # Current Context
 
 ## Status
-- **Phase**: 10 — Publish-Ready 🔄 In Progress
-- **Phases 1–7**: ✅ Complete (all committed)
-- **Phase 8**: ✅ Committed at `e32a1acc` (test fixes + calling convention cleanup)
-- **Phase 9**: ✅ Committed at `bc6e1463` (dotenv, E2E verification with Docker LightRAG)
+- 🧪 **Experimental** — building the hard part right now
+- **Foundation**: ✅ Complete (Phases 1-10: monorepo, tests, MCP tools, CI)
+- **Next**: 🔥 **Phase 11** — efficient incremental graph updates via watchdog
 
----
+## What Exists
 
-## What's Been Done
+### Running system
+```
+Watchdog ──HTTP──► LightRAG API ──► Knowledge Graph
+                        ▲
+MCP Client ──stdio──► MCP Server ──┘
+```
 
-### Phases 1–9 ✅
-- Monorepo unified (LightRAG + MCP + watchdog), Pydantic V2, C# analyser pipeline, Docker deployment, MCP E2E verified with 27 nodes / 17 edges in KG
-- `insert_text` tool now accepts `title` parameter for dedup-safe inserts
-- `_create_success_response` returns raw dicts (MCP library handles wrapping)
-- Error handling uses `raise` instead of `return _create_error_response()` (MCP library creates proper error responses)
-- Dotenv support via `python-dotenv`
+- LightRAG runs on `:9621`, stores entities + relations as a knowledge graph
+- MCP server exposes 22 tools (health, insert, query, KG, documents, system)
+- Watchdog watches filesystem, sends file contents to LightRAG on change
+- C# analyser extracts classes, methods, inheritance, dependencies
 
-### Phase 10 — Publish-Ready (Starting)
+### Test suite
+- `pytest tests\` — 63 integration tests ✅
+- `pytest daniel-lightrag-mcp\tests\` — 163 MCP tests ✅
 
-**Phase A (Blockers):**
-- [ ] Commit pending `server.py` changes (title parameter, response wrapping fix, error raising)
-- [ ] Fix ~50 test failures (response format changes broke test assertions)
-- [ ] Fix root test crash (`test_e2e_csharp.py` sys.exit at import time)
-- [ ] Remove `test_demo.py` / `test_demo2.py`
+## What's Missing (The Hard Part)
 
-**Phase B (Project Identity):**
-- [ ] Rewrite root `README.md` as primary entry point
-- [ ] Add `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
+Current watchdog flow:
+```
+File changes → re-read entire file → re-embed everything → replace in graph
+```
 
-**Phase C (Code Quality):**
-- [ ] Run `ruff --fix` (auto-fixes 383/624 violations)
-- [ ] Fix remaining violations (explicit imports, line length, undefined names)
+What we need:
+```
+File changes → diff the AST → update only affected entities/relations → efficient
+```
 
-**Phase D (GitHub CI):**
-- [ ] Add `.github/workflows/ci.yml` (tests + lint on push/PR)
-- [ ] Add issue/PR templates
+This is the core technical challenge. If one method signature changes in a 2000-line file, we should update exactly the relations that method participates in — not re-embed the whole file.
 
-**Phase E (Cleanup):**
-- [ ] Consolidate pytest config
-- [ ] Fix stale doc references (AGENTS.md Python version)
-- [ ] Clean up placeholders
+## Key Files
 
----
+- `watchdog/main.py` — file watcher entry point
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/server.py` — MCP tools
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/models.py` — response models
+- `daniel-lightrag-mcp/analysers/` — C# analyser pipeline
+- `tests/` — 63 root tests
+- `pytest.ini` — asyncio loop scope = session
+- `AGENTS.md` — dev guidelines
 
-## Key Technical Decisions
+## Technical Details (Learnings)
 
-1. **Python 3.10+** — all packages target >=3.10 consistently
-2. **Clean GitHub repo only** — no PyPI publishing for now
-3. **C# analyser binary kept** — will be replaced long-term (roadmap item)
-4. **Dead code preserved** — `update_relation` commented block kept for next feature work
-5. **Response format** — handlers return raw dicts, MCP library wraps as `CallToolResult`
+### Event loop trap
+Session-scoped async fixtures + function-scoped test event loops = deadlock. Fix: `asyncio_default_test_loop_scope = session` in `pytest.ini`, no `event_loop` fixture.
 
----
+### No `tests/__init__.py`
+Package marker causes hang with session-scoped lifespan fixture. The file just shouldn't exist.
 
-## Relevant Files
-
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/server.py` — pending changes (title param, response wrapping, error raising style)
-- `daniel-lightrag-mcp/tests/test_server.py` — tests need updating for new response format
-- `daniel-lightrag-mcp/tests/test_client.py` — mock data mismatches
-- `daniel-lightrag-mcp/tests/test_models.py` — model field mismatches
-- `daniel-lightrag-mcp/tests/test_integration.py` — response format mismatches
-- `tests/test_e2e_csharp.py` — placeholder with sys.exit crash
+### MCP response format
+Handlers return raw dicts, MCP library wraps as `CallToolResult`. Don't try to return `CallToolResult` from handlers.

@@ -137,7 +137,8 @@ class TestResponseCreation:
         """Test creation of success responses."""
         test_result = {"status": "success", "data": "test"}
         response = _create_success_response(test_result, "test_tool")
-        self._assert_success_response(response, test_result)
+        # _create_success_response now returns raw serialized data
+        assert response == test_result
     
     def test_create_error_response_lightrag_error(self):
         """Test creation of error responses for LightRAG errors."""
@@ -168,11 +169,8 @@ class TestDocumentManagementTools:
         
         result = await handle_call_tool("insert_text", {"text": "test content"})
         
-        assert "isError" not in result or not result["isError"]
-        mock_client.insert_text.assert_called_once_with("test content")
-        
-        content = json.loads(result["content"][0]["text"])
-        assert content == mock_result
+        assert result == mock_result
+        mock_client.insert_text.assert_called_once_with("test content", title=None)
     
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_insert_texts_success(self, mock_client):
@@ -287,11 +285,12 @@ class TestQueryTools:
             {"query": "test query", "mode": "hybrid"}
         )
         
-        assert "isError" not in result or not result["isError"]
-        
-        content = json.loads(result["content"][0]["text"])
-        assert "streaming_response" in content
-        assert content["streaming_response"] == "chunk 1chunk 2chunk 3"
+        # query_text_stream returns CallToolResult — access via content
+        assert result.content[0].type == "text"
+        import json
+        parsed = json.loads(result.content[0].text)
+        assert "streaming_response" in parsed
+        assert parsed["streaming_response"] == "chunk 1chunk 2chunk 3"
 
 
 @pytest.mark.asyncio
@@ -360,11 +359,11 @@ class TestKnowledgeGraphTools:
         properties = {"type": "strongly_related", "weight": 0.9}
         result = await handle_call_tool(
             "update_relation",
-            {"relation_id": "rel_123", "properties": properties}
+            {"source_id": "ent_123", "target_id": "ent_456", "updated_data": properties}
         )
         
-        assert "isError" not in result or not result["isError"]
-        mock_client.update_relation.assert_called_once_with("rel_123", properties)
+        assert result == mock_result
+        mock_client.update_relation.assert_called_once_with("ent_123", "ent_456", properties)
     
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_delete_entity_success(self, mock_client):
@@ -391,28 +390,24 @@ class TestKnowledgeGraphTools:
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_update_relations_success(self, mock_client):
         """Test successful update_relations tool call."""
-        mock_client.update_relations = AsyncMock(
-            return_value=[
-                "Analyser generated 4 output files",
-                "Ingested 4 files into LightRAG",
-                "LightRAG is now processing the analyser output"
-            ]
-        )
+        mock_result = [
+            "Analyser generated 4 output files",
+            "Ingested 4 files into LightRAG",
+            "LightRAG is now processing the analyser output"
+        ]
+        mock_client.update_relations = AsyncMock(return_value=mock_result)
         result = await handle_call_tool(
             "update_relations",
             {"absolute_project_root_path": "/path/to/project.sln"}
         )
-        assert "isError" not in result or not result["isError"]
+        assert result == mock_result
         mock_client.update_relations.assert_called_once_with("/path/to/project.sln")
-        assert "Analyser generated" in result["content"][0]["text"]
 
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_update_relations_missing_path(self, mock_client):
         """Test update_relations with missing path argument."""
-        result = await handle_call_tool("update_relations", {})
-        assert result.get("isError") is True
-        text = result["content"][0]["text"]
-        assert "required" in text.lower() or "path" in text.lower()
+        with pytest.raises(LightRAGValidationError, match="Missing required arguments"):
+            await handle_call_tool("update_relations", {})
 
 
 @pytest.mark.asyncio
@@ -490,10 +485,8 @@ class TestErrorHandling:
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_tool_validation_error(self, mock_client):
         """Test handling of validation errors in tool call."""
-        result = await handle_call_tool("insert_text", {})
-        assert result.get("isError") is True
-        content = json.loads(result["content"][0]["text"])
-        assert content["error_type"] == "LightRAGValidationError"
+        with pytest.raises(LightRAGValidationError, match="Missing required arguments"):
+            await handle_call_tool("insert_text", {})
     
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_client_connection_error(self, mock_client):
@@ -502,10 +495,8 @@ class TestErrorHandling:
             side_effect=LightRAGConnectionError("Connection failed")
         )
         
-        result = await handle_call_tool("insert_text", {"text": "test"})
-        assert result.get("isError") is True
-        content = json.loads(result["content"][0]["text"])
-        assert content["error_type"] == "LightRAGConnectionError"
+        with pytest.raises(LightRAGConnectionError, match="Connection failed"):
+            await handle_call_tool("insert_text", {"text": "test"})
     
     @patch('daniel_lightrag_mcp.server.lightrag_client')
     async def test_unknown_tool_error(self, mock_client):
@@ -518,9 +509,5 @@ class TestErrorHandling:
     async def test_client_initialization_error(self):
         """Test handling of client initialization errors."""
         with patch('daniel_lightrag_mcp.server.LightRAGClient', side_effect=Exception("Init failed")):
-            result = await handle_call_tool("get_health", {})
-            
-            assert result.get("isError") is True
-            content = json.loads(result["content"][0]["text"])
-            assert content["error_type"] == "LightRAGConnectionError"
-            assert "Failed to initialize LightRAG client" in content["message"]
+            with pytest.raises(LightRAGConnectionError, match="Failed to initialize LightRAG client"):
+                await handle_call_tool("get_health", {})

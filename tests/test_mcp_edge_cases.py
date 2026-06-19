@@ -22,7 +22,6 @@ class TestMCPEdgeCases:
         from daniel_lightrag_mcp.client import LightRAGClient, LightRAGValidationError
         import httpx
         from httpx import ASGITransport
-        from tests.conftest import mock_lightrag_server, lifespan
         import sys
 
         old_argv = sys.argv

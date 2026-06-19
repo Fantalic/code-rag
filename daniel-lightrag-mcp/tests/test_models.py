@@ -136,40 +136,37 @@ class TestRequestModels:
     def test_insert_text_request_valid(self):
         """Test valid InsertTextRequest creation."""
         request = InsertTextRequest(
-            title="Test Title",
-            content="Test content"
+            text="Test content",
+            file_source="test_title.txt"
         )
         
-        assert request.title == "Test Title"
-        assert request.content == "Test content"
+        assert request.text == "Test content"
+        assert request.file_source == "test_title.txt"
     
     def test_insert_text_request_minimal(self):
         """Test InsertTextRequest with minimal fields."""
-        request = InsertTextRequest(content="Test content")
+        request = InsertTextRequest(text="Test content")
         
-        assert request.title is None
-        assert request.content == "Test content"
+        assert request.text == "Test content"
+        assert request.file_source == "text_input.txt"
     
     def test_insert_text_request_missing_content(self):
         """Test InsertTextRequest validation error."""
         with pytest.raises(ValidationError) as exc_info:
-            InsertTextRequest(title="Test")
+            InsertTextRequest()
         
         errors = exc_info.value.errors()
         assert len(errors) == 1
-        assert errors[0]["loc"] == ("content",)
+        assert errors[0]["loc"] == ("text",)
     
     def test_insert_texts_request_valid(self):
         """Test valid InsertTextsRequest creation."""
-        texts = [
-            TextDocument(content="Text 1"),
-            TextDocument(content="Text 2", title="Title 2")
-        ]
+        texts = ["Text 1 content", "Text 2 content"]
         request = InsertTextsRequest(texts=texts)
         
         assert len(request.texts) == 2
-        assert request.texts[0].content == "Text 1"
-        assert request.texts[1].title == "Title 2"
+        assert request.texts[0] == "Text 1 content"
+        assert request.texts[1] == "Text 2 content"
     
     def test_query_request_valid(self):
         """Test valid QueryRequest creation."""
@@ -196,25 +193,29 @@ class TestRequestModels:
     
     def test_entity_update_request_valid(self):
         """Test valid EntityUpdateRequest creation."""
-        properties = {"name": "Updated Entity", "type": "concept"}
+        updated_data = {"name": "Updated Entity", "type": "concept"}
         request = EntityUpdateRequest(
             entity_id="ent_123",
-            properties=properties
+            entity_name="Test Entity",
+            updated_data=updated_data
         )
         
         assert request.entity_id == "ent_123"
-        assert request.properties == properties
+        assert request.entity_name == "Test Entity"
+        assert request.updated_data == updated_data
     
     def test_relation_update_request_valid(self):
         """Test valid RelationUpdateRequest creation."""
-        properties = {"type": "strongly_related", "weight": 0.9}
+        updated_data = {"type": "strongly_related", "weight": 0.9}
         request = RelationUpdateRequest(
-            relation_id="rel_123",
-            properties=properties
+            source_id="ent_123",
+            target_id="ent_456",
+            updated_data=updated_data
         )
         
-        assert request.relation_id == "rel_123"
-        assert request.properties == properties
+        assert request.source_id == "ent_123"
+        assert request.target_id == "ent_456"
+        assert request.updated_data == updated_data
     
     def test_documents_request_valid(self):
         """Test valid DocumentsRequest creation."""
@@ -266,11 +267,12 @@ class TestResponseModels:
     
     def test_scan_response_defaults(self):
         """Test ScanResponse with default values."""
-        response = ScanResponse(scanned=0)
+        response = ScanResponse()
         
         assert response.scanned == 0
         assert response.new_documents == []
-        assert response.message is None
+        assert response.message == ""
+        assert response.status == "success"
     
     def test_query_result_valid(self):
         """Test valid QueryResult creation."""
