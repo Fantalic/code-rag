@@ -74,10 +74,32 @@ Targeted test suite for the unified codebase.
 
 | Step | Status |
 |------|--------|
-| 7.1 Inventory existing C# analysers + Docker files | ✅ Done |
-| 7.2 Create C# test project for analysis | ✅ Done (test-csharp-project with TestCodebase.sln) |
-| 7.3 Create Docker setup | ✅ Done (Dockerfile + docker-compose.yml, untestable locally) |
-| 7.4 Create analyser_runner.py module | 🔄 WIP |
-| 7.5 Wire update_relations to run analyser + ingest into LightRAG | ⬜ |
-| 7.6 Test end-to-end pipeline with real analyser output | ⬜ |
-| 7.7 Document findings and commit | ⬜ |
+| 7.1-7.3 Inventory, test project, Docker setup | ✅ Done |
+| 7.4 Create analyser_runner.py module | ✅ Done (committed Phase 7 at f51ffb7a) |
+| 7.5 Wire update_relations to run analyser + ingest into LightRAG | ✅ Done |
+| 7.6 Test end-to-end pipeline with real analyser output | ✅ Done (Phase 7 E2E verified) |
+| 7.7 Document findings and commit | ✅ Done |
+
+## Phase 8 — Test Fixes & Cleanup
+
+| Step | Status |
+|------|--------|
+| 8.1 Fix test_analyser_runner.py import + path bugs | ✅ Done |
+| 8.2 Fix test_client.py UpdateRelations mock data | ✅ Done |
+| 8.3 Fix test_server.py calling convention + tool list | ✅ Done |
+| 8.4 Clean up handle_call_tool(self, request) workaround | ✅ Done |
+| 8.5 Fix _create_error_response event loop crash | ✅ Done |
+| 8.6 Commit Phase 8 | ✅ Done (e32a1acc) |
+
+## Phase 9 — MCP End-to-End Verification
+
+| Step | Status |
+|------|--------|
+| 9.1 Verify LightRAG Docker running | ⬜ |
+| 9.2 Start MCP server and verify tool listing | ⬜ |
+| 9.3 Test key tools (health, insert, KG, update_relations, query) | ⬜ |
+| 9.4 Verify with AI agent | ⬜ |
+
+## Backlog: Test Suite Model Mismatches
+
+~50 test failures in test_client.py, test_models.py, test_integration.py due to models having required fields (track_id, response, autoscanned, busy, status_counts) that test mock data doesn't include. Fix models (make fields optional) or fix tests (update mock data).

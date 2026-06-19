@@ -102,7 +102,8 @@ def sample_insert_response():
     return {
         "id": "doc_123",
         "status": "success",
-        "message": "Document inserted successfully"
+        "message": "Document inserted successfully",
+        "track_id": "track_123"
     }
 
 
@@ -110,6 +111,7 @@ def sample_insert_response():
 def sample_query_response():
     """Sample query response for testing."""
     return {
+        "response": "This is the query response text",
         "query": "test query",
         "results": [
             {
@@ -129,16 +131,7 @@ def sample_query_response():
 def sample_documents_response():
     """Sample documents response for testing."""
     return {
-        "documents": [
-            {
-                "id": "doc_123",
-                "title": "Test Document",
-                "status": "processed",
-                "created_at": "2024-01-01T00:00:00Z",
-                "metadata": {"author": "test"}
-            }
-        ],
-        "total": 1
+        "statuses": {}
     }
 
 

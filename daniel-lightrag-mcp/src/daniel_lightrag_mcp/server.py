@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 from collections.abc import Sequence
 from mcp.server import Server, NotificationOptions
@@ -233,7 +234,7 @@ def _create_error_response(error: Exception, tool_name: str) -> dict:
         "tool": tool_name,
         "error_type": type(error).__name__,
         "message": str(error),
-        "timestamp": asyncio.get_event_loop().time()
+        "timestamp": time.time()
     }
     
     logger.error(f"BASE ERROR DETAILS:")
@@ -887,58 +888,16 @@ async def handle_list_tools() -> list[Tool]:#ListToolsResult:
     return tools
 
 @mcp_server.call_tool()
-async def handle_call_tool(self, request: CallToolRequest) -> dict:
+async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
     """Handle tool calls."""
     global lightrag_client
     
-    # === COMPREHENSIVE LOGGING START ===
-    logger.info("=" * 80)
-    logger.info("MCP TOOL CALL HANDLER STARTED")
-    logger.info("=" * 80)
-    
-    # Log all incoming parameters with full details
-    logger.info(f"HANDLER INPUT ANALYSIS:")
-    logger.info(f"  - self type: {type(self)}")
-    logger.info(f"  - self content: {repr(self)}")
-    logger.info(f"  - self length: {len(str(self)) if isinstance(self, str) else 'N/A'}")
-    logger.info(f"  - request type: {type(request)}")
-    logger.info(f"  - request content: {repr(request)}")
-    
-    # Check all attributes of self and request
-    if hasattr(self, '__dict__'):
-        logger.info(f"  - self.__dict__: {self.__dict__}")
-    else:
-        logger.info(f"  - self has no __dict__ attribute")
-        
-    if hasattr(request, '__dict__'):
-        logger.info(f"  - request.__dict__: {request.__dict__}")
-    else:
-        logger.info(f"  - request has no __dict__ attribute")
-        
-    # Log request attributes if it's a dict
-    if isinstance(request, dict):
-        logger.info(f"  - request keys: {list(request.keys())}")
-        logger.info(f"  - request values: {list(request.values())}")
-        for key, value in request.items():
-            logger.info(f"    - request['{key}'] = {repr(value)} (type: {type(value)})")
-    
-    # The MCP library passes tool_name as 'self' and empty dict as 'request'
-    tool_name = self  # self is the tool name string
-    arguments = request or {}   # arguments are always empty for now
-    
-    logger.info(f"EXTRACTED PARAMETERS:")
-    logger.info(f"  - tool_name: '{tool_name}' (type: {type(tool_name)})")
-    logger.info(f"  - arguments: {arguments} (type: {type(arguments)})")
-    logger.info(f"  - arguments length: {len(arguments)}")
+    logger.info(f"TOOL CALL: {tool_name}")
+    logger.info(f"TOOL ARGUMENTS: {arguments}")
     
     # Log global client state
-    logger.info(f"GLOBAL CLIENT STATE:")
-    logger.info(f"  - lightrag_client is None: {lightrag_client is None}")
-    if lightrag_client is not None:
-        logger.info(f"  - lightrag_client type: {type(lightrag_client)}")
-        logger.info(f"  - lightrag_client base_url: {getattr(lightrag_client, 'base_url', 'N/A')}")
-    
-    logger.info("=" * 80)
+    if lightrag_client is None:
+        logger.info("LightRAG client not initialized, will init on demand")
 
 
 
@@ -2263,10 +2222,10 @@ async def handle_call_tool(self, request: CallToolRequest) -> dict:
         else:
             error_msg = f"Unknown tool: {tool_name}"
             logger.error(error_msg)
-            return CallToolResult(
-                content=[TextContent(type="text", text=error_msg)],
-                isError=True
-            )
+            return {
+                "content": [{"type": "text", "text": error_msg}],
+                "isError": True
+            }
     
     except LightRAGError as e:
         logger.error("LIGHTRAG EXCEPTION CAUGHT:")

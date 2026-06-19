@@ -269,7 +269,7 @@ class TestDocumentManagementMethods:
     async def test_clear_documents_success(self, lightrag_client, mock_response):
         """Test successful document clearing."""
         # Setup mock
-        clear_response = {"cleared": True, "count": 10}
+        clear_response = {"status": "success", "message": "All documents cleared"}
         response = mock_response(200, clear_response)
         lightrag_client.client.delete = AsyncMock(return_value=response)
         
@@ -277,8 +277,8 @@ class TestDocumentManagementMethods:
         result = await lightrag_client.clear_documents()
         
         # Verify
-        assert result.cleared is True
-        assert result.count == 10
+        assert result.status == "success"
+        assert result.message == "All documents cleared"
         lightrag_client.client.delete.assert_called_once_with(
             "http://localhost:9621/documents"
         )
@@ -554,7 +554,7 @@ class TestSystemManagementMethods:
     async def test_clear_cache_success(self, lightrag_client, mock_response):
         """Test successful cache clearing."""
         # Setup mock
-        cache_response = {"cleared": True, "cache_type": "all"}
+        cache_response = {"status": "success", "message": "Cache cleared", "cache_type": "all"}
         response = mock_response(200, cache_response)
         lightrag_client.client.post = AsyncMock(return_value=response)
         
@@ -562,14 +562,14 @@ class TestSystemManagementMethods:
         result = await lightrag_client.clear_cache()
         
         # Verify
-        assert result.cleared is True
-        assert result.cache_type == "all"
+        assert result.status == "success"
+        assert result.message == "Cache cleared"
         lightrag_client.client.post.assert_called_once()
     
     async def test_clear_cache_with_type_success(self, lightrag_client, mock_response):
         """Test successful cache clearing with specific type."""
         # Setup mock
-        cache_response = {"cleared": True, "cache_type": "query"}
+        cache_response = {"status": "success", "message": "Query cache cleared", "cache_type": "query"}
         response = mock_response(200, cache_response)
         lightrag_client.client.post = AsyncMock(return_value=response)
         
@@ -577,7 +577,7 @@ class TestSystemManagementMethods:
         result = await lightrag_client.clear_cache(cache_type="query")
         
         # Verify
-        assert result.cleared is True
+        assert result.status == "success"
         assert result.cache_type == "query"
         lightrag_client.client.post.assert_called_once()
         
