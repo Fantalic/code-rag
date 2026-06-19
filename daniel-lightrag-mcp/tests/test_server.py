@@ -30,30 +30,31 @@ class TestServerToolListing:
         """Test that all 22 tools are listed correctly."""
         result = await handle_list_tools()
         
-        assert len(result.tools) == 22
+        assert len(result) == 22
         
         # Check that all expected tools are present
-        tool_names = [tool.name for tool in result.tools]
+        tool_names = [tool.name for tool in result]
         
-        # Document Management Tools (8 tools)
+        # Document Management Tools (7 tools)
         document_tools = [
             "insert_text", "insert_texts", "upload_document", "scan_documents",
-            "get_documents", "get_documents_paginated", "delete_document", "clear_documents"
+            "get_documents", "get_documents_paginated", "delete_document"
         ]
         
-        # Query Tools (2 tools)
-        query_tools = ["query_text", "query_text_stream"]
+        # Query Tools (3 tools)
+        query_tools = ["query_text", "query_text_stream", "get_related_files"]
         
-        # Knowledge Graph Tools (7 tools)
+        # Knowledge Graph Tools (8 tools)
         graph_tools = [
             "get_knowledge_graph", "get_graph_labels", "check_entity_exists",
-            "update_entity", "update_relation", "delete_entity", "delete_relation"
+            "update_entity", "update_relation", "update_relations",
+            "delete_entity", "delete_relation"
         ]
         
-        # System Management Tools (5 tools)
+        # System Management Tools (4 tools)
         system_tools = [
             "get_pipeline_status", "get_track_status", "get_document_status_counts",
-            "clear_cache", "get_health"
+            "get_health"
         ]
         
         all_expected_tools = document_tools + query_tools + graph_tools + system_tools
@@ -62,7 +63,7 @@ class TestServerToolListing:
             assert tool_name in tool_names, f"Tool {tool_name} not found in listed tools"
         
         # Verify tool schemas have required properties
-        for tool in result.tools:
+        for tool in result:
             assert hasattr(tool, 'name')
             assert hasattr(tool, 'description')
             assert hasattr(tool, 'inputSchema')
@@ -566,6 +567,42 @@ class TestKnowledgeGraphTools:
         # Verify
         assert not result.isError
         mock_client.delete_relation.assert_called_once_with("rel_123")
+
+    @patch('daniel_lightrag_mcp.server.lightrag_client')
+    async def test_update_relations_success(self, mock_client):
+        """Test successful update_relations tool call."""
+        mock_client.update_relations = AsyncMock(
+            return_value=[
+                "Analyser generated 4 output files",
+                "Ingested 4 files into LightRAG",
+                "LightRAG is now processing the analyser output"
+            ]
+        )
+        request = CallToolRequest(
+            method="tools/call",
+            params={
+                "name": "update_relations",
+                "arguments": {"absolute_project_root_path": "/path/to/project.sln"}
+            }
+        )
+        result = await handle_call_tool(request)
+        assert not result.isError
+        mock_client.update_relations.assert_called_once_with("/path/to/project.sln")
+        assert "Analyser generated" in str(result.content)
+
+    @patch('daniel_lightrag_mcp.server.lightrag_client')
+    async def test_update_relations_missing_path(self, mock_client):
+        """Test update_relations with missing path argument."""
+        request = CallToolRequest(
+            method="tools/call",
+            params={
+                "name": "update_relations",
+                "arguments": {}
+            }
+        )
+        result = await handle_call_tool(request)
+        assert result.isError
+        assert "required" in str(result.content).lower() or "path" in str(result.content).lower()
 
 
 @pytest.mark.asyncio

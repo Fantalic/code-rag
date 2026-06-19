@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 
 from daniel_lightrag_mcp.client import LightRAGClient
-from daniel_lightrag_mcp.server import server
+from daniel_lightrag_mcp.server import mcp_server as server
 
 
 @pytest.fixture(scope="session")

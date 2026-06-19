@@ -701,3 +701,80 @@ class TestContextManager:
         
         # Verify close was called
         client.client.aclose.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestUpdateRelations:
+    """Test the update_relations method (C# analyser pipeline)."""
+
+    async def test_update_relations_success(self, lightrag_client):
+        """Test successful analyser run and ingestion."""
+        mock_results = [
+            ("Calc.txt", "class Calc { int Add() => 0; }"),
+            ("Prog.txt", "class Program { void Main() {} }"),
+        ]
+        with patch("daniel_lightrag_mcp.client.run_analysis", return_value=mock_results):
+            lightrag_client.insert_text = AsyncMock(
+                side_effect=[
+                    MagicMock(track_id="track_001"),
+                    MagicMock(track_id="track_002"),
+                ]
+            )
+            result = await lightrag_client.update_relations("/path/to/project.sln")
+
+        assert len(result) == 3
+        assert "Analyser generated 2 output files" in result[0]
+        assert "Ingested 2 files into LightRAG" in result[1]
+        assert "LightRAG is now processing" in result[2]
+        assert lightrag_client.insert_text.call_count == 2
+
+    async def test_update_relations_analyser_fails(self, lightrag_client):
+        """Test when the C# analyser itself fails."""
+        with patch("daniel_lightrag_mcp.client.run_analysis", side_effect=RuntimeError("analyser crashed")):
+            result = await lightrag_client.update_relations("/path/to/project.sln")
+
+        assert len(result) == 1
+        assert "ERROR" in result[0]
+        assert "analyser crashed" in result[0]
+
+    async def test_update_relations_no_output(self, lightrag_client):
+        """Test when analyser produces no output files."""
+        with patch("daniel_lightrag_mcp.client.run_analysis", return_value=[]):
+            result = await lightrag_client.update_relations("/path/to/project.sln")
+
+        assert len(result) == 1
+        assert "WARNING" in result[0]
+        assert "no output files" in result[0]
+
+    async def test_update_relations_partial_ingestion_failure(self, lightrag_client):
+        """Test when some files fail to ingest."""
+        mock_results = [
+            ("Calc.txt", "content"),
+            ("Prog.txt", "content"),
+            ("Data.txt", "content"),
+        ]
+        with patch("daniel_lightrag_mcp.client.run_analysis", return_value=mock_results):
+            lightrag_client.insert_text = AsyncMock(
+                side_effect=[
+                    MagicMock(track_id="track_001"),
+                    Exception("ingestion failed for Prog.txt"),
+                    MagicMock(track_id="track_003"),
+                ]
+            )
+            result = await lightrag_client.update_relations("/path/to/project.sln")
+
+        assert len(result) == 4
+        assert "Analyser generated 3 output files" in result[0]
+        assert "Ingested 2 files into LightRAG" in result[1]
+        assert "Errors" in result[2]
+        assert "ingestion failed for Prog.txt" in result[2]
+        assert lightrag_client.insert_text.call_count == 3
+
+    async def test_update_relations_uses_filename_as_title(self, lightrag_client):
+        """Test that filename (without .txt) is passed as title to insert_text."""
+        mock_results = [("MyFile.txt", "content")]
+        with patch("daniel_lightrag_mcp.client.run_analysis", return_value=mock_results):
+            lightrag_client.insert_text = AsyncMock(return_value=MagicMock(track_id="track_001"))
+            await lightrag_client.update_relations("/path/to/project.sln")
+
+        lightrag_client.insert_text.assert_called_once_with("content", title="MyFile")
