@@ -9,6 +9,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 from collections.abc import Sequence
+from dotenv import load_dotenv
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
@@ -2254,7 +2255,11 @@ async def main():
     logger.info("=" * 100)
     logger.info("STARTING LIGHTRAG MCP SERVER")
     logger.info("=" * 100)
-    
+
+    # Load .env file from current directory and parent directories
+    load_dotenv()
+    logger.info(f"  - LightRAG URL: {_get_lightrag_url()}")
+
     # Log system information
     import sys
     import platform
