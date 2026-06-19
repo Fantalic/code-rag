@@ -1,47 +1,45 @@
-# Current Task: Phase 9 — MCP Server End-to-End Verification
+# Current Task: Phase 10 — Publish-Ready
 
 ## Objective
-Verify the MCP server connects to a running LightRAG instance (Docker) and serves all 22 tools to an AI agent correctly.
+Make the monorepo presentable on GitHub. Fix test suite, establish project identity, clean code quality, and add CI.
 
 ## Background
-- `handle_call_tool(self, request)` workaround cleaned up → `handle_call_tool(tool_name, arguments)`
-- `_create_error_response` uses `time.time()` instead of `asyncio.get_event_loop().time()`
-- Unknown tool handler returns dict instead of `CallToolResult`
-- Test file `test_server.py` rewritten for new calling convention
-- Phase 8 committed at `e32a1acc`
+- Phases 1–9 complete — MCP server has 22 tools, C# analyser pipeline works, Docker deployment verified
+- Recent changes (Phase 9 fixes) broke ~50 tests by changing response format and error handling style
+- Root tests crash entirely due to `sys.exit(1)` in placeholder file
+- 624 ruff lint violations exist
+- No GitHub CI, no root-level CONTRIBUTING/CHANGELOG/CODE_OF_CONDUCT
+- C# analyser binary kept for now (long-term replacement planned)
 
 ## Steps
 
-### 9.1 — Ensure LightRAG Docker is running
-- [x] Check Docker containers are up
-- [x] Verify API accessible at :9621
+### Phase A — Fix Blockers
+- [ ] A1: Commit pending `server.py` changes
+- [ ] A2: Fix ~50 test failures across `test_server.py`, `test_client.py`, `test_models.py`, `test_integration.py`
+- [ ] A3: Fix `test_e2e_csharp.py` root test crash
+- [ ] A4: Remove `test_demo.py` / `test_demo2.py`
 
-### 9.2 — Start MCP server locally
-- [x] MCP server starts via STDIO, initializes on-demand
-- [x] All 22 tools listed and validated
+### Phase B — Project Identity
+- [ ] B1: Rewrite root `README.md` as primary entry point
+- [ ] B2: Add `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
 
-### 9.3 — Test key MCP tools
-- [x] `get_health` → returns `"healthy"`
-- [x] `insert_text` → `track_id` returned
-- [x] `get_knowledge_graph` → 15 nodes, 7 edges (KG populated from Phase 7)
-- [x] `update_relations` — already tested in Phase 7, KG data confirms it works
+### Phase C — Code Quality
+- [ ] C1: Run `ruff --fix` (auto-fixes 383/624 violations)
+- [ ] C2: Fix remaining violations (explicit imports, line length, undefined names)
 
-### 9.4 — Verify with MCP Inspector or AI agent
-- [ ] ~Connect AI agent to MCP server~ (skipped — verified via direct tool calls)
-- [ ] ~Verify agent can list/use tools~ (skipped — verified programmatically)
-- [ ] ~Verify knowledge graph entities~ (skipped — KG has 15 nodes from real data)
+### Phase D — GitHub CI
+- [ ] D1: Add `.github/workflows/ci.yml`
+- [ ] D2: Add issue/PR templates
+
+### Phase E — Cleanup
+- [ ] E1: Consolidate pytest config (pytest.ini vs pyproject.toml)
+- [ ] E2: Fix stale doc references (AGENTS.md "Python 3.8+")
+- [ ] E3: Clean up placeholder files (test_e2e_csharp.py)
 
 ---
 
-## Backlog: Test Suite Cleanup (~50 model-test mismatches)
-
-`test_client.py`, `test_models.py`, `test_integration.py` have ~50 failures because models were updated with new required fields (`track_id`, `response`, `autoscanned`, `busy`, `status_counts`) but tests weren't updated. Fix options:
-
-**A — Fix models:** Make optional with defaults → backwards-compatible, fewer changes:
-- `InsertResponse.track_id: Optional[str] = None`
-- `ScanResponse.track_id: Optional[str] = None`
-- `QueryResponse.response: Optional[str] = None`
-- `PipelineStatusResponse.autoscanned: bool = False`, `busy: bool = False`
-- `StatusCountsResponse.status_counts: dict[str, int] = Field(default_factory=dict)`
-
-**B — Fix tests:** Update ~50 mock data payloads across 5 files to include missing required fields.
+## Notes
+- Keep commented-out dead code (`update_relation` etc.) — needed for next features
+- C# analyser binary stays in repo — long-term plan to replace documented in ROADMAP
+- All packages target Python 3.10+
+- No PyPI publishing — clean GitHub repo only

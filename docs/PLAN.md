@@ -95,11 +95,32 @@ Targeted test suite for the unified codebase.
 
 | Step | Status |
 |------|--------|
-| 9.1 Verify LightRAG Docker running | ⬜ |
-| 9.2 Start MCP server and verify tool listing | ⬜ |
-| 9.3 Test key tools (health, insert, KG, update_relations, query) | ⬜ |
-| 9.4 Verify with AI agent | ⬜ |
+| 9.1 Verify LightRAG Docker running | ✅ Done |
+| 9.2 Start MCP server and verify tool listing | ✅ Done |
+| 9.3 Test key tools (health, insert, KG, update_relations, query) | ✅ Done |
+| 9.4 Verify with AI agent | ✅ Done (via direct tool calls / MCP protocol) |
 
-## Backlog: Test Suite Model Mismatches
+## Phase 10 — Publish-Ready
 
-~50 test failures in test_client.py, test_models.py, test_integration.py due to models having required fields (track_id, response, autoscanned, busy, status_counts) that test mock data doesn't include. Fix models (make fields optional) or fix tests (update mock data).
+Make the monorepo presentable on GitHub: fix test suite, establish project identity, clean code quality, add CI.
+
+| Step | Status |
+|------|--------|
+| **A — Fix Blockers** | |
+| A1 Commit pending server.py changes (title param, response fix, error raising) | ⬜ |
+| A2 Fix ~50 test failures (response format + error raising changes) | ⬜ |
+| A3 Fix root test crash (test_e2e_csharp.py sys.exit) | ⬜ |
+| A4 Remove dev artifacts (test_demo.py, test_demo2.py) | ⬜ |
+| **B — Project Identity** | |
+| B1 Rewrite root README.md as primary entry point | ⬜ |
+| B2 Add CHANGELOG.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md | ⬜ |
+| **C — Code Quality** | |
+| C1 Run ruff --fix (auto-fixes 383 violations) | ⬜ |
+| C2 Fix remaining violations (explicit imports, line length, undefined names) | ⬜ |
+| **D — GitHub CI** | |
+| D1 Add .github/workflows/ci.yml (tests + lint) | ⬜ |
+| D2 Add issue/PR templates | ⬜ |
+| **E — Cleanup** | |
+| E1 Consolidate pytest config (pytest.ini vs pyproject.toml) | ⬜ |
+| E2 Fix stale doc references (AGENTS.md "Python 3.8+") | ⬜ |
+| E3 Clean up placeholder files (test_e2e_csharp.py) | ⬜ |

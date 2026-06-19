@@ -162,57 +162,42 @@ def _create_success_response(result: Any, tool_name: str) -> dict:
         logger.info("  - Using result.model_dump() (Pydantic v2)")
         try:
             serialized_data = result.model_dump()
-            logger.info(f"  - model_dump() result: {serialized_data}")
-            response_text = json.dumps(serialized_data, indent=2)
+            logger.info(f"  - model_dump() result keys: {list(serialized_data.keys())}")
             logger.info(f"  - JSON serialization successful")
         except Exception as e:
             logger.error(f"  - model_dump() failed: {e}")
-            response_text = str(result)
+            serialized_data = {"error": str(e), "result": str(result)}
     elif hasattr(result, 'dict'):
         logger.info("  - Using result.dict() (Pydantic v1)")
         try:
             serialized_data = result.dict()
-            logger.info(f"  - dict() result: {serialized_data}")
-            response_text = json.dumps(serialized_data, indent=2)
+            logger.info(f"  - dict() result keys: {list(serialized_data.keys())}")
             logger.info(f"  - JSON serialization successful")
         except Exception as e:
             logger.error(f"  - dict() failed: {e}")
-            response_text = str(result)
+            serialized_data = {"error": str(e), "result": str(result)}
     elif result:
         logger.info("  - Direct JSON serialization")
         try:
-            response_text = json.dumps(result, indent=2)
+            serialized_data = json.loads(json.dumps(result))
             logger.info(f"  - Direct JSON serialization successful")
         except Exception as e:
             logger.error(f"  - Direct JSON serialization failed: {e}")
-            response_text = str(result)
+            serialized_data = {"result": str(result)}
     else:
         logger.info("  - Result is None/empty, using 'Success'")
-        response_text = "Success"
+        serialized_data = {"status": "success"}
     
-    logger.info(f"FINAL RESPONSE TEXT:")
-    logger.info(f"  - Length: {len(response_text)} characters")
-    logger.info(f"  - Content preview: {response_text[:200]}{'...' if len(response_text) > 200 else ''}")
-    
-    # Create response dictionary
-    response_dict = {
-        "content": [
-            {
-                "type": "text",
-                "text": response_text
-            }
-        ]
-    }
-    
+    logger.info("=" * 60)
+
+    # Return raw data dict (MCP library wraps it in CallToolResult)
     logger.info(f"SUCCESS RESPONSE CREATED:")
-    logger.info(f"  - Response type: {type(response_dict)}")
-    logger.info(f"  - Response keys: {list(response_dict.keys())}")
-    logger.info(f"  - Content length: {len(response_dict['content'])}")
-    logger.info(f"  - Content[0] type: {response_dict['content'][0]['type']}")
-    logger.info(f"  - Content[0] text length: {len(response_dict['content'][0]['text'])}")
+    logger.info(f"  - Response type: {type(serialized_data)}")
+    logger.info(f"  - Response keys: {list(serialized_data.keys()) if isinstance(serialized_data, dict) else 'N/A'}")
+    logger.info(f"  - Response JSON length: {len(json.dumps(serialized_data))}")
     logger.info("=" * 60)
     
-    return response_dict
+    return serialized_data
 
 
 def _create_error_response(error: Exception, tool_name: str) -> dict:
@@ -342,6 +327,10 @@ async def handle_list_tools() -> list[Tool]:#ListToolsResult:
                     "text": {
                         "type": "string",
                         "description": "Text content to insert"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional title/filename for deduplication (omit for auto-generated)"
                     }
                 },
                 "required": ["text"]
@@ -940,10 +929,7 @@ async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
             logger.error(f"  - Exception args: {e.args}")
             import traceback
             logger.error(f"  - Full traceback: {traceback.format_exc()}")
-            return _create_error_response(
-                LightRAGConnectionError(f"Failed to initialize LightRAG client: {str(e)}"),
-                tool_name
-            )
+            raise LightRAGConnectionError(f"Failed to initialize LightRAG client: {str(e)}") from e
     else:
         logger.info("CLIENT STATE:")
         logger.info(f"  - Using existing LightRAG client: {type(lightrag_client)}")
@@ -970,9 +956,11 @@ async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
             logger.info(f"  - Raw arguments: {arguments}")
             
             text = arguments.get("text", "")
+            title = arguments.get("title")
             logger.info(f"INSERT_TEXT PARAMETERS:")
             logger.info(f"  - text: '{text[:100]}{'...' if len(text) > 100 else ''}' (length: {len(text)})")
             logger.info(f"  - text type: {type(text)}")
+            logger.info(f"  - title: '{title}'")
             
             if not text or not text.strip():
                 logger.error("INSERT_TEXT VALIDATION ERROR:")
@@ -983,7 +971,7 @@ async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
             logger.info("  - Calling lightrag_client.insert_text()...")
             
             try:
-                result = await lightrag_client.insert_text(text)
+                result = await lightrag_client.insert_text(text, title=title)
                 logger.info("INSERT_TEXT SUCCESS:")
                 logger.info(f"  - Result type: {type(result)}")
                 logger.info(f"  - Result content: {repr(result)}")
@@ -1396,7 +1384,7 @@ async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
                     try:
                         result_dump = result.model_dump()
                         logger.info(f"  - Result.model_dump(): {result_dump}")
-                        logger.info(f"  - Response length: {len(str(result_dump.get('response', '')))}")
+                        logger.info(f"  - Response length: {len(str(result_dump.get('response') or ''))}")
                         logger.info(f"  - Results count: {len(result_dump.get('results', []))}")
                     except Exception as e:
                         logger.error(f"  - model_dump() failed: {e}")
@@ -2237,7 +2225,7 @@ async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
         logger.error(f"  - Response data: {getattr(e, 'response_data', 'N/A')}")
         import traceback
         logger.error(f"  - Traceback: {traceback.format_exc()}")
-        return _create_error_response(e, tool_name)
+        raise
     
     except Exception as e:
         logger.error("GENERIC EXCEPTION CAUGHT:")
@@ -2247,7 +2235,7 @@ async def handle_call_tool(tool_name: str, arguments: dict) -> dict:
         logger.error(f"  - Tool name: {tool_name}")
         import traceback
         logger.error(f"  - Traceback: {traceback.format_exc()}")
-        return _create_error_response(e, tool_name)
+        raise
 
 
 async def main():
