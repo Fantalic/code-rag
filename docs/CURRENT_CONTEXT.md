@@ -1,8 +1,89 @@
 # Current Context
 
 ## Status
-- 🧪 **Experimental** — building the hard part
-- **Phase 13**: Concurrent analyser race fix ✅
+- 🔥 **Phase 18** — Project-Based Storage & GraphML Fix ✅ COMPLETE
+- **Phase 17** — Relation Creation Fix ✅ COMPLETE
+- **Phase 15-16**: End-to-End System Testing ✅ COMPLETE
+- **Phase 14**: Testing, MCP tool usage, test expansion ✅
+
+## Phase 18 — Project-Based Storage & GraphML Fix ✅
+
+### Changes Made
+
+**LightRAG API (`config.py`):**
+- Added `find_project_root()` — searches from cwd upward for `.coderag` folder
+- Added `get_default_working_dir()` — returns `.coderag/rag_storage` if found, else `./rag_storage`
+- Both functions use `LIGHTRAG_WORKING_DIR` / `WORKING_DIR` env vars as override
+
+**LightRAG API (`utils_api.py`):**
+- Removed `.env` requirement — `check_env_file()` now always returns `True`
+- Rationale: single-instance deployment, no multi-instance safety needed
+
+**LightRAG KG (`networkx_impl.py`):**
+- Fixed GraphML save error: `NoneType as data values`
+- `upsert_node()` and `upsert_edge()` filter None values before adding to graph
+- `write_nx_graph()` pre-processes all nodes and edges to strip None values before serialization
+
+**Watchdog (`cmd/watchdog/main.go`):**
+- Added `LIGHTRAG_WORKING_DIR` env var in `startCmd` — points to `inputDir/.coderag/rag_storage`
+- Added `lightragProcess.Dir = inputDir` — LightRAG runs from project folder so it finds `.env`
+
+### End-to-End Test Results
+
+| Test | Result |
+|------|--------|
+| Fresh startup with `.coderag/rag_storage` | ✅ 29 nodes, 25 edges |
+| Add new interface + methods (IRepository, Add, FindById, Remove) | ✅ 31 nodes, 28 edges (2 new nodes, 3 new edges) |
+| Add more methods (ClearAll) | ✅ 32 nodes, 29 edges |
+| GraphML persistence (no NoneType errors) | ✅ 14,768 bytes, valid XML |
+| Vector embeddings for new entities | ✅ vdb_entities.json updated (240KB) |
+| Relation directions correct | ✅ DataStore → Remove, Calculator → Add, etc. |
+| Cross-file relations | ✅ Calculator → AdvancedCalculator (inheritance) |
+| `.env` not required | ✅ Server starts without `.env` file |
+| Project isolation | ✅ Data in `test-project/.coderag/rag_storage`, not repo root |
+
+### Known Limitations
+- **Git watcher polls every 30s** — intentional debounce. Detects uncommitted changes only. New commits require restart.
+- **No stale entity cleanup** — old entities from removed files persist unless watchdog runs with "modified" type on that file.
+- **IRepository<T> not extracted** — C# analyser doesn't extract generic interfaces as standalone entities; only their concrete implementations.
+
+### How Project Storage Works
+
+```
+User runs: .\watchdog\watchdog.exe start <project-path>
+
+Watchdog:
+  -> Sets LIGHTRAG_WORKING_DIR=<project-path>/.coderag/rag_storage
+  -> Sets lightragProcess.Dir = <project-path>
+  -> Starts LightRAG
+
+LightRAG:
+  -> Runs from <project-path> (finds .env if exists)
+  -> get_default_working_dir() returns <project-path>/.coderag/rag_storage
+  -> All graph + vector data stored in .coderag/rag_storage/
+```
+
+## Phase 15-16 Fixes Applied ✅
+
+### Fixed Issues
+
+1. **Entity deletion endpoint works** — `DELETE /documents/delete_entity` with JSON body works correctly.
+2. **Go watchdog now deletes entities on file delete** — `DeleteEntitiesByFilePath(filePath)` queries all entities with matching `file_path` property and deletes them.
+3. **Modified files trigger entity refresh** — `runCSharpPipelineModified()` deletes existing entities before re-processing.
+4. **Entity lookup by file_path** — Added `GetEntitiesByFilePath(filePath)` to CRUD client.
+
+### How It Works Now
+
+**File Deleted:**
+- `DeleteDocument(path)` — removes from document store
+- `DeleteEntitiesByFilePath(path)` — removes graph entities matching that file_path
+
+**File Modified:**
+- `DeleteEntitiesByFilePath(path)` — removes old entities for this file
+- `runCSharpPipelineWithResults()` — re-runs analyser, creates fresh entities/relations
+
+**File Created:**
+- `runCSharpPipelineWithResults()` — creates new entities/relations
 
 ## What Exists
 
@@ -13,83 +94,53 @@ Watchdog ──HTTP──► LightRAG API ──► Knowledge Graph
 MCP Client ──stdio──► MCP Server ──┘
 ```
 
-### Watchdog (`watchdog/main.py`)
-- Watches `INPUT_DIR` recursively, debounces events (0.5s)
-- **New in 11.1**: File hash tracking (MD5) — skips events where content hasn't changed
-- **New in 11.1**: Versioned re-ingest — `file_path#v1`, `file_path#v2` bypasses LightRAG dedup
-- Worker pool (4 threads), handles create/modify/delete/move
-- POSTs file content to `/documents/text` → full LLM pipeline (to be replaced by graph CRUD)
+### Watchdog (Go binary at `watchdog/watchdog.exe`)
+- CLI commands: `watch`, `start`, `status`, `stop`, `query`
+- Initial sync on startup — full scan, solution-level analysis, diff-based CRUD
+- Git-based change detection (30s poll) — `git diff --name-only HEAD`
+- File hash tracking (MD5) — skips unchanged content
+- C# analyser: extracts CLASS, METHOD, PROPERTY, INHERITS_FROM, DEPENDS_ON, CALLS
+- Solution-level analyser mutex — prevents concurrent runs
+- `start` command launches LightRAG + watchdog together with correct working dir
 
-### C# analyser (`daniel-lightrag-mcp/analysers/`)
-- Roslyn-based, compiled binary (`CSharpAnalyzerTool.exe`)
-- Extracts: classes, methods, inheritance, project references
-- Output: `.txt` files per class (plaintext descriptions)
-- Currently ingested via `insert_text` → LLM pipeline (wasteful — LLM re-parses structured text)
-
-### Test suite
-- `pytest tests\` — 63 integration tests ✅
-- `pytest daniel-lightrag-mcp\tests\` — 163 MCP tests ✅
-
-## What's Built (Phase 12 ✅)
-
-Go watchdog (standalone CLI binary) replacing the Python prototype.
-
-All modules live under `watchdog/internal/`:
+### Go watchdog modules
+All modules under `watchdog/internal/`:
 - `crud/client.go` — graph CRUD HTTP client
 - `diff/engine.go` — diff engine (EntityAction, RelationAction, CREATE/UPDATE/DELETE)
-- `filter/security.go` — regex PII/keys/secrets filter (same patterns as Python)
+- `filter/security.go` — regex PII/keys/secrets filter
 - `router/file.go` — extension → analyser mapping
 - `parser/csharp.go` — C# analyser output parser
 - `pipeline/run.go` — pipeline orchestration with relation dedup
-- `watcher/observer.go` — file watcher + worker pool + solution-level mutex
-- `cmd/watchdog/main.go` — CLI with `watch`, `start`, `status`, `stop`, `query` commands
+- `watcher/observer.go` — file watcher + worker pool + git watcher
+- `cmd/watchdog/main.go` — CLI with `start` command that sets LIGHTRAG_WORKING_DIR
 
-## Phase 13 Fixes (done)
-
-**Problem 1 — Concurrent analyser race:**
-- Multiple workers called the analyser on the same solution simultaneously
-- Fix: solution-level mutex + analyser runs once per solution, results shared with all workers
-
-**Problem 2 — LightRAG undirected graph alphabetical swap:**
-- LightRAG uses `nx.Graph()` (undirected), serializes edges alphabetically in API response
-- Relations created as `Calculator→Add` showed up as `source=Add, target=Calculator` in queries
-- Fix: `loadCurrentRelations` reads `src_id`/`tgt_id` from edge **properties** (preserves real direction)
-
-**Problem 3 — Duplicate relation creation:**
-- Workers created same relations concurrently, LightRAG returned errors
-- Fix: `sync.Map` relation dedup set in pipeline
-
-**Files changed:**
-- `watchdog/internal/pipeline/run.go` — `AnalyserResult` type, `RunEvent`, relation dedup
-- `watchdog/internal/watcher/observer.go` — solution grouping, mutex, Event carries results
-- `watchdog/internal/parser/csharp.go` — METHOD entities now created alongside CLASS
-
-### Architecture Notes
-
-- **Initial scan**: walks project, groups files by solution, runs analyser once per sln, enqueues all files with shared results
-- **Git watcher**: polls `git diff --name-only HEAD` every 30s for changed files (USE_GIT_WATCHER env var, default true)
-- **LightRAG graph storage**: uses undirected `nx.Graph()` — edge `source`/`target` in API responses are alphabetically sorted; always read `src_id`/`tgt_id` from edge properties for real direction
+### Test project (`../test-csharp-project/`)
+- Separate git repo outside code-lightrag
+- Contains `TestConsole` + `TestLib` projects
+- `.coderag/rag_storage/` with LiveRAG data (graphml + vector DB)
+- Source files: Calculator, AdvancedCalculator, DataStore, ExtendedTypes, Class1
 
 ## Key Technical Decisions
 
-1. **Entity-level CRUD** > document pipeline — no LLM calls for analyser output
-2. **Analysers in Go** for now — CPU-bound parsing work, compiled, no runtime. Zig deferred.
-3. **Security filter built into pipeline** — secret data never reaches graph
-4. **File-type routing pattern** — each extension has its own analyser entry point
-5. **No `tests/__init__.py`** — causes hang with session-scoped lifespan fixture
-6. **Solution-level analyser mutex** — prevents concurrent analyse of same .sln
-7. **LightRAG undirected graph** — edge `source`/`target` alphabetically sorted in API. Always use `src_id`/`tgt_id` from edge properties for real direction.
+1. **Project-based storage** — `.coderag/rag_storage` per project, auto-detected
+2. **No `.env` requirement** — single-instance, no multi-instance safety needed
+3. **GraphML None filtering** — pre-process nodes/edges before serialization
+4. **Git watcher polls 30s** — intentional debounce, not real-time
+5. **Solution-level analysis** — entire solution re-analyzed on any file change (ensures cross-file consistency)
+6. **Entity-level CRUD** > document pipeline — no LLM calls for analyser output
+7. **Security filter built into pipeline** — secret data never reaches graph
+8. **LightRAG undirected graph** — edge `source`/`target` not directional. Use edge type/properties for direction.
 
 ## Learnings
 
 ### Event loop trap
-Session-scoped async fixtures + function-scoped test event loops = deadlock. Fix: `asyncio_default_test_loop_scope = session` in `pytest.ini`, no `event_loop` fixture.
+Session-scoped async fixtures + function-scoped test event loops = deadlock. Fix: `asyncio_default_test_loop_scope = session`.
 
 ### LightRAG dedup
-`POST /documents/text` with existing `file_source` returns `status="duplicated"` and does nothing. No update-in-place. Must use versioned file_source or graph CRUD endpoints.
+`POST /documents/text` with existing `file_source` returns `status="duplicated"` and does nothing.
 
-### Graph CRUD exists separately
-LightRAG has `/graph/entity/create`, `/graph/relation/create`, `/graph/entity/edit`, etc. — these operate directly on the graph + vector DB, independent of the document pipeline.
+### GraphML NoneType
+NetworkX's GraphML writer rejects `None` attribute values. Must filter before every write. Fix applied in both `upsert_node`/`upsert_edge` and `write_nx_graph`.
 
-### LightRAG undirected graph
-LightRAG stores edges in `nx.Graph()` (undirected). When the `/graphs` API serializes edges, it alphabetically sorts source/target to create consistent edge IDs. The real direction is preserved in `src_id`/`tgt_id` inside the edge's `properties` dict. Always read from there.
+### Project detection
+`find_project_root()` searches from cwd upward for `.coderag`. Watchdog's `start` command now sets `lightragProcess.Dir = inputDir` so cwd matches the project root.

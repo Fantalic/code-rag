@@ -29,7 +29,13 @@ type ParseResult struct {
 	Relations []Relation
 }
 
-var methodPattern = regexp.MustCompile(`METHOD:\s*(\w+)\s*->\s*RETURNS\s*->\s*(.+)`)
+var (
+	methodPattern   = regexp.MustCompile(`METHOD:\s*([^\s->]+)\s*->\s*RETURNS\s*->\s*(.+)`)
+	propertyPattern = regexp.MustCompile(`PROPERTY:\s*(\w+)\s*->\s*RETURNS\s*->\s*(.+)`)
+	inheritsPattern = regexp.MustCompile(`INHERITS_FROM\s*->\s*(\w+)`)
+	dependsPattern  = regexp.MustCompile(`DEPENDS_ON\s*->\s*(\w+)`)
+	callsPattern    = regexp.MustCompile(`METHOD:\s*([^\s->]+)\s*->\s*CALLS\s*->\s*.+\s*\[LINK:\s*([^\]]+)\]`)
+)
 
 func ParseCSharpFile(filename string, content string) (entities []Entity, relations []Relation) {
 	entities = []Entity{}
@@ -37,7 +43,10 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 
 	var filePath, className string
 	var methods []string
+	var properties []string
 	var projectRefs []string
+	var inheritsFrom string
+	var dependsOn []string
 	inRefs := false
 
 	scanner := bufio.NewScanner(bytes.NewReader([]byte(content)))
@@ -54,12 +63,38 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 			className = strings.TrimPrefix(line, "CLASS:")
 			className = strings.TrimSpace(className)
 			methods = []string{}
+			properties = []string{}
 			projectRefs = []string{}
+			inheritsFrom = ""
+			dependsOn = []string{}
 			inRefs = false
 		} else if strings.HasPrefix(line, "METHOD:") {
-			m := methodPattern.FindStringSubmatch(line)
-			if len(m) >= 2 {
-				methods = append(methods, m[1])
+			var methodName string
+			if m := methodPattern.FindStringSubmatch(line); len(m) >= 2 {
+				methodName = m[1]
+				methods = append(methods, methodName)
+			}
+			if c := callsPattern.FindStringSubmatch(line); len(c) >= 2 && methodName != "" {
+				callsTo := c[2]
+				relations = append(relations, Relation{
+					Source:     methodName,
+					Target:     callsTo,
+					Description: methodName + " calls method in " + callsTo,
+					Keywords:    "calls, invokes",
+					Weight:      0.9,
+				})
+			}
+		} else if strings.HasPrefix(line, "PROPERTY:") {
+			if p := propertyPattern.FindStringSubmatch(line); len(p) >= 2 {
+				properties = append(properties, p[1])
+			}
+		} else if strings.HasPrefix(line, "INHERITS_FROM") {
+			if m := inheritsPattern.FindStringSubmatch(line); len(m) >= 2 {
+				inheritsFrom = m[1]
+			}
+		} else if strings.HasPrefix(line, "DEPENDS_ON") {
+			if m := dependsPattern.FindStringSubmatch(line); len(m) >= 2 {
+				dependsOn = append(dependsOn, m[1])
 			}
 		} else if strings.HasPrefix(line, "PROJECT REFERENCES:") {
 			inRefs = true
@@ -76,11 +111,10 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 		return nil, nil
 	}
 
-	methodDesc := className + " with " + itoa(len(methods)) + " method(s): " + strings.Join(methods, ", ")
 	entity := Entity{
 		Name:        className,
 		EntityType:  "CLASS",
-		Description: methodDesc,
+		Description: className + " with " + itoa(len(methods)) + " method(s), " + itoa(len(properties)) + " properties",
 		SourceID:    filename,
 		FilePath:    filePath,
 		Methods:     methods,
@@ -102,6 +136,45 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 			Target:     method,
 			Description: className + "." + method + "()",
 			Keywords:    "method, defines",
+			Weight:      1.0,
+		})
+	}
+
+	for _, prop := range properties {
+		propEntity := Entity{
+			Name:        prop,
+			EntityType:  "PROPERTY",
+			Description: className + "." + prop,
+			SourceID:    filename,
+			FilePath:    filePath,
+		}
+		entities = append(entities, propEntity)
+
+		relations = append(relations, Relation{
+			Source:     className,
+			Target:     prop,
+			Description: className + "." + prop,
+			Keywords:    "property, has",
+			Weight:      0.8,
+		})
+	}
+
+	if inheritsFrom != "" {
+		relations = append(relations, Relation{
+			Source:     className,
+			Target:     inheritsFrom,
+			Description: className + " inherits from " + inheritsFrom,
+			Keywords:    "inherits_from, extends",
+			Weight:      1.0,
+		})
+	}
+
+	for _, dep := range dependsOn {
+		relations = append(relations, Relation{
+			Source:     className,
+			Target:     dep,
+			Description: className + " implements " + dep,
+			Keywords:    "depends_on, implements",
 			Weight:      1.0,
 		})
 	}

@@ -50,6 +50,10 @@ func Run(filePath string, client *crud.Config) error {
 }
 
 func RunEvent(filePath string, client *crud.Config, results []AnalyserResult) error {
+	return RunEventWithChangeType(filePath, client, results, "")
+}
+
+func RunEventWithChangeType(filePath string, client *crud.Config, results []AnalyserResult, changeType string) error {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	analyser := router.GetAnalyser(ext)
 	if analyser == "" {
@@ -57,6 +61,9 @@ func RunEvent(filePath string, client *crud.Config, results []AnalyserResult) er
 	}
 
 	if analyser == "c_sharp" {
+		if changeType == "modified" {
+			return runCSharpPipelineModified(filePath, client, results)
+		}
 		return runCSharpPipelineWithResults(filePath, client, results)
 	}
 
@@ -97,7 +104,18 @@ func runCSharpPipelineWithResults(filePath string, client *crud.Config, results 
 	return applyCSharpResults(filePath, client, results)
 }
 
+func runCSharpPipelineModified(filePath string, client *crud.Config, results []AnalyserResult) error {
+	log.Printf("Modified file detected: %s, refreshing entities", filePath)
+
+	if err := client.DeleteEntitiesByFilePath(filePath); err != nil {
+		log.Printf("Warning: failed to delete old entities for %s: %v", filePath, err)
+	}
+
+	return runCSharpPipelineWithResults(filePath, client, results)
+}
+
 func applyCSharpResults(filePath string, client *crud.Config, results []AnalyserResult) error {
+	log.Printf("APPLY CSHARP RESULTS: processing %d results for %s", len(results), filePath)
 	parserResults := make([]struct{ Filename string; Content string }, len(results))
 	for i, r := range results {
 		parserResults[i] = struct{ Filename string; Content string }{r.Filename, r.Content}
@@ -112,7 +130,6 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 	if err != nil {
 		currentEntities = []map[string]any{}
 	}
-	log.Printf("DEBUG: Got %d existing entities from graph", len(currentEntities))
 
 	oldEntityMap := entitySliceToMap(currentEntities)
 	newEntityMap := parserEntitiesToMap(entities)
@@ -125,15 +142,23 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 			client.DeleteEntity(action.EntityName)
 		case diff.ActionCreate:
 			data := filter.FilterEntityData(action.Data)
-			client.CreateEntity(
+			_, err := client.CreateEntity(
 				action.EntityName,
 				filter.FilterDescription(getString(data, "description")),
 				getString(data, "entity_type", "UNKNOWN"),
 				getString(data, "source_id", filePath),
 				getString(data, "file_path", filePath),
 			)
+			if err != nil {
+				log.Printf("Entity create error: %v", err)
+			}
 		case diff.ActionUpdate:
 			data := filter.FilterEntityData(action.Data)
+			entityType := getString(data, "entity_type", "")
+			if entityType == "CLASS" {
+				log.Printf("Skipping CLASS update for %s (description auto-generated)", action.EntityName)
+				continue
+			}
 			client.UpdateEntity(action.EntityName, data)
 		}
 	}
@@ -348,13 +373,11 @@ func loadCurrentRelations(client *crud.Config) map[string]map[string]any {
 		src := ""
 		tgt := ""
 
-		if props, ok := edge["properties"].(map[string]any); ok {
-			if s, ok := props["src_id"].(string); ok && s != "" {
-				src = s
-			}
-			if t, ok := props["tgt_id"].(string); ok && t != "" {
-				tgt = t
-			}
+		if s, ok := edge["source"].(string); ok && s != "" {
+			src = s
+		}
+		if t, ok := edge["target"].(string); ok && t != "" {
+			tgt = t
 		}
 
 		if src == "" || tgt == "" {

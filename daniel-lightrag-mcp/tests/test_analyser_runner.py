@@ -242,3 +242,101 @@ class TestRunAnalysis:
 
         with pytest.raises(FileNotFoundError, match="binary not found"):
             run_analysis(str(sln), output_dir=str(tmp_path))
+
+
+class TestRealProjectAnalysis:
+    """Tests using the real test-csharp-project."""
+
+    @pytest.mark.asyncio
+    async def test_run_analysis_on_test_project(self):
+        """Test running the analyser on the actual test-csharp-project."""
+        from daniel_lightrag_mcp.analyser_runner import run_analysis
+
+        test_project_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "test-csharp-project"
+        )
+        results = run_analysis(test_project_path)
+
+        assert len(results) > 0, "Analyser should produce output files"
+        assert len(results) >= 6, "Should have at least 6 output files (expanded project)"
+
+        filenames = [name for name, _ in results]
+        assert any("Calculator" in f for f in filenames), "Should include Calculator output"
+        assert any("AdvancedCalculator" in f for f in filenames), "Should include AdvancedCalculator"
+
+    @pytest.mark.asyncio
+    async def test_expanded_project_has_inheritance_relations(self):
+        """Test that the expanded project has inheritance relationships."""
+        from daniel_lightrag_mcp.analyser_runner import run_analysis
+
+        test_project_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "test-csharp-project"
+        )
+        results = run_analysis(test_project_path)
+
+        content_by_file = {name: content for name, content in results}
+
+        advanced_calc_content = None
+        for name, content in results:
+            if "AdvancedCalculator" in name:
+                advanced_calc_content = content
+                break
+
+        assert advanced_calc_content is not None, "Should have AdvancedCalculator output"
+        assert "INHERITS_FROM" in advanced_calc_content, "Should contain INHERITS_FROM relationship"
+        assert "Calculator" in advanced_calc_content, "AdvancedCalculator should reference Calculator"
+
+    @pytest.mark.asyncio
+    async def test_expanded_project_has_interface_relations(self):
+        """Test that the expanded project has interface implementation relationships."""
+        from daniel_lightrag_mcp.analyser_runner import run_analysis
+
+        test_project_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "test-csharp-project"
+        )
+        results = run_analysis(test_project_path)
+
+        calc_content = None
+        for name, content in results:
+            if "AdvancedCalculator" in name:
+                calc_content = content
+                break
+
+        assert calc_content is not None
+        assert "DEPENDS_ON" in calc_content, "Should contain DEPENDS_ON for interface implementation"
+        assert "IOperation" in calc_content, "Should reference IOperation interface"
+
+    @pytest.mark.asyncio
+    async def test_expanded_project_has_property_entities(self):
+        """Test that the expanded project captures property entities."""
+        from daniel_lightrag_mcp.analyser_runner import run_analysis
+
+        test_project_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "test-csharp-project"
+        )
+        results = run_analysis(test_project_path)
+
+        extended_types_content = None
+        for name, content in results:
+            if "ExtendedTypes" in name:
+                extended_types_content = content
+                break
+
+        assert extended_types_content is not None, "Should have ExtendedTypes output"
+        assert "PROPERTY:" in extended_types_content, "Should contain PROPERTY entities"
+
+    @pytest.mark.asyncio
+    async def test_update_relations_with_expanded_project(self):
+        """Test the full update_relations flow with the expanded test project."""
+        from daniel_lightrag_mcp.client import LightRAGClient
+
+        test_project_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "test-csharp-project"
+        )
+
+        client = LightRAGClient(base_url="http://localhost:9621")
+        summary = await client.update_relations(test_project_path)
+
+        assert isinstance(summary, list), "Should return a list of status messages"
+        assert len(summary) > 0, "Should return at least one status message"
+        assert any("Analyser generated" in msg for msg in summary), "Should mention analyser output"

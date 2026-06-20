@@ -28,6 +28,48 @@ from lightrag.constants import (
     DEFAULT_RELATED_CHUNK_NUMBER,
     DEFAULT_MIN_RERANK_SCORE,
     DEFAULT_FORCE_LLM_SUMMARY_ON_MERGE,
+)
+
+
+def find_project_root(start_dir=None):
+    """
+    Find project root by looking for .coderag folder.
+    Searches from start_dir up to filesystem root.
+    Returns (project_root, coderag_path) or (None, None) if not found.
+    """
+    if start_dir is None:
+        start_dir = os.getcwd()
+
+    current = os.path.abspath(start_dir)
+    while True:
+        coderag_path = os.path.join(current, ".coderag")
+        if os.path.isdir(coderag_path):
+            return current, coderag_path
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return None, None
+
+
+def get_default_working_dir():
+    """
+    Get default working directory based on project detection.
+    If .coderag folder exists, use .coderag/rag_storage
+    Otherwise use ./rag_storage (legacy behavior)
+    """
+    env_val = os.environ.get("WORKING_DIR") or os.environ.get("LIGHTRAG_WORKING_DIR")
+    if env_val:
+        return env_val
+
+    _, coderag_path = find_project_root()
+    if coderag_path:
+        return os.path.join(coderag_path, "rag_storage")
+
+    return "./rag_storage"
+
+
+from lightrag.constants import (
     DEFAULT_MAX_ASYNC,
     DEFAULT_SUMMARY_MAX_TOKENS,
     DEFAULT_SUMMARY_LENGTH_RECOMMENDED,
@@ -40,6 +82,7 @@ from lightrag.constants import (
     DEFAULT_RERANK_BINDING,
     DEFAULT_ENTITY_TYPES,
 )
+
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -98,8 +141,8 @@ def parse_args() -> argparse.Namespace:
     # Directory configuration
     parser.add_argument(
         "--working-dir",
-        default=get_env_value("WORKING_DIR", "./rag_storage"),
-        help="Working directory for RAG storage (default: from env or ./rag_storage)",
+        default=get_default_working_dir(),
+        help="Working directory for RAG storage (default: .coderag/rag_storage if found, else ./rag_storage)",
     )
     parser.add_argument(
         "--input-dir",

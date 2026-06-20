@@ -15,8 +15,15 @@ func GetAnalyser(extension string) string {
 
 func IsSupported(filePath string) bool {
 	ext := strings.ToLower(filepath.Ext(filePath))
-	_, ok := extensionMap[ext]
-	return ok
+	if _, ok := extensionMap[ext]; !ok {
+		return false
+	}
+	path := strings.ToLower(filePath)
+	if strings.Contains(path, string(filepath.Separator)+"obj"+string(filepath.Separator)) ||
+		strings.Contains(path, string(filepath.Separator)+"bin"+string(filepath.Separator)) {
+		return false
+	}
+	return true
 }
 
 func SupportedExtensions() []string {

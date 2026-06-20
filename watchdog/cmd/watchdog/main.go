@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -179,11 +180,13 @@ func startCmd(c *cli.Context) error {
 	env := append(os.Environ(),
 		"OLLAMA_HOST="+ollamaHost,
 		"LIGHTRAG_PORT=9621",
+		"LIGHTRAG_WORKING_DIR="+filepath.Join(inputDir, ".coderag", "rag_storage"),
 	)
 	lightragProcess = exec.Command(lightragPath)
 	lightragProcess.Stdout = os.Stdout
 	lightragProcess.Stderr = os.Stderr
 	lightragProcess.Env = env
+	lightragProcess.Dir = inputDir
 
 	if err := lightragProcess.Start(); err != nil {
 		return fmt.Errorf("start lightrag: %w", err)

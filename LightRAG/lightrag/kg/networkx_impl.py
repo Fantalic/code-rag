@@ -35,6 +35,15 @@ class NetworkXStorage(BaseGraphStorage):
         logger.info(
             f"[{workspace}] Writing graph with {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
         )
+        for node in graph.nodes():
+            attrs = graph.nodes[node]
+            clean_attrs = {k: v for k, v in attrs.items() if v is not None}
+            graph.nodes[node].clear()
+            graph.nodes[node].update(clean_attrs)
+        for source, target, attrs in graph.edges(data=True):
+            clean_attrs = {k: v for k, v in attrs.items() if v is not None}
+            graph[source][target].clear()
+            graph[source][target].update(clean_attrs)
         nx.write_graphml(graph, file_name)
 
     def __post_init__(self):
@@ -136,7 +145,8 @@ class NetworkXStorage(BaseGraphStorage):
            KG-storage-log should be used to avoid data corruption
         """
         graph = await self._get_graph()
-        graph.add_node(node_id, **node_data)
+        clean_data = {k: v for k, v in node_data.items() if v is not None}
+        graph.add_node(node_id, **clean_data)
 
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
@@ -148,7 +158,8 @@ class NetworkXStorage(BaseGraphStorage):
            KG-storage-log should be used to avoid data corruption
         """
         graph = await self._get_graph()
-        graph.add_edge(source_node_id, target_node_id, **edge_data)
+        clean_data = {k: v for k, v in edge_data.items() if v is not None}
+        graph.add_edge(source_node_id, target_node_id, **clean_data)
 
     async def delete_node(self, node_id: str) -> None:
         """

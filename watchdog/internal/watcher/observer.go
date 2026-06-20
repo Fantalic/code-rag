@@ -275,17 +275,22 @@ func (w *Watcher) checkGitChanges() {
 			continue
 		}
 		fullPath := filepath.Join(w.config.InputDir, file)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			w.workQueue <- Event{Path: fullPath, ChangeType: "deleted"}
+		cleanPath := filepath.Clean(fullPath)
+		inputDir := filepath.Clean(w.config.InputDir)
+		if !strings.HasPrefix(cleanPath, inputDir) {
 			continue
 		}
-		if !router.IsSupported(fullPath) {
+		if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+			w.workQueue <- Event{Path: cleanPath, ChangeType: "deleted"}
+			continue
+		}
+		if !router.IsSupported(cleanPath) {
 			continue
 		}
 		w.hashLock.RLock()
-		prevHash := w.fileHashes[fullPath]
+		prevHash := w.fileHashes[cleanPath]
 		w.hashLock.RUnlock()
-		newHash, err := fileHash(fullPath)
+		newHash, err := fileHash(cleanPath)
 		if err != nil {
 			continue
 		}
@@ -293,13 +298,13 @@ func (w *Watcher) checkGitChanges() {
 			continue
 		}
 		w.hashLock.Lock()
-		w.fileHashes[fullPath] = newHash
+		w.fileHashes[cleanPath] = newHash
 		w.hashLock.Unlock()
 		changeType := "modified"
 		if prevHash == "" {
 			changeType = "created"
 		}
-		w.workQueue <- Event{Path: fullPath, ChangeType: changeType}
+		w.workQueue <- Event{Path: cleanPath, ChangeType: changeType}
 	}
 	cmd = exec.Command("git", "diff", "--cached", "--name-only")
 	cmd.Dir = w.config.InputDir
@@ -314,13 +319,18 @@ func (w *Watcher) checkGitChanges() {
 			continue
 		}
 		fullPath := filepath.Join(w.config.InputDir, file)
-		if !router.IsSupported(fullPath) {
+		cleanPath := filepath.Clean(fullPath)
+		inputDir := filepath.Clean(w.config.InputDir)
+		if !strings.HasPrefix(cleanPath, inputDir) {
+			continue
+		}
+		if !router.IsSupported(cleanPath) {
 			continue
 		}
 		w.hashLock.RLock()
-		prevHash := w.fileHashes[fullPath]
+		prevHash := w.fileHashes[cleanPath]
 		w.hashLock.RUnlock()
-		newHash, err := fileHash(fullPath)
+		newHash, err := fileHash(cleanPath)
 		if err != nil {
 			continue
 		}
@@ -328,13 +338,13 @@ func (w *Watcher) checkGitChanges() {
 			continue
 		}
 		w.hashLock.Lock()
-		w.fileHashes[fullPath] = newHash
+		w.fileHashes[cleanPath] = newHash
 		w.hashLock.Unlock()
 		changeType := "modified"
 		if prevHash == "" {
 			changeType = "created"
 		}
-		w.workQueue <- Event{Path: fullPath, ChangeType: changeType}
+		w.workQueue <- Event{Path: cleanPath, ChangeType: changeType}
 	}
 }
 
@@ -412,6 +422,15 @@ func (w *Watcher) processEvent(ev Event) {
 	if ev.ChangeType == "deleted" {
 		if err := w.config.LightRAGConfig.DeleteDocument(ev.Path); err != nil {
 			log.Printf("Delete document failed: %v", err)
+		}
+		if err := w.config.LightRAGConfig.DeleteEntitiesByFilePath(ev.Path); err != nil {
+			log.Printf("Delete entities by filepath failed: %v", err)
+		}
+		return
+	}
+	if ev.ChangeType == "modified" {
+		if err := pipeline.RunEventWithChangeType(ev.Path, w.config.LightRAGConfig, ev.Results, ev.ChangeType); err != nil {
+			log.Printf("Pipeline failed for %s: %v", ev.Path, err)
 		}
 		return
 	}

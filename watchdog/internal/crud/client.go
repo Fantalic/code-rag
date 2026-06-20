@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -265,4 +266,42 @@ func (c *Config) DeleteDocument(fileSource string) error {
 func (c *Config) Query(text string) (map[string]any, error) {
 	payload := map[string]any{"text": text}
 	return c.do(http.MethodPost, "/query/text", payload)
+}
+
+func (c *Config) GetEntitiesByFilePath(filePath string) ([]string, error) {
+	nodes, err := c.GetAllEntities()
+	if err != nil {
+		return nil, err
+	}
+
+	var entityNames []string
+	for _, node := range nodes {
+		props, ok := node["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if fp, ok := props["file_path"].(string); ok && fp == filePath {
+			if name, ok := props["entity_name"].(string); ok && name != "" {
+				entityNames = append(entityNames, name)
+			}
+		}
+	}
+	return entityNames, nil
+}
+
+func (c *Config) DeleteEntitiesByFilePath(filePath string) error {
+	names, err := c.GetEntitiesByFilePath(filePath)
+	if err != nil {
+		return fmt.Errorf("get entities by filepath: %w", err)
+	}
+
+	log.Printf("Found %d entities for file path %s", len(names), filePath)
+	for _, name := range names {
+		if _, err := c.DeleteEntity(name); err != nil {
+			log.Printf("Delete entity %s failed: %v", name, err)
+		} else {
+			log.Printf("Deleted entity: %s", name)
+		}
+	}
+	return nil
 }
