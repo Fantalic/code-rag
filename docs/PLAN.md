@@ -172,7 +172,13 @@ coderag status
 
 ## Future Phases
 
-### Phase 22 — MCP Tool Improvements 🔧 IN PROGRESS
+### Phase 22 — MCP Tool Improvements ✅ COMPLETE
+
+✅ All 13 tools implemented and verified
+✅ Fixed `get_related_files` to use `/query/data` endpoint
+✅ Docker image rebuilt, container running with 13 tools
+
+### Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
 
 **Goal:** Make the MCP tool set genuinely useful for large, unfamiliar codebases.
 
@@ -238,7 +244,54 @@ The current 6-tool set (query, get_related_files, check_entity_exists, get_knowl
 | 10 | Update docs | DOCUMENTATION.md, CURRENT_CONTEXT.md |
 | 11 | Verify all tools work | Test against real codebase |
 
-### Phase 23 — Python Analyser
+### Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+
+**Agent test revealed critical bugs:**
+
+| Tool | Issue |
+|------|-------|
+| `get_entities_in_file` | **Bug:** `file_path` stored at node level in LightRAG, not inside `properties`. Client code looked in wrong place. |
+| `search_entities` | **Bug:** Uses `label="*"` which may be invalid at `/graphs`. Returns empty or errors. |
+| `query` | Falls back to LLM training data when graph is empty → unreliable results |
+| All tools | **Gap:** Graph is always empty — nothing auto-indexes on startup |
+
+**Root cause analysis:**
+1. LightRAG's `acreate_entity` stores `file_path` at node level (`node["file_path"]`), not nested in `node["properties"]["file_path"]`
+2. `/graphs?label=*` is invalid — `*` is not a real entity type label
+3. MCP server starts without running the C# analyser on the project
+
+**Fixes to implement:**
+
+1. **`get_entities_in_file`:** Change `node.get("properties", {}).get("file_path")` → `node.get("file_path")` at node level. Add null-check for `properties=None`.
+
+2. **`search_entities`:** Instead of `label=entity_type or "*"` (invalid), fetch ALL entities by calling `/graphs` with a valid label (e.g., first label from `get_graph_labels`), then filter locally.
+
+3. **Auto-initialization on MCP startup:** When MCP server starts, detect the project directory (the directory opencode was started from — available via `$PWD` or passed as argument). If a `*.sln` or `*.csproj` exists there, run the C# analyser and ingest results. This populates the graph before the first query.
+
+4. **Better empty-graph messages:** When `get_codebase_stats` returns 0 entities, include a message suggesting to configure the project and wait for indexing.
+
+**Auto-initialization approach:**
+- MCP server receives no project path on startup (stdio mode)
+- opencode passes `cwd` when invoking `coderag mcp .` — but this goes to the Go bridge, not to MCP
+- Better: MCP server reads `LIGHTRAG_PROJECT_PATH` env var at startup (set by Go bridge before spawning MCP)
+- Or: MCP server checks current working directory for `.sln`/`.csproj` files on startup
+- Run C# analyser via `update_relations` method, ingest output, then begin accepting queries
+
+**Steps:**
+
+| # | Step | What changes |
+|---|------|-------------|
+| 1 | Fix `get_entities_in_file` | `node.get("file_path")` not `node.get("properties",{}).get("file_path")` |
+| 2 | Fix `search_entities` | Use valid label from `get_graph_labels` or local filtering without label |
+| 3 | Add null-check guard | Handle `properties=None` on nodes |
+| 4 | Auto-initialization | Check for `.sln`/`.csproj` in cwd on startup, run analyser |
+| 5 | Better empty-graph messages | Add helpful text when stats show 0 entities |
+| 6 | Rebuild Docker, verify | Test with real codebase |
+| 7 | Update docs | DOCUMENTATION.md, CURRENT_CONTEXT.md |
+
+**Key technical decision:** MCP auto-initialization uses cwd (where opencode was started) rather than env var. If `*.sln` exists in cwd, run the analyser automatically.
+
+### Phase 24 — Python Analyser
 - Add Python analyser (AST-based)
 - Register in `pkg/watchdog/router/file.go`
 - Entity types: CLASS, FUNCTION, IMPORT, DECORATOR

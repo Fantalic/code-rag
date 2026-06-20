@@ -1,7 +1,8 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 22** — MCP Tool Improvements 🔧 COMPLETE
+- 🔥 **Phase 23** — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+- **Phase 22** — MCP Tool Improvements ✅ COMPLETE
 - **Phase 21** — coderag Restructuring ✅ COMPLETE
 - **Phase 20** — VDB Embedding & file_path Persistence ✅ COMPLETE
 - **Phase 19** — Incremental Update Pipeline Fixes ✅ COMPLETE
@@ -59,6 +60,16 @@ coderag webui         → open http://localhost:9621
 ---
 
 ## Previous Phase Summary
+
+### Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+
+**Agent test (June 2026) revealed critical bugs:**
+- **`get_entities_in_file` broken:** `file_path` stored at node level in LightRAG, not inside `properties`. Client looked in wrong place.
+- **`search_entities` broken:** Uses `label="*"` which is invalid at `/graphs`. Returns empty or validation error.
+- **Empty graph on startup:** MCP starts without running analyser. `get_codebase_stats` shows 0 entities.
+- **`query` unreliable:** Falls back to LLM training data when graph empty → generic/hallucinated answers.
+
+**Fixes planned:** Fix property location in `get_entities_in_file`, fix `search_entities` label, add auto-initialization on startup (detect `.sln`/`.csproj` in cwd and run analyser), better empty-graph messages.
 
 ### Phase 22 — MCP Tool Improvements ✅ COMPLETE
 
@@ -186,3 +197,9 @@ NanoVectorDB `upsert()` replaces the full entry. Every field must be included in
 
 ### LightRAG /query vs /query/data endpoints
 LightRAG has two query endpoints: `POST /query` returns LLM-generated text + references (file paths). `POST /query/data` returns structured data: entities, relationships, chunks, references. Code expecting `results` field (from naive/local/global query modes) will get None when calling `/query` directly. Use `/query/data` for structured programmatic access.
+
+### LightRAG file_path storage location
+LightRAG stores `file_path` at the **node level** (`node["file_path"]`), NOT inside `node["properties"]["file_path"]`. When filtering entities by file path, access `node.get("file_path")` directly. Also guard against `properties=None` — use `props = node.get("properties") or {}`.
+
+### LightRAG /graphs requires valid label
+The `/graphs` endpoint requires a valid entity type label (e.g., "CLASS", "METHOD"). Using `label="*"` is invalid and returns an error. When fetching all entities, use the first label from `get_graph_labels()` or iterate through available labels.

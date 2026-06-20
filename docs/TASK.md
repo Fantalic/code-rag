@@ -148,21 +148,21 @@ Graph nodes have `properties.file_path`. When filtering, compare normalized path
 
 | # | Step | Status |
 |---|------|--------|
-| 1 | Fix `get_related_files` to use `/query/data` | ⬜ Pending |
-| 2 | Add `query_data` tool | ⬜ Pending |
-| 3 | Add `list_entities_by_type` tool | ⬜ Pending |
-| 4 | Add `get_entities_in_file` tool | ⬜ Pending |
-| 5 | Add `search_entities` tool | ⬜ Pending |
-| 6 | Add `get_entity_neighbors` tool | ⬜ Pending |
-| 7 | Add `get_incoming_relations` / `get_outgoing_relations` | ⬜ Pending |
-| 8 | Add `get_entity_details` tool | ⬜ Pending |
-| 9 | Add `get_codebase_stats` tool | ⬜ Pending |
-| 10 | Update models.py with new request/response types | ⬜ Pending |
-| 11 | Rebuild Docker image | ⬜ Pending |
-| 12 | Verify all tools work with real codebase | ⬜ Pending |
-| 13 | Update documentation | ⬜ Pending |
+| 1 | Fix `get_related_files` to use `/query/data` | ✅ Done |
+| 2 | Add `query_data` tool | ✅ Done |
+| 3 | Add `list_entities_by_type` tool | ✅ Done |
+| 4 | Add `get_entities_in_file` tool | ✅ Done |
+| 5 | Add `search_entities` tool | ✅ Done |
+| 6 | Add `get_entity_neighbors` tool | ✅ Done |
+| 7 | Add `get_incoming_relations` / `get_outgoing_relations` | ✅ Done |
+| 8 | Add `get_entity_details` tool | ✅ Done |
+| 9 | Add `get_codebase_stats` tool | ✅ Done |
+| 10 | Update models.py with new request/response types | ✅ Done |
+| 11 | Rebuild Docker image | ✅ Done |
+| 12 | Verify all tools work with real codebase | ✅ Done |
+| 13 | Update documentation | ✅ Done |
 
-## Final Tool Set (12 tools)
+## Final Tool Set (13 tools)
 
 | Tool | Purpose |
 |------|---------|
@@ -175,6 +175,70 @@ Graph nodes have `properties.file_path`. When filtering, compare normalized path
 | `list_entities_by_type` | Browse entities by type |
 | `get_entities_in_file` | Filter by file path |
 | `search_entities` | Pattern search on entity names |
+
+---
+
+# Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+
+## Bug Report (from agent test)
+
+Agent tested the MCP tools against `E:\_dev\_Projects\test-csharp-project` and found:
+
+| Tool | Status | Issue |
+|------|--------|-------|
+| `get_codebase_stats` | Works | Shows 0 entities — graph empty |
+| `get_graph_labels` | Works | Shows empty labels |
+| `query` | Works | Falls back to LLM training data when graph empty → unreliable |
+| `search_entities` | Broken | "Internal validation error" |
+| `get_entities_in_file` | Broken | Rejects valid file paths |
+| `get_related_files` | Fixed | Now uses `/query/data` correctly |
+
+**Root causes identified:**
+
+1. **`get_entities_in_file` bug:** LightRAG stores `file_path` at node level (`node["file_path"]`), not inside `node["properties"]["file_path"]`. Client code looked in wrong place.
+
+2. **`search_entities` bug:** Uses `label="*"` when calling `/graphs`. The `*` is not a valid entity type label — `/graphs` expects a real label like "CLASS".
+
+3. **Empty graph:** MCP server starts without running the C# analyser. Nothing gets indexed automatically.
+
+## Fixes
+
+### Fix 1: `get_entities_in_file` — Correct property location
+```python
+# WRONG (looks in properties)
+node.get("properties", {}).get("file_path", "")
+# CORRECT (looks at node level)
+node.get("file_path", "")
+```
+Also add null-check: if `properties` is `None`, treat as empty dict.
+
+### Fix 2: `search_entities` — Valid label for `/graphs`
+Instead of `label=entity_type or "*"`, use a valid label. Options:
+- Call `get_graph_labels()` first to get the first real label, then use it
+- Or fetch without label parameter (but `/graphs` requires `label` query param)
+- Best: iterate through available labels from `get_graph_labels()` until one returns entities
+
+### Fix 3: Auto-initialization on MCP startup
+- On startup, check current working directory for `*.sln` or `*.csproj` files
+- If found, run the C# analyser via `update_relations(path)`
+- This populates the graph before any queries arrive
+- Project directory = where opencode was started from (cwd)
+
+### Fix 4: Better empty-graph messages
+When `get_codebase_stats` returns 0 entities, add a message:
+"Knowledge graph is empty. No source files have been indexed yet. Ensure the watchdog is running and watching your project directory."
+
+## Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Fix `get_entities_in_file` property lookup | ⬜ Pending |
+| 2 | Add null-check for `properties=None` | ⬜ Pending |
+| 3 | Fix `search_entities` label parameter | ⬜ Pending |
+| 4 | Add auto-initialization on startup | ⬜ Pending |
+| 5 | Add better empty-graph messages | ⬜ Pending |
+| 6 | Rebuild Docker, verify with real codebase | ⬜ Pending |
+| 7 | Update documentation | ⬜ Pending |
 | `get_entity_neighbors` | 1-hop graph traversal |
 | `get_incoming_relations` / `get_outgoing_relations` | Directional relation browsing |
 | `get_codebase_stats` | Summary statistics |
