@@ -1,3 +1,60 @@
+# Phase 24 — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
+
+## Bug Report
+
+From test-csharp-project CODERAG_BUG_REPORT.md:
+- `get_codebase_stats` returned 0 entities despite 42 nodes in graph
+- `get_graph_labels` returned empty arrays despite 33 edges
+- `list_entities_by_type` returned empty results
+
+## Root Cause
+
+**Two compounding issues:**
+
+1. **LightRAG's `get_all_labels()` returned node IDs (entity names like "Calculator"), not entity_type values ("CLASS", "METHOD").** MCP client tools called `get_knowledge_graph(label="CLASS")` which does BFS from a node NAMED "CLASS" — but no such node exists. Node IDs are things like "Calculator", "Add", "Factorial".
+
+2. **`/graph/label/list` endpoint returned flat list** of node IDs instead of structured `{entity_labels: [...], relation_labels: [...]}`.
+
+## Fixes Applied
+
+### Fix 1: LightRAG `networkx_impl.py`
+Added two new methods:
+- `get_all_entity_types()`: Returns distinct `entity_type` values from node properties
+- `get_all_relation_types()`: Returns distinct `keywords` values from edge properties
+
+Kept `get_all_labels()` unchanged for backward compatibility with `utils.py` export function.
+
+### Fix 2: LightRAG `lightrag.py`
+Updated `get_graph_labels()` to return structured response:
+```python
+return {"entity_labels": entity_types, "relation_labels": relation_types}
+```
+Now `/graph/label/list` returns `{"entity_labels": ["CLASS", "METHOD", ...], "relation_labels": ["method", "defines", ...]}`.
+
+### Fix 3: MCP Client `client.py`
+Fixed four methods to use `label="*"` and filter client-side:
+- `get_codebase_stats`: Fetch all nodes/edges with `label="*"`, count by `properties.entity_type`
+- `list_entities_by_type`: Fetch all nodes with `label="*"`, filter by `properties.entity_type`
+- `search_entities`: Fetch all nodes with `label="*"`, regex match on name/description
+- `get_entities_in_file`: Fetch all nodes with `label="*"`, filter by `file_path` property
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `LightRAG/lightrag/kg/networkx_impl.py` | Added `get_all_entity_types()`, `get_all_relation_types()` |
+| `LightRAG/lightrag/lightrag.py` | Updated `get_graph_labels()` to return `{entity_labels, relation_labels}` |
+| `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` | Fixed 4 methods to use label="*" and filter client-side |
+
+## Verification
+
+- Python imports work correctly after formatting
+- Docker image builds successfully
+- `/graph/label/list` returns correct structure with entity_labels and relation_labels
+- `/graphs?label=*` returns all nodes correctly
+
+---
+
 # Phase 21 — coderag Restructuring ✅ COMPLETE
 
 ## Goal
@@ -73,7 +130,7 @@ opencode ──stdio──► coderag mcp . (host Go binary)
 
 ---
 
-# Phase 22 — MCP Tool Improvements for Large Codebases 🔧 IN PROGRESS
+# Phase 22 — MCP Tool Improvements for Large Codebases ✅ COMPLETE
 
 ## Goal
 
@@ -178,7 +235,7 @@ Graph nodes have `properties.file_path`. When filtering, compare normalized path
 
 ---
 
-# Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+# Phase 23 — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 
 ## Bug Report (from agent test)
 
@@ -232,13 +289,16 @@ When `get_codebase_stats` returns 0 entities, add a message:
 
 | # | Step | Status |
 |---|------|--------|
-| 1 | Fix `get_entities_in_file` property lookup | ⬜ Pending |
-| 2 | Add null-check for `properties=None` | ⬜ Pending |
-| 3 | Fix `search_entities` label parameter | ⬜ Pending |
-| 4 | Add auto-initialization on startup | ⬜ Pending |
-| 5 | Add better empty-graph messages | ⬜ Pending |
-| 6 | Rebuild Docker, verify with real codebase | ⬜ Pending |
-| 7 | Update documentation | ⬜ Pending |
+| 1 | Fix `get_entities_in_file` property lookup | ✅ Done |
+| 2 | Add null-check for `properties=None` | ✅ Done |
+| 3 | Fix `search_entities` label parameter | ✅ Done (but deeper issue fixed in Phase 24) |
+| 4 | Add auto-initialization on startup | ✅ Done |
+| 5 | Add better empty-graph messages | ⚠️ Not implemented |
+| 6 | Rebuild Docker, verify with real codebase | ✅ Done |
+| 7 | Update documentation | ✅ Done |
+
+Note: `search_entities` had a deeper issue — it used `get_knowledge_graph(label=entity_type)` which does BFS from a node named "CLASS", not filtering by type. Fixed in Phase 24.
+
 | `get_entity_neighbors` | 1-hop graph traversal |
 | `get_incoming_relations` / `get_outgoing_relations` | Directional relation browsing |
 | `get_codebase_stats` | Summary statistics |

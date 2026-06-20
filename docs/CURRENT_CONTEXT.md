@@ -1,7 +1,8 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 23** — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
+- 🔥 **Phase 24** — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
+- **Phase 23** — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 - **Phase 22** — MCP Tool Improvements ✅ COMPLETE
 - **Phase 21** — coderag Restructuring ✅ COMPLETE
 - **Phase 20** — VDB Embedding & file_path Persistence ✅ COMPLETE
@@ -60,6 +61,23 @@ coderag webui         → open http://localhost:9621
 ---
 
 ## Previous Phase Summary
+
+### Phase 24 — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
+
+**Bug report:** `get_codebase_stats`, `get_graph_labels`, `list_entities_by_type` returned empty/zero results despite knowledge graph being fully populated (42 nodes, 33 edges in test-csharp-project).
+
+**Root cause:** Two issues:
+1. **LightRAG `get_all_labels()` returned node IDs (entity names like "Calculator") instead of entity_type values ("CLASS", "METHOD").** The MCP client used these labels incorrectly with `get_knowledge_graph(label="CLASS")` which does BFS from a node NAMED "CLASS" — not filtering for nodes with `entity_type="CLASS"`.
+
+2. **`/graph/label/list` returned flat list** of node IDs instead of structured `{entity_labels: [...], relation_labels: [...]}`.
+
+**Fixes implemented:**
+- `networkx_impl.py`: Added `get_all_entity_types()` and `get_all_relation_types()` methods that extract distinct type values from node/edge properties
+- `lightrag.py`: `get_graph_labels()` now returns `{entity_labels, relation_labels}` using the new type extraction methods, preserving backward compatibility of `get_all_labels()`
+- `client.py`: Fixed `get_codebase_stats`, `list_entities_by_type`, `search_entities`, `get_entities_in_file` to use `label="*"` and filter client-side by `properties.entity_type`
+
+**API change:**
+- `/graph/label/list` now returns `{"entity_labels": ["CLASS", "METHOD", ...], "relation_labels": ["method", "defines", ...]}` instead of flat list of node IDs
 
 ### Phase 23 — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 
@@ -206,3 +224,13 @@ LightRAG stores `file_path` at the **node level** (`node["file_path"]`), NOT ins
 
 ### LightRAG /graphs requires valid label
 The `/graphs` endpoint requires a valid entity type label (e.g., "CLASS", "METHOD"). Using `label="*"` is invalid and returns an error. When fetching all entities, use the first label from `get_graph_labels()` or iterate through available labels.
+
+### LightRAG entity type vs node label distinction
+**Critical bug:** `get_knowledge_graph(label="CLASS")` does BFS starting from a node NAMED "CLASS" — it does NOT filter for nodes with `properties.entity_type="CLASS"`. These are different things:
+- **Node ID/name:** The identifier for a node (e.g., "Calculator", "Add", "Factorial")
+- **entity_type:** A property stored in `node["properties"]["entity_type"]` (e.g., "CLASS", "METHOD", "PROPERTY")
+
+When counting/querying entities by type, fetch all nodes with `label="*"` then filter client-side by `node["properties"]["entity_type"]`.
+
+### LightRAG get_all_labels() returns node IDs, not entity types
+The original `get_all_labels()` method returned all node IDs (entity names), not distinct `entity_type` values. New methods `get_all_entity_types()` and `get_all_relation_types()` were added to extract the actual type labels from graph properties.
