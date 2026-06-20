@@ -77,9 +77,6 @@ code-lightrag/
 ├── cmd/
 │   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
 ├── pkg/
-│   ├── mcp/                     ← MCP server (mark3labs/mcp-go)
-│   │   ├── server.go            ← stdio JSON-RPC setup, init, tool dispatch
-│   │   └── tools.go             ← 22 tool handlers
 │   ├── watchdog/                ← File watcher (importable Go package)
 │   │   ├── watcher/             ← fsnotify + git observer
 │   │   ├── diff/                ← Entity/relation diff engine
@@ -91,16 +88,18 @@ code-lightrag/
 │   └── lightrag/                ← LightRAG HTTP API client
 │       ├── client.go            ← Client struct, request helpers
 │       └── types.go             ← Shared request/response types
-├── watchdog/                    ← Standalone entry point (thin, imports pkg/watchdog)
-│   └── cmd/watchdog/main.go
-├── analysers/                   ← Language analysers
-│   └── csharp/                  ← C# Roslyn-based analyser
+├── analysers/                   ← Language analysers (host-side)
+│   └── c_sharp/                 ← C# Roslyn-based analyser binary
+│       └── CSharpAnalyzerTool.exe
+├── daniel-lightrag-mcp/         ← Python MCP server (Docker)
+│   └── src/daniel_lightrag_mcp/ ← 13 MCP tools, SSE transport
 ├── LightRAG/                    ← Python RAG engine (Docker)
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
 │   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── Dockerfile                   ← Multi-stage: LightRAG + WebUI
-├── docker-compose.yml           ← LightRAG + optional Ollama
+├── watchdog/cmd/watchdog/       ← Standalone watcher binary entry
+├── Dockerfile                   ← Multi-stage: LightRAG + WebUI + MCP
+├── docker-compose.yml           ← lightrag (:9621) + mcp (:9622)
 ├── go.mod
 └── .opencode/
     └── opencode.json            ← MCP config: ["coderag", "mcp", "."]
@@ -110,11 +109,11 @@ code-lightrag/
 
 | Package | Import path | Purpose |
 |---------|-------------|---------|
-| `pkg/mcp` | `github.com/code-lightrag/mcp` | MCP protocol server (stdlib) using mark3labs/mcp-go |
 | `pkg/watchdog` | `github.com/code-lightrag/watchdog` | File watching, diff engine, pipeline, CRUD client |
 | `pkg/lightrag` | `github.com/code-lightrag/lightrag` | LightRAG HTTP client (shared between mcp + watchdog) |
-| `cmd/coderag` | — | CLI binary entry point |
-| `watchdog/cmd/watchdog` | — | Standalone watcher entry (optional, for non-opencode use) |
+| `cmd/coderag` | — | CLI binary entry point (`start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`) |
+| `daniel-lightrag-mcp` | — | Python MCP server running in Docker (stdio↔SSE bridge) |
+| `watchdog/cmd/watchdog` | — | Standalone watcher entry (imports `pkg/watchdog`) |
 
 ---
 
@@ -157,8 +156,11 @@ The `coderag` binary is the central CLI tool for the entire CodeLightRAG system.
 ```bash
 coderag start   <dir>    →  Start Docker services + file watcher in foreground
 coderag mcp     <dir>    →  MCP server mode (stdio, for opencode/agent connections)
-                             Auto-starts Docker + watcher if needed.
-                             Exposes 22 tools over MCP stdio protocol.
+                             Auto-starts Docker + watchdog in background.
+                             Bridges stdio↔SSE to Python MCP in Docker.
+                             Exposes 13 tools over MCP stdio protocol.
+coderag scan    <dir>    →  Run C# analyser and populate knowledge graph
+                             (explicit scan, useful for CLI-only usage)
 coderag webui   <dir>    →  Open WebUI in browser (ensure Docker is running)
 coderag watch   <dir>    →  File watcher only (no Docker orchestration)
 coderag status           →  Health check all services
@@ -170,25 +172,21 @@ coderag query   "<text>" →  Quick query against the knowledge graph
 
 ```
 Step 0:  Parse flags, validate <dir> exists
-Step 1:  Check LightRAG health at http://localhost:9621/health
+Step 1:  Check MCP SSE health at http://localhost:9622/health
          │
          ├─ Healthy (HTTP 200) → skip to Step 3
          │
-         └─ Not healthy → check Docker/Podman availability
+         └─ Not healthy → ensure LightRAG is running
               │
-              ├─ Docker available → docker compose -f <deploy/docker-compose.yml> up -d
-              │                     Wait for :9621 health (poll 2s, timeout 60s)
-              │
-              └─ Podman available → podman-compose -f <deploy/docker-compose.yml> up -d
-                                    Wait for :9621 health (poll 2s, timeout 60s)
-                                    (Podman support via DOCKER_HOST=podman or config flag)
-
-              If neither available → error: "Docker or Podman required"
+              └─ Check LightRAG at :9621, start Docker if needed
 
 Step 2:  Print "LightRAG ready at http://localhost:9621"
 Step 3:  Start file watcher on <dir> (goroutine, fsnotify + git poll)
-Step 4:  Enter MCP stdio loop:
-         ├─ tools/list    → return 22 tool definitions
+         - Watchdog runs C# analyser on solution files
+         - Diffs entities/relations against current graph
+         - Applies security filter, creates/updates/deletes via LightRAG API
+Step 4:  Enter MCP stdio loop (via SSE bridge):
+         ├─ tools/list    → return 13 tool definitions
          ├─ tools/call    → proxy to LightRAG HTTP API or handle internally
          └─ notifications → handle lifecycle
 ```
@@ -216,55 +214,50 @@ Containers are configured in `docker-compose.yml` at the project root. The WebUI
 
 ## 5. MCP Server (Go)
 
-The MCP server is built into the `coderag` binary using `mark3labs/mcp-go`. It communicates via stdio JSON-RPC (MCP protocol). It replaces the previous Python `daniel-lightrag-mcp` server.
+The MCP server runs in Docker (`daniel-lightrag-mcp`) and communicates with `coderag` via SSE. The Go `coderag` binary acts as a stdio↔SSE bridge.
 
-### 22 Tools
-
-**Document Management (7 tools):**
-| Tool | Description |
-|------|-------------|
-| `insert_text` | Insert text into LightRAG |
-| `insert_texts` | Insert multiple texts |
-| `upload_document` | Upload a file |
-| `scan_documents` | Trigger document scan |
-| `get_documents` | List all documents |
-| `get_documents_paginated` | Paginated document list |
-| `delete_document` | Delete document by ID |
+### 13 MCP Tools
 
 **Query (2 tools):**
 | Tool | Description |
 |------|-------------|
-| `query_text` | Query the knowledge graph (local/global/hybrid) |
-| `query_text_stream` | Stream query results |
+| `query` | LLM-powered natural language query (hybrid mode) |
+| `query_data` | Structured query without LLM (entities + relationships) |
 
-**Knowledge Graph (9 tools):**
+**Knowledge Graph (6 tools):**
 | Tool | Description |
 |------|-------------|
-| `get_knowledge_graph` | Retrieve the full KG (nodes + edges) |
+| `get_knowledge_graph` | Retrieve full KG (nodes + edges) |
 | `get_graph_labels` | Get all entity/relation label types |
 | `check_entity_exists` | Check if entity exists by name |
-| `update_entity` | Update entity properties |
-| `update_relation` | Update relation properties |
-| `update_relations` | Run C# analyser + ingest results |
-| `get_related_files` | Find files related to a query |
-| `delete_entity` | Delete entity from KG |
-| `delete_relation` | Delete relation from KG |
+| `add_note_to_entity` | Attach embedded note to entity |
+| `get_related_files` | Find files related to a query (semantic search) |
 
-**System (4 tools):**
+**Exploration (5 tools):**
 | Tool | Description |
 |------|-------------|
-| `get_pipeline_status` | Document pipeline status |
-| `get_track_status` | Processing track status |
-| `get_document_status_counts` | Documents by status |
-| `get_health` | LightRAG server health |
+| `get_codebase_stats` | Entity/relation counts by type, unique file count |
+| `list_entities_by_type` | Paginated list of CLASS/METHOD/PROPERTY entities |
+| `get_entities_in_file` | Filter graph by source file path |
+| `search_entities` | Regex search on entity names and descriptions |
+| `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) |
+| `get_entity_details` | Full entity info with all its relations |
 
-### Tool handler architecture
+### Architecture
 
-Each tool handler either:
-1. **HTTP proxy** — forwards to LightRAG REST API (most tools)
-2. **Internal** — uses Go packages directly (e.g., `update_relations` runs the C# analyser)
+```
+opencode (stdio) → coderag mcp (Go bridge) → MCP server (Docker :9622) → LightRAG API (Docker :9621)
+```
 
-All handlers return MCP `CallToolResult` with JSON content.
+The Go bridge (`cmd/coderag/main.go`) handles:
+1. Ensuring Docker services are up
+2. Starting watchdog in background goroutine
+3. Bridging stdio JSON-RPC ↔ SSE to Python MCP server
+
+The Python MCP server (`daniel-lightrag-mcp`) handles:
+- Tool dispatch via LightRAG HTTP client
+- 13 tool definitions and handlers
+- SSE transport on port 9622
 
 ---
 

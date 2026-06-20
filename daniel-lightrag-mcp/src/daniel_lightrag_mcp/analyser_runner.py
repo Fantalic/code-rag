@@ -1,5 +1,12 @@
 """
 C# analyser runner — invokes CSharpAnalyzerTool.exe and collects output.
+
+DEPRECATED: This module is no longer used for analysis in production.
+The C# analyser is now run by the Go watchdog (pkg/watchdog/pipeline/run.go)
+which runs as a background goroutine when `coderag mcp` is invoked.
+The `coderag scan` command provides explicit analysis trigger.
+
+This module is kept for potential future use (e.g., manual analysis from MCP).
 """
 
 from __future__ import annotations
@@ -20,6 +27,9 @@ SKIP_FILE_PATTERNS: List[str] = [
     r"AssemblyAttributes",
 ]
 
+# NOTE: The analyser binary has been moved to project root analysers/c_sharp/
+# The Go watchdog handles analysis using the host-side binary.
+# This path is unused in production but kept for potential future MCP-side analysis.
 ANALYSER_RELATIVE_PATH = "../../analysers/c_sharp/CSharpAnalyzerTool.exe"
 
 ANALYSER_OUTPUT_DIR = "relations_output"

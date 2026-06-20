@@ -378,49 +378,22 @@ class LightRAGClient:
         return InsertResponse(**response_data)
 
     async def update_relations(self, path: str) -> list[str]:
-        """Run C# analyser on a project and ingest output into LightRAG."""
-        self.logger.info(f"update_relations: analysing project at {path}")
-
-        try:
-            analysis_results = run_analysis(path)
-        except Exception as e:
-            self.logger.error(f"Analyser failed: {e}")
-            return [f"ERROR: C# analyser failed: {e}"]
-
-        if not analysis_results:
-            return ["WARNING: C# analyser produced no output files to ingest"]
-
-        self.logger.info(
-            f"Ingesting {len(analysis_results)} analyser output files into LightRAG"
+        """
+        DEPRECATED: Analysis is now handled by the Go watchdog via `coderag scan`.
+        This method is kept for potential future use but always returns a deprecation notice.
+        Analysis in production should be triggered via `coderag scan <project-dir>` from the host CLI.
+        The analyser binary (CSharpAnalyzerTool.exe) runs on the host, not in the MCP Docker container.
+        """
+        self.logger.warning(
+            "update_relations is deprecated. "
+            "Use 'coderag scan <project-dir>' from the CLI instead. "
+            "Analysis is now handled by the Go watchdog when 'coderag mcp' is running."
         )
-        track_ids: list[str] = []
-        errors: list[str] = []
-
-        for filename, content in analysis_results:
-            try:
-                title = filename.replace(".txt", "")
-                result = await self.insert_text(content, title=title)
-                if hasattr(result, "track_id") and result.track_id:
-                    track_ids.append(result.track_id)
-                tid = getattr(result, "track_id", "N/A")
-                self.logger.info(f"Ingested {filename} -> track_id={tid}")
-            except Exception as e:
-                msg = f"Failed to ingest {filename}: {e}"
-                self.logger.error(msg)
-                errors.append(msg)
-
-        summary_parts: list[str] = [
-            f"Analyser generated {len(analysis_results)} output files for {path}",
-            f"Ingested {len(track_ids)} files into LightRAG",
+        return [
+            "DEPRECATED: update_relations is no longer supported.",
+            "Use 'coderag scan <project-dir>' to run the C# analyser and populate the knowledge graph.",
+            "The watchdog automatically analyzes files when 'coderag mcp <project-dir>' is running.",
         ]
-        if errors:
-            summary_parts.append(f"Errors: {'; '.join(errors)}")
-        summary_parts.append(
-            "LightRAG is now processing the analyser output "
-            "to build the knowledge graph. "
-            "This may take a few minutes depending on LLM speed.",
-        )
-        return summary_parts
 
     # --- Phase 22: Enhanced exploration tools ---
 
@@ -448,13 +421,19 @@ class LightRAGClient:
         entity_counts: dict[str, int] = {t: 0 for t in entity_types}
         relation_counts: dict[str, int] = {t: 0 for t in relation_types}
         all_files: set[str] = set()
+        discovered_entity_types: set[str] = set()
+        discovered_relation_types: set[str] = set()
 
         try:
             graph = await self.get_knowledge_graph(label="*")
             for node in graph.nodes:
                 node_type = node.get("properties", {}).get("entity_type", "")
-                if node_type in entity_counts:
-                    entity_counts[node_type] += 1
+                if node_type:
+                    discovered_entity_types.add(node_type)
+                    if node_type in entity_counts:
+                        entity_counts[node_type] += 1
+                    else:
+                        entity_counts[node_type] = entity_counts.get(node_type, 0) + 1
                 fp = node.get("file_path") or node.get("properties", {}).get(
                     "file_path", ""
                 )
@@ -466,13 +445,17 @@ class LightRAGClient:
                 if keywords:
                     for kw in keywords.split(","):
                         kw = kw.strip()
-                        if kw in relation_counts:
-                            relation_counts[kw] += 1
+                        if kw:
+                            discovered_relation_types.add(kw)
+                            relation_counts[kw] = relation_counts.get(kw, 0) + 1
         except Exception as e:
             self.logger.error(f"Error getting codebase stats: {e}")
 
         total_entities = sum(entity_counts.values())
         total_relations = sum(relation_counts.values())
+
+        all_entity_types = sorted(set(entity_types) | discovered_entity_types)
+        all_relation_types = sorted(set(relation_types) | discovered_relation_types)
 
         return CodebaseStatsResponse(
             total_entities=total_entities,
@@ -480,8 +463,8 @@ class LightRAGClient:
             entity_counts_by_type=entity_counts,
             relation_counts_by_type=relation_counts,
             unique_files=len(all_files),
-            entity_types=entity_types,
-            relation_types=relation_types,
+            entity_types=all_entity_types,
+            relation_types=all_relation_types,
         )
 
     async def get_entity_neighbors(self, entity_name: str) -> EntityNeighborsResponse:
@@ -492,20 +475,54 @@ class LightRAGClient:
         outgoing: list[RelationInfo] = []
 
         for edge in graph.edges:
-            src = edge.get("src_id") or edge.get("source_entity", "")
-            tgt = edge.get("tgt_id") or edge.get("target_entity", "")
+            src = edge.get("source") or edge.get("src_id") or ""
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+
+            rel_data = {
+                "id": edge.get("id", f"{src}-{tgt}"),
+                "source_entity": src,
+                "target_entity": tgt,
+                "type": edge.get("type", ""),
+                "properties": edge.get("properties", {}),
+                "weight": edge.get("weight"),
+            }
+            rel = RelationInfo(**rel_data)
 
             if src == entity_name:
-                outgoing.append(RelationInfo(**edge))
+                outgoing.append(rel)
                 for node in graph.nodes:
-                    if node.get("id") == tgt or node.get("name") == tgt:
-                        neighbors.append(EntityInfo(**node))
+                    node_id = node.get("id", "")
+                    if node_id == tgt:
+                        node_name = (
+                            node.get("properties", {}).get("entity_name")
+                            or node.get("name")
+                            or node_id
+                        )
+                        entity_data = {
+                            "id": node_id,
+                            "name": node_name,
+                            "type": node.get("properties", {}).get("entity_type"),
+                            "properties": node.get("properties", {}),
+                        }
+                        neighbors.append(EntityInfo(**entity_data))
                         break
             elif tgt == entity_name:
-                incoming.append(RelationInfo(**edge))
+                incoming.append(rel)
                 for node in graph.nodes:
-                    if node.get("id") == src or node.get("name") == src:
-                        neighbors.append(EntityInfo(**node))
+                    node_id = node.get("id", "")
+                    if node_id == src:
+                        node_name = (
+                            node.get("properties", {}).get("entity_name")
+                            or node.get("name")
+                            or node_id
+                        )
+                        entity_data = {
+                            "id": node_id,
+                            "name": node_name,
+                            "type": node.get("properties", {}).get("entity_type"),
+                            "properties": node.get("properties", {}),
+                        }
+                        neighbors.append(EntityInfo(**entity_data))
                         break
 
         unique_neighbors: dict[str, EntityInfo] = {}
@@ -530,7 +547,18 @@ class LightRAGClient:
         for node in graph.nodes:
             node_id = node.get("id") or node.get("name", "")
             if node_id == entity_name:
-                entity_info = EntityInfo(**node)
+                node_name = (
+                    node.get("properties", {}).get("entity_name")
+                    or node.get("name")
+                    or node_id
+                )
+                entity_data = {
+                    "id": node_id,
+                    "name": node_name,
+                    "type": node.get("properties", {}).get("entity_type"),
+                    "properties": node.get("properties", {}),
+                }
+                entity_info = EntityInfo(**entity_data)
                 break
 
         if entity_info is None:
@@ -541,9 +569,18 @@ class LightRAGClient:
         all_relations: list[RelationInfo] = []
 
         for edge in graph.edges:
-            src = edge.get("src_id") or edge.get("source_entity", "")
-            tgt = edge.get("tgt_id") or edge.get("target_entity", "")
-            rel = RelationInfo(**edge)
+            src = edge.get("source") or edge.get("src_id") or ""
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+
+            rel_data = {
+                "id": edge.get("id", f"{src}-{tgt}"),
+                "source_entity": src,
+                "target_entity": tgt,
+                "type": edge.get("type", ""),
+                "properties": edge.get("properties", {}),
+                "weight": edge.get("weight"),
+            }
+            rel = RelationInfo(**rel_data)
 
             if src == entity_name or tgt == entity_name:
                 all_relations.append(rel)
@@ -569,7 +606,19 @@ class LightRAGClient:
         for node in graph.nodes:
             node_type = node.get("properties", {}).get("entity_type", "")
             if node_type == entity_type or node_type == entity_type.upper():
-                entities.append(EntityInfo(**node))
+                node_id = node.get("id", "")
+                node_name = (
+                    node.get("properties", {}).get("entity_name")
+                    or node.get("name")
+                    or node_id
+                )
+                entity_data = {
+                    "id": node_id,
+                    "name": node_name,
+                    "type": node_type,
+                    "properties": node.get("properties", {}),
+                }
+                entities.append(EntityInfo(**entity_data))
 
         total = len(entities)
         paginated = entities[offset : offset + limit]
@@ -602,7 +651,15 @@ class LightRAGClient:
             if node_fp:
                 node_fp_clean = node_fp.lower().replace("\\", "/")
                 if node_fp_clean == fp_lower:
-                    entities.append(EntityInfo(**node))
+                    node_id = node.get("id", "")
+                    node_name = props.get("entity_name") or node.get("name") or node_id
+                    entity_data = {
+                        "id": node_id,
+                        "name": node_name,
+                        "type": props.get("entity_type"),
+                        "properties": props,
+                    }
+                    entities.append(EntityInfo(**entity_data))
 
         return GetEntitiesInFileResponse(
             file_path=file_path,
@@ -631,15 +688,26 @@ class LightRAGClient:
 
         matches: list[EntityInfo] = []
         for node in graph.nodes:
-            name = node.get("name", "")
+            node_id = node.get("id", "")
+            node_name = (
+                node.get("properties", {}).get("entity_name")
+                or node.get("name")
+                or node_id
+            )
             desc = node.get("properties", {}).get("description", "")
 
-            if compiled.search(name) or compiled.search(desc):
+            if compiled.search(node_name) or compiled.search(desc):
                 if entity_type:
                     node_type = node.get("properties", {}).get("entity_type", "")
                     if node_type.upper() != entity_type.upper():
                         continue
-                matches.append(EntityInfo(**node))
+                entity_data = {
+                    "id": node_id,
+                    "name": node_name,
+                    "type": node.get("properties", {}).get("entity_type"),
+                    "properties": node.get("properties", {}),
+                }
+                matches.append(EntityInfo(**entity_data))
                 if len(matches) >= limit:
                     break
 

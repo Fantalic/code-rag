@@ -1,7 +1,9 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 24** — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
+- 🔥 **Phase 26** — Fix Broken MCP Tools 🔧 IN PROGRESS
+- **Phase 25** — Architecture Cleanup & MCP Fixes ✅ COMPLETE
+- **Phase 24** — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
 - **Phase 23** — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 - **Phase 22** — MCP Tool Improvements ✅ COMPLETE
 - **Phase 21** — coderag Restructuring ✅ COMPLETE
@@ -61,6 +63,32 @@ coderag webui         → open http://localhost:9621
 ---
 
 ## Previous Phase Summary
+
+### Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
+
+**From test report (CODERAG_TEST_REPORT.md):** 4 broken tools with ValidationError, 2 partially working, 7 fully working.
+
+**Broken tools (ValidationError - name field missing):**
+- `get_entity_details` - EntityInfo construction produces empty `name`
+- `search_entities` - Same issue
+- `get_entities_in_file` - Same issue
+- `list_entities_by_type` - Same + case sensitivity issue
+
+**Root cause:** LightRAG `/graphs` endpoint returns nodes where `name` may be missing (only `id` or `properties.entity_name`). The fallback chain `node.get("properties", {}).get("entity_name") or node.get("name") or node_id` can still produce `None` when `node_id` is also empty/None.
+
+**Partial tools:**
+- `get_entity_neighbors` - Returns empty despite edges existing (edge source/target comparison issue)
+- `add_note_to_entity` - Creates note successfully but reports failure in response
+
+### Phase 25 — Architecture Cleanup & MCP Fixes ✅ COMPLETE
+
+**Completed:**
+- C# analyser moved from `daniel-lightrag-mcp/analysers/` to `analysers/c_sharp/`
+- `coderag scan` command added to `cmd/coderag/main.go`
+- Watchdog starts in background on `coderag mcp` (goroutine)
+- `update_relations` deprecated in MCP client
+- Old Python watchdog code deleted (`watchdog/` dir)
+- Analyzer runner updated for new path
 
 ### Phase 24 — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
 
@@ -134,10 +162,17 @@ coderag webui         → open http://localhost:9621
 
 ### Running system
 ```
-opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
-                          │                           │
-                          └───── HTTP ──────► lightrag (Docker :9621)
-                                                    ▲
+coderag mcp <project-dir>
+  → ensureLightRAG()  (start Docker, wait for :9621 health)
+  → start watchdog    (goroutine, background, file watcher)
+  → runSSEBridge()    (blocks, bridging stdio↔SSE)
+
+opencode ──stdio──► coderag mcp (Go bridge)
+                          │
+                    SSE bridge ──HTTP──► mcp (Docker :9622)
+                                           │
+                                      talks to lightrag (Docker :9621)
+                                                    ↑
                                                WebUI served internally
 ```
 
@@ -148,18 +183,30 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 | `mcp` (MCP SSE) | Docker | 9622 | ✅ 13 tools, SSE handshake |
 
 ### coderag CLI
-- `cmd/coderag/main.go` — CLI entry with `start`, `watch`, `status`, `stop`, `query`, `webui`
-- No `mcp` subcommand (MCP is always in Docker now)
+- `cmd/coderag/main.go` — CLI entry with `start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`
+- `coderag mcp <dir>` — stdio↔SSE bridge + starts watchdog in background
+- `coderag scan <dir>` — run C# analyser and populate knowledge graph
 - `go build ./cmd/coderag` succeeds, `go vet ./...` passes
 - Root `go.mod` module: `github.com/code-lightrag/coderag`, Go 1.25.5
 
-### Go watchdog
-- `watchdog/cmd/watchdog/main.go` — standalone entry (thin wrapper around `pkg/watchdog/`)
-- `watchdog/internal/` — watcher, diff, pipeline, parser, router, filter, crud
+### Go watchdog (pkg/watchdog/)
+- `pkg/watchdog/watcher/` — fsnotify + git observer, worker pool, debounce
+- `pkg/watchdog/pipeline/` — orchestrator: analyser → diff → security filter → CRUD
+- `pkg/watchdog/crud/` — LightRAG HTTP client for graph operations
+- `pkg/watchdog/diff/` — entity/relation diff engine (create/update/delete)
+- `pkg/watchdog/parser/` — C# analyser output parser
+- `pkg/watchdog/router/` — file extension → analyser mapping
+- `pkg/watchdog/filter/` — security filter (PII/keys/secrets)
 - Initial sync on startup — full scan, solution-level analysis, diff-based CRUD
 - Git-based change detection (30s poll) — `git diff --name-only HEAD`
 - File hash tracking (MD5) — skips unchanged content
 - C# analyser: extracts CLASS, METHOD, PROPERTY, INHERITS_FROM, DEPENDS_ON, CALLS
+
+### C# Analyser
+- `analysers/c_sharp/CSharpAnalyzerTool.exe` — Roslyn-based analyser binary
+- Runs on solution files (`.sln`), outputs entity/relation data to `relations_output/`
+- Entity types: CLASS, METHOD, PROPERTY, INTERFACE
+- Relation types: INHERITS_FROM, DEPENDS_ON, CALLS, IMPLEMENTS
 
 ### Python MCP server (in Docker)
 - `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 13 MCP tools in Python
@@ -184,7 +231,7 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 13 tools for AI agent codebase exploration (query, query_data, get_related_files, check_entity_exists, get_knowledge_graph, get_graph_labels, add_note_to_entity, get_codebase_stats, get_entity_neighbors, get_entity_details, list_entities_by_type, get_entities_in_file, search_entities).
 2. **Docker multi-service** — `lightrag` and `mcp` share same image but different `command`
 3. **`CMD` not `ENTRYPOINT`** — Allows command override in docker-compose
-4. **MCP and watchdog independent** — No communication between them. Both talk to LightRAG API only.
+4. **`coderag mcp` starts watchdog in background** — watchdog runs as goroutine in the Go bridge process, watching the project directory for changes
 5. **Docker-first, no fallback** — LightRAG + WebUI + MCP always in containers
 6. **No Ollama in Docker** — assumed on host at `http://localhost:11434`
 7. **`--workers 1` required** — Default 4 causes `dial tcp` errors
@@ -192,6 +239,9 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 9. **Project isolation** — `.coderag/rag_storage` per project
 10. **Entity-level CRUD > document pipeline** — No LLM calls for analyser output
 11. **Security filter built into pipeline** — Secret data never reaches graph
+12. **C# analyser at project root** — `analysers/c_sharp/CSharpAnalyzerTool.exe` (moved from `daniel-lightrag-mcp/analysers/`)
+13. **`update_relations` deprecated** — MCP client's `update_relations()` is deprecated (kept for future use). Analysis is now handled by Go watchdog via `coderag scan` or automatic on file change.
+14. **`_auto_initialize()` removed** — MCP server no longer auto-runs analyser on startup. Watchdog handles initialization via background goroutine.
 
 ## Learnings
 
@@ -234,3 +284,10 @@ When counting/querying entities by type, fetch all nodes with `label="*"` then f
 
 ### LightRAG get_all_labels() returns node IDs, not entity types
 The original `get_all_labels()` method returned all node IDs (entity names), not distinct `entity_type` values. New methods `get_all_entity_types()` and `get_all_relation_types()` were added to extract the actual type labels from graph properties.
+
+### LightRAG edge field name inconsistency
+**Critical schema mismatch:** LightRAG's `networkx_impl.py` returns edges with `source`/`target` field names, but MCP client code expected `src_id`/`tgt_id`. When implementing `get_entity_neighbors` and `get_entity_details`, must handle both naming conventions:
+- LightRAG Python API: `source`, `target`
+- Go CRUD client: `src_id`, `tgt_id` (internally converted to `source`/`target` when calling LightRAG)
+
+Always use `.get("source") or .get("src_id")` and `.get("target") or .get("tgt_id")` for compatibility.

@@ -1,57 +1,52 @@
 # Phase 24 — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
 
+**Completed previously.** Fixed `get_all_labels()` returning node IDs instead of entity types, added `get_all_entity_types()` and `get_all_relation_types()`, fixed `/graph/label/list` to return structured response.
+
+---
+
+# Phase 25 — Architecture Cleanup & MCP Fixes ✅ COMPLETE
+
+**Completed:**
+- C# analyser moved to `analysers/c_sharp/`
+- `coderag scan` command added
+- Watchdog starts in background on `coderag mcp`
+- Old Python watchdog deleted
+- `update_relations` deprecated
+
+---
+
+# Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
+
 ## Bug Report
 
-From test-csharp-project CODERAG_BUG_REPORT.md:
-- `get_codebase_stats` returned 0 entities despite 42 nodes in graph
-- `get_graph_labels` returned empty arrays despite 33 edges
-- `list_entities_by_type` returned empty results
+From MCP tool testing:
+- `get_codebase_stats` returns 0 entities despite graph being populated
+- `get_entity_neighbors` and `get_entity_details` fail due to schema mismatches
+- Knowledge graph only contains sample Calculator class, not actual project code
+- `coderag mcp` doesn't start watchdog, so graph is never populated
 
-## Root Cause
+## Root Causes
 
-**Two compounding issues:**
+1. **C# analyser in wrong location** — `daniel-lightrag-mcp/analysers/` instead of project root `analysers/`
+2. **Edge field name mismatch** — LightRAG returns `source`/`target` but MCP client expects `src_id`/`tgt_id`
+3. **Watchdog not started** — `coderag mcp` only starts Docker + bridge, not the file watcher
+4. **No explicit scan command** — no way to trigger analysis manually
 
-1. **LightRAG's `get_all_labels()` returned node IDs (entity names like "Calculator"), not entity_type values ("CLASS", "METHOD").** MCP client tools called `get_knowledge_graph(label="CLASS")` which does BFS from a node NAMED "CLASS" — but no such node exists. Node IDs are things like "Calculator", "Add", "Factorial".
+## Steps
 
-2. **`/graph/label/list` endpoint returned flat list** of node IDs instead of structured `{entity_labels: [...], relation_labels: [...]}`.
-
-## Fixes Applied
-
-### Fix 1: LightRAG `networkx_impl.py`
-Added two new methods:
-- `get_all_entity_types()`: Returns distinct `entity_type` values from node properties
-- `get_all_relation_types()`: Returns distinct `keywords` values from edge properties
-
-Kept `get_all_labels()` unchanged for backward compatibility with `utils.py` export function.
-
-### Fix 2: LightRAG `lightrag.py`
-Updated `get_graph_labels()` to return structured response:
-```python
-return {"entity_labels": entity_types, "relation_labels": relation_types}
-```
-Now `/graph/label/list` returns `{"entity_labels": ["CLASS", "METHOD", ...], "relation_labels": ["method", "defines", ...]}`.
-
-### Fix 3: MCP Client `client.py`
-Fixed four methods to use `label="*"` and filter client-side:
-- `get_codebase_stats`: Fetch all nodes/edges with `label="*"`, count by `properties.entity_type`
-- `list_entities_by_type`: Fetch all nodes with `label="*"`, filter by `properties.entity_type`
-- `search_entities`: Fetch all nodes with `label="*"`, regex match on name/description
-- `get_entities_in_file`: Fetch all nodes with `label="*"`, filter by `file_path` property
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| `LightRAG/lightrag/kg/networkx_impl.py` | Added `get_all_entity_types()`, `get_all_relation_types()` |
-| `LightRAG/lightrag/lightrag.py` | Updated `get_graph_labels()` to return `{entity_labels, relation_labels}` |
-| `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` | Fixed 4 methods to use label="*" and filter client-side |
-
-## Verification
-
-- Python imports work correctly after formatting
-- Docker image builds successfully
-- `/graph/label/list` returns correct structure with entity_labels and relation_labels
-- `/graphs?label=*` returns all nodes correctly
+| # | Step | Status |
+|---|------|--------|
+| 1 | Delete old Python watchdog code (`watchdog/` dir) | ⏳ Pending |
+| 2 | Move C# analyser to `analysers/c_sharp/` | ⏳ Pending |
+| 3 | Update Go pipeline `findCSharpAnalyser()` path | ⏳ Pending |
+| 4 | Fix MCP edge field handling in `get_entity_neighbors` | ⏳ Pending |
+| 5 | Fix MCP edge field handling in `get_entity_details` | ⏳ Pending |
+| 6 | Add `coderag scan` command | ⏳ Pending |
+| 7 | Start watchdog in background on `coderag mcp` | ⏳ Pending |
+| 8 | Deprecate `update_relations` (keep, may be used in future) | ⏳ Pending |
+| 9 | Remove `_auto_initialize()` from MCP server | ⏳ Pending |
+| 10 | Update documentation | ⏳ Pending |
+| 11 | Verify with `coderag mcp E:\_dev\_Projects\test-csharp-project` | ⏳ Pending |
 
 ---
 
@@ -299,6 +294,89 @@ When `get_codebase_stats` returns 0 entities, add a message:
 
 Note: `search_entities` had a deeper issue — it used `get_knowledge_graph(label=entity_type)` which does BFS from a node named "CLASS", not filtering by type. Fixed in Phase 24.
 
-| `get_entity_neighbors` | 1-hop graph traversal |
-| `get_incoming_relations` / `get_outgoing_relations` | Directional relation browsing |
-| `get_codebase_stats` | Summary statistics |
+---
+
+# Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
+
+## Bug Report (June 21, 2026)
+
+From `E:\_dev\_Projects\test-csharp-project\CODERAG_TEST_REPORT.md`:
+
+| Tool | Status | Issue |
+|------|--------|-------|
+| `get_codebase_stats` | ✅ Working | Returns correct stats |
+| `get_graph_labels` | ✅ Working | Returns entity/relation types |
+| `get_knowledge_graph` | ✅ Working | Returns full graph structure |
+| `query` | ✅ Working | Supports multiple modes |
+| `check_entity_exists` | ✅ Working | Correct true/false responses |
+| `get_related_files` | ✅ Working | Returns relevant files |
+| `query_data` | ✅ Working | Structured data with modes |
+| `get_entity_neighbors` | ⚠️ Partial | Returns empty neighbors |
+| `add_note_to_entity` | ⚠️ Partial | Creates note but returns error |
+| `get_entity_details` | ❌ Error | ValidationError - field mismatch |
+| `list_entities_by_type` | ❌ Broken | Always returns empty arrays |
+| `search_entities` | ❌ Error | ValidationError - field mismatch |
+| `get_entities_in_file` | ❌ Error | ValidationError - field mismatch |
+
+**7 working, 2 partial, 4 broken.**
+
+## Root Causes
+
+### ValidationError on 4 tools
+
+`ValidationError: 1 validation error for EntityInfo name Field required`
+
+**Location:** `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py`
+
+The `EntityInfo` model requires `name` field (`Field(...)`). In each broken method, the entity data construction uses:
+```python
+node_id = node.get("id", "")
+node_name = (
+    node.get("properties", {}).get("entity_name")
+    or node.get("name")
+    or node_id
+)
+entity_data = {"id": node_id, "name": node_name, ...}
+```
+
+If `node_id` is empty AND `node.get("name")` is empty AND `node.get("properties", {}).get("entity_name")` is empty, then `node_name` becomes `""`. The `EntityInfo(name="")` fails Pydantic validation since `name` is required.
+
+**Fix:** Add fallback to generate a name from hash if all else fails:
+```python
+if not node_name:
+    node_name = f"entity_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
+```
+
+### `list_entities_by_type` returns empty
+
+Line 608:
+```python
+if node_type == entity_type or node_type == entity_type.upper():
+```
+
+LightRAG may store entity types in mixed case (e.g., "Class" or "CLASS"). Need to compare case-insensitively:
+```python
+if node_type.lower() == entity_type.lower():
+```
+
+### `get_entity_neighbors` returns empty
+
+Line 491 compares `src == entity_name` where `src = edge.get("source")`. But LightRAG may store edge endpoints as node IDs, not names. Need to compare against both `source`/`target` and look up names via node ID.
+
+### `add_note_to_entity` wrong status
+
+The handler returns `AddNoteResponse` with `status="error"` and message "Failed to create note entity: Entity 'note:Add:ee64eedb32ae' created successfully" despite the note actually being created. The success check logic is wrong.
+
+## Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Fix `get_entity_details` name resolution | ⏳ Pending |
+| 2 | Fix `search_entities` name resolution | ⏳ Pending |
+| 3 | Fix `get_entities_in_file` name resolution | ⏳ Pending |
+| 4 | Fix `list_entities_by_type` name resolution + case comparison | ⏳ Pending |
+| 5 | Fix `get_entity_neighbors` edge comparison | ⏳ Pending |
+| 6 | Fix `add_note_to_entity` status reporting | ⏳ Pending |
+| 7 | Run black, isort, mypy | ⏳ Pending |
+| 8 | Rebuild Docker image | ⏳ Pending |
+| 9 | Verify all 13 tools work against test-csharp-project | ⏳ Pending |

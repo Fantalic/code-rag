@@ -297,9 +297,9 @@ func findSolutionFile(filePath string) string {
 
 func findCSharpAnalyser() string {
 	paths := []string{
-		"daniel-lightrag-mcp/analysers/c_sharp/CSharpAnalyzerTool.exe",
-		"./daniel-lightrag-mcp/analysers/c_sharp/CSharpAnalyzerTool.exe",
-		"../daniel-lightrag-mcp/analysers/c_sharp/CSharpAnalyzerTool.exe",
+		"analysers/c_sharp/CSharpAnalyzerTool.exe",
+		"./analysers/c_sharp/CSharpAnalyzerTool.exe",
+		"../analysers/c_sharp/CSharpAnalyzerTool.exe",
 	}
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {

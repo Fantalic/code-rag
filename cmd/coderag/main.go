@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,10 @@ import (
 
 	"github.com/urfave/cli/v2"
 	"github.com/code-lightrag/coderag/pkg/watchdog/crud"
+	"github.com/code-lightrag/coderag/pkg/watchdog/diff"
+	"github.com/code-lightrag/coderag/pkg/watchdog/filter"
+	"github.com/code-lightrag/coderag/pkg/watchdog/pipeline"
+	"github.com/code-lightrag/coderag/pkg/watchdog/parser"
 	"github.com/code-lightrag/coderag/pkg/watchdog/watcher"
 )
 
@@ -34,6 +39,12 @@ func main() {
 				Name:   "mcp",
 				Usage:  "Start MCP stdio↔SSE bridge for a project directory",
 				Action: mcpCmd,
+				Args:   true,
+			},
+			{
+				Name:   "scan",
+				Usage:  "Run C# analyser and populate knowledge graph",
+				Action: scanCmd,
 				Args:   true,
 			},
 			{
@@ -381,8 +392,311 @@ func mcpCmd(c *cli.Context) error {
 		return fmt.Errorf("failed to ensure MCP services: %w", err)
 	}
 
+	go startWatchdogBackground(inputDir)
+
 	log.Print("Connecting to MCP SSE bridge...")
 	return runSSEBridge(ctx)
+}
+
+func startWatchdogBackground(inputDir string) {
+	cfg := &watcher.Config{
+		InputDir:     inputDir,
+		DebounceSecs: 0.5,
+		MaxWorkers:   4,
+		UseGit:       true,
+		LightRAGConfig: &crud.Config{
+			BaseURL: "http://localhost:9621",
+			Timeout: 30 * time.Second,
+		},
+	}
+
+	w, err := watcher.NewWatcher(cfg)
+	if err != nil {
+		log.Printf("Watchdog: failed to create watcher: %v", err)
+		return
+	}
+
+	log.Printf("Watchdog: started, watching %s", inputDir)
+
+	if err := w.Start(); err != nil {
+		log.Printf("Watchdog: stopped with error: %v", err)
+	} else {
+		log.Printf("Watchdog: stopped")
+	}
+}
+
+func scanCmd(c *cli.Context) error {
+	inputDir := c.Args().First()
+	if inputDir == "" {
+		return fmt.Errorf("usage: coderag scan <directory>")
+	}
+	if _, err := os.Stat(inputDir); err != nil {
+		return fmt.Errorf("directory not found: %s", inputDir)
+	}
+
+	ctx := context.Background()
+	if err := ensureLightRAG(ctx); err != nil {
+		return fmt.Errorf("failed to start LightRAG: %w", err)
+	}
+
+	log.Printf("Scanning %s for C# solution files...", inputDir)
+
+	sln := findSolutionFile(inputDir)
+	if sln == "" {
+		return fmt.Errorf("no .sln file found in %s", inputDir)
+	}
+	log.Printf("Found solution: %s", sln)
+
+	log.Printf("Running C# analyser...")
+	results, err := pipeline.RunCSharpAnalyser(sln)
+	if err != nil {
+		return fmt.Errorf("C# analyser failed: %w", err)
+	}
+	if len(results) == 0 {
+		return fmt.Errorf("C# analyser produced no output for %s", sln)
+	}
+	log.Printf("Analyser produced %d output files", len(results))
+
+	client := crud.NewConfig()
+
+	log.Printf("Applying results to knowledge graph...")
+	if err := applyScanResults(client, results); err != nil {
+		return fmt.Errorf("failed to apply scan results: %w", err)
+	}
+
+	stats, err := client.GetAllEntities()
+	if err != nil {
+		log.Printf("Scan complete (could not get entity count: %v)", err)
+	} else {
+		log.Printf("Scan complete. Knowledge graph now contains %d entities", len(stats))
+	}
+
+	return nil
+}
+
+func findSolutionFile(inputDir string) string {
+	dir := inputDir
+	for i := 0; i < 10; i++ {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*.sln"))
+		if len(matches) > 0 {
+			return matches[0]
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) error {
+	parserResults := make([]struct{ Filename string; Content string }, len(results))
+	for i, r := range results {
+		parserResults[i] = struct{ Filename string; Content string }{r.Filename, r.Content}
+	}
+
+	entities, relations := parser.ParseCSharpOutput(parserResults)
+	log.Printf("Extracted %d entities, %d relations", len(entities), len(relations))
+
+	currentEntities, err := client.GetAllEntities()
+	if err != nil {
+		currentEntities = []map[string]any{}
+	}
+
+	oldEntityMap := entitySliceToMapScan(currentEntities)
+	newEntityMap := parserEntitiesToMapScan(entities)
+
+	entityActions := diff.DiffEntities(oldEntityMap, newEntityMap)
+
+	createdEntities := 0
+	updatedEntities := 0
+	deletedEntities := 0
+
+	for _, action := range entityActions {
+		switch action.Kind {
+		case diff.ActionDelete:
+			if _, err := client.DeleteEntity(action.EntityName); err == nil {
+				deletedEntities++
+			}
+		case diff.ActionCreate:
+			data := filter.FilterEntityData(action.Data)
+			_, err := client.CreateEntity(
+				action.EntityName,
+				filter.FilterDescription(getString(data, "description")),
+				getString(data, "entity_type", "UNKNOWN"),
+				getString(data, "source_id", ""),
+				getString(data, "file_path", ""),
+			)
+			if err == nil {
+				createdEntities++
+			}
+		case diff.ActionUpdate:
+			data := filter.FilterEntityData(action.Data)
+			entityType := getString(data, "entity_type", "")
+			if entityType == "CLASS" {
+				delete(data, "description")
+				delete(data, "methods")
+			}
+			if _, err := client.UpdateEntity(action.EntityName, data); err == nil {
+				updatedEntities++
+			}
+		}
+	}
+
+	log.Printf("Entities: created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
+
+	oldRelMap := loadCurrentRelationsScan(client)
+	newRelMap := parserRelationsToMapScan(relations)
+	relActions := diff.DiffRelations(oldRelMap, newRelMap)
+
+	createdRels := 0
+	deletedRels := 0
+
+	for _, action := range relActions {
+		switch action.Kind {
+		case diff.ActionDelete:
+			if _, err := client.DeleteRelation(action.Source, action.Target); err == nil {
+				deletedRels++
+			}
+		case diff.ActionCreate:
+			data := filter.FilterRelationData(action.Data)
+			_, err := client.CreateRelation(
+				action.Source,
+				action.Target,
+				filter.FilterDescription(getString(data, "description")),
+				getString(data, "keywords"),
+				getFloat(data, "weight", 1.0),
+				getString(data, "source_id", ""),
+				getString(data, "file_path", ""),
+			)
+			if err == nil {
+				createdRels++
+			}
+		case diff.ActionUpdate:
+			data := filter.FilterRelationData(action.Data)
+			if _, err := client.UpdateRelation(action.Source, action.Target, data); err == nil {
+				createdRels++
+			}
+		}
+	}
+
+	log.Printf("Relations: created=%d, deleted=%d", createdRels, deletedRels)
+
+	return nil
+}
+
+func entitySliceToMapScan(entities []map[string]any) map[string]map[string]any {
+	m := make(map[string]map[string]any)
+	for _, e := range entities {
+		name := ""
+		if n, ok := e["id"].(string); ok && n != "" {
+			name = n
+		} else if props, ok := e["properties"].(map[string]any); ok {
+			if n, ok := props["entity_name"].(string); ok && n != "" {
+				name = n
+			} else if n, ok := props["entity_id"].(string); ok && n != "" {
+				name = n
+			}
+		}
+		if name != "" {
+			if props, ok := e["properties"].(map[string]any); ok {
+				m[name] = props
+			} else {
+				m[name] = e
+			}
+		}
+	}
+	return m
+}
+
+func parserEntitiesToMapScan(entities []parser.Entity) map[string]map[string]any {
+	m := make(map[string]map[string]any)
+	for _, e := range entities {
+		m[e.Name] = map[string]any{
+			"entity_type": e.EntityType,
+			"description": e.Description,
+			"source_id":   e.SourceID,
+			"file_path":   e.FilePath,
+			"methods":     e.Methods,
+		}
+	}
+	return m
+}
+
+func parserRelationsToMapScan(relations []parser.Relation) map[string]map[string]any {
+	result := make(map[string]map[string]any)
+	for _, r := range relations {
+		key := diff.RelationKey(r.Source, r.Target)
+		result[key] = map[string]any{
+			"description": r.Description,
+			"keywords":    r.Keywords,
+			"weight":      r.Weight,
+		}
+	}
+	return result
+}
+
+func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
+	result := make(map[string]map[string]any)
+
+	req, err := http.NewRequest("GET", client.BaseURL+"/graphs?label=*&max_depth=2&max_nodes=10000", nil)
+	if err != nil {
+		return result
+	}
+	for k, v := range client.Headers() {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return result
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Edges []map[string]any `json:"edges"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return result
+	}
+
+	for _, edge := range data.Edges {
+		src := ""
+		tgt := ""
+
+		if s, ok := edge["source"].(string); ok && s != "" {
+			src = s
+		}
+		if t, ok := edge["target"].(string); ok && t != "" {
+			tgt = t
+		}
+
+		if src == "" || tgt == "" {
+			continue
+		}
+
+		key := diff.RelationKey(src, tgt)
+		result[key] = edge
+	}
+	return result
+}
+
+func getString(m map[string]any, key string, defaultVal ...string) string {
+	if v, ok := m[key].(string); ok && v != "" {
+		return v
+	}
+	if len(defaultVal) > 0 {
+		return defaultVal[0]
+	}
+	return ""
+}
+
+func getFloat(m map[string]any, key string, defaultVal float64) float64 {
+	if v, ok := m[key].(float64); ok {
+		return v
+	}
+	return defaultVal
 }
 
 func runSSEBridge(ctx context.Context) error {
