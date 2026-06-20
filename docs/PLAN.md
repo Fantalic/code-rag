@@ -324,47 +324,19 @@ coderag mcp <project-dir>
 coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 ```
 
-### Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
+### Phase 26 — Fix Broken MCP Tools ✅ COMPLETE
 
-**From test-csharp-project CODERAG_TEST_REPORT.md:**
-
-| Tool | Status | Issue |
-|------|--------|-------|
-| `get_codebase_stats` | ✅ Working | Returns correct stats |
-| `get_graph_labels` | ✅ Working | Returns entity/relation types |
-| `get_knowledge_graph` | ✅ Working | Returns full graph structure |
-| `query` | ✅ Working | Supports multiple modes |
-| `check_entity_exists` | ✅ Working | Correct true/false responses |
-| `get_related_files` | ✅ Working | Returns relevant files |
-| `query_data` | ✅ Working | Structured data with modes |
-| `get_entity_neighbors` | ⚠️ Partial | Returns empty neighbors |
-| `add_note_to_entity` | ⚠️ Partial | Creates note but returns error |
-| `get_entity_details` | ❌ Error | ValidationError - field mismatch |
-| `list_entities_by_type` | ❌ Broken | Always returns empty arrays |
-| `search_entities` | ❌ Error | ValidationError - field mismatch |
-| `get_entities_in_file` | ❌ Error | ValidationError - field mismatch |
-
-**Root causes:**
-
-1. **ValidationError on 4 tools** (`get_entity_details`, `search_entities`, `get_entities_in_file`, `get_entities_in_file`): `EntityInfo` model requires `name` field but construction logic can produce empty name when node lacks both `properties.entity_name` AND top-level `name` AND `id`.
-
-2. **`list_entities_by_type` returns empty**: Entity type comparison case-sensitivity issue - stored as lowercase but API may pass uppercase.
-
-3. **`get_entity_neighbors` returns empty**: Edge lookup compares `edge.source` directly against `entity_name` but LightRAG may store node IDs differently.
-
-4. **`add_note_to_entity` wrong status**: Returns failure message despite successful creation.
-
-**Fix approach:**
+**Fixed all 6 broken/partial MCP tools:**
 
 | # | Fix | Location |
 |---|-----|----------|
-| 1 | Add defensive name resolution in `get_entity_details` | `client.py:542-562` |
-| 2 | Same defensive logic in `search_entities` | `client.py:670-718` |
-| 3 | Same defensive logic in `get_entities_in_file` | `client.py:633-668` |
-| 4 | Same defensive logic in `list_entities_by_type` | `client.py:599-631` |
-| 5 | Fix entity type case comparison in `list_entities_by_type` | `client.py:608` |
-| 6 | Fix edge source/target comparison in `get_entity_neighbors` | `client.py:470-540` |
-| 7 | Fix success check in `add_note_to_entity` | `server.py:436-480` |
+| 1 | Add `_safe_entity_data()` helper with fallback chain | `client.py` |
+| 2 | `get_entity_details` - Use safe entity data construction | `client.py:542-562` |
+| 3 | `list_entities_by_type` - Case-insensitive comparison + safe name | `client.py:599-631` |
+| 4 | `get_entities_in_file` - Safe name extraction with hash fallback | `client.py:633-668` |
+| 5 | `search_entities` - Safe name extraction, case-insensitive filter | `client.py:670-718` |
+| 6 | `get_entity_neighbors` - Safe node ID resolution + entity construction | `client.py:470-540` |
+| 7 | `add_note_to_entity` - Check both 'created' flag AND message | `server.py:436-480` |
 
 ### Phase 26 — Python Analyser
 - Add Python analyser (AST-based)

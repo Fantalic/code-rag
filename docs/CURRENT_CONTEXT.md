@@ -1,7 +1,8 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 26** — Fix Broken MCP Tools 🔧 IN PROGRESS
+- 🔥 **Phase 27** — Verify All MCP Tools & Rebuild Docker 🔧 IN PROGRESS
+- **Phase 26** — Fix Broken MCP Tools ✅ COMPLETE
 - **Phase 25** — Architecture Cleanup & MCP Fixes ✅ COMPLETE
 - **Phase 24** — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
 - **Phase 23** — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
@@ -64,21 +65,14 @@ coderag webui         → open http://localhost:9621
 
 ## Previous Phase Summary
 
-### Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
+### Phase 26 — Fix Broken MCP Tools ✅ COMPLETE
 
-**From test report (CODERAG_TEST_REPORT.md):** 4 broken tools with ValidationError, 2 partially working, 7 fully working.
-
-**Broken tools (ValidationError - name field missing):**
-- `get_entity_details` - EntityInfo construction produces empty `name`
-- `search_entities` - Same issue
-- `get_entities_in_file` - Same issue
-- `list_entities_by_type` - Same + case sensitivity issue
-
-**Root cause:** LightRAG `/graphs` endpoint returns nodes where `name` may be missing (only `id` or `properties.entity_name`). The fallback chain `node.get("properties", {}).get("entity_name") or node.get("name") or node_id` can still produce `None` when `node_id` is also empty/None.
-
-**Partial tools:**
-- `get_entity_neighbors` - Returns empty despite edges existing (edge source/target comparison issue)
-- `add_note_to_entity` - Creates note successfully but reports failure in response
+**Fixed:**
+- Added `_safe_entity_data()` and `_extract_entity_name()` helper functions
+- `get_entity_details`, `search_entities`, `get_entities_in_file`, `list_entities_by_type` - all use safe name extraction with fallback
+- `list_entities_by_type` - fixed case-insensitive entity_type comparison
+- `get_entity_neighbors` - fixed edge source/target comparison, safe node lookup
+- `add_note_to_entity` - fixed success check to check both `created` flag AND message
 
 ### Phase 25 — Architecture Cleanup & MCP Fixes ✅ COMPLETE
 

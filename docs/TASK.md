@@ -296,87 +296,21 @@ Note: `search_entities` had a deeper issue — it used `get_knowledge_graph(labe
 
 ---
 
-# Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
+# Phase 26 — Fix Broken MCP Tools ✅ COMPLETE
 
-## Bug Report (June 21, 2026)
+**All fixes committed to `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` and `server.py`.**
 
-From `E:\_dev\_Projects\test-csharp-project\CODERAG_TEST_REPORT.md`:
+**Fixes applied:**
+- Added `_safe_entity_data()` and `_extract_entity_name()` helper functions with fallback chain
+- All 4 broken tools now use safe name extraction
+- `list_entities_by_type` uses case-insensitive entity_type comparison
+- `get_entity_neighbors` uses safe node ID resolution
+- `add_note_to_entity` checks both `created` flag AND message content
 
-| Tool | Status | Issue |
-|------|--------|-------|
-| `get_codebase_stats` | ✅ Working | Returns correct stats |
-| `get_graph_labels` | ✅ Working | Returns entity/relation types |
-| `get_knowledge_graph` | ✅ Working | Returns full graph structure |
-| `query` | ✅ Working | Supports multiple modes |
-| `check_entity_exists` | ✅ Working | Correct true/false responses |
-| `get_related_files` | ✅ Working | Returns relevant files |
-| `query_data` | ✅ Working | Structured data with modes |
-| `get_entity_neighbors` | ⚠️ Partial | Returns empty neighbors |
-| `add_note_to_entity` | ⚠️ Partial | Creates note but returns error |
-| `get_entity_details` | ❌ Error | ValidationError - field mismatch |
-| `list_entities_by_type` | ❌ Broken | Always returns empty arrays |
-| `search_entities` | ❌ Error | ValidationError - field mismatch |
-| `get_entities_in_file` | ❌ Error | ValidationError - field mismatch |
+**Files changed:**
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` - helper functions + all affected methods
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/server.py` - add_note_to_entity success check
 
-**7 working, 2 partial, 4 broken.**
+---
 
-## Root Causes
-
-### ValidationError on 4 tools
-
-`ValidationError: 1 validation error for EntityInfo name Field required`
-
-**Location:** `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py`
-
-The `EntityInfo` model requires `name` field (`Field(...)`). In each broken method, the entity data construction uses:
-```python
-node_id = node.get("id", "")
-node_name = (
-    node.get("properties", {}).get("entity_name")
-    or node.get("name")
-    or node_id
-)
-entity_data = {"id": node_id, "name": node_name, ...}
-```
-
-If `node_id` is empty AND `node.get("name")` is empty AND `node.get("properties", {}).get("entity_name")` is empty, then `node_name` becomes `""`. The `EntityInfo(name="")` fails Pydantic validation since `name` is required.
-
-**Fix:** Add fallback to generate a name from hash if all else fails:
-```python
-if not node_name:
-    node_name = f"entity_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
-```
-
-### `list_entities_by_type` returns empty
-
-Line 608:
-```python
-if node_type == entity_type or node_type == entity_type.upper():
-```
-
-LightRAG may store entity types in mixed case (e.g., "Class" or "CLASS"). Need to compare case-insensitively:
-```python
-if node_type.lower() == entity_type.lower():
-```
-
-### `get_entity_neighbors` returns empty
-
-Line 491 compares `src == entity_name` where `src = edge.get("source")`. But LightRAG may store edge endpoints as node IDs, not names. Need to compare against both `source`/`target` and look up names via node ID.
-
-### `add_note_to_entity` wrong status
-
-The handler returns `AddNoteResponse` with `status="error"` and message "Failed to create note entity: Entity 'note:Add:ee64eedb32ae' created successfully" despite the note actually being created. The success check logic is wrong.
-
-## Steps
-
-| # | Step | Status |
-|---|------|--------|
-| 1 | Fix `get_entity_details` name resolution | ⏳ Pending |
-| 2 | Fix `search_entities` name resolution | ⏳ Pending |
-| 3 | Fix `get_entities_in_file` name resolution | ⏳ Pending |
-| 4 | Fix `list_entities_by_type` name resolution + case comparison | ⏳ Pending |
-| 5 | Fix `get_entity_neighbors` edge comparison | ⏳ Pending |
-| 6 | Fix `add_note_to_entity` status reporting | ⏳ Pending |
-| 7 | Run black, isort, mypy | ⏳ Pending |
-| 8 | Rebuild Docker image | ⏳ Pending |
-| 9 | Verify all 13 tools work against test-csharp-project | ⏳ Pending |
+# Phase 27 — Verify All MCP Tools ✅ PENDING
