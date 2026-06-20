@@ -1,13 +1,13 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 23** — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+- 🔥 **Phase 23** — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 - **Phase 22** — MCP Tool Improvements ✅ COMPLETE
 - **Phase 21** — coderag Restructuring ✅ COMPLETE
 - **Phase 20** — VDB Embedding & file_path Persistence ✅ COMPLETE
 - **Phase 19** — Incremental Update Pipeline Fixes ✅ COMPLETE
 
-## Phase 21 — coderag Restructuring 🔧 IN PROGRESS
+## Phase 21 — coderag Restructuring ✅ COMPLETE
 
 ### Architecture Decision (June 2026)
 
@@ -61,7 +61,7 @@ coderag webui         → open http://localhost:9621
 
 ## Previous Phase Summary
 
-### Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+### Phase 23 — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 
 **Agent test (June 2026) revealed critical bugs:**
 - **`get_entities_in_file` broken:** `file_path` stored at node level in LightRAG, not inside `properties`. Client looked in wrong place.
@@ -69,7 +69,10 @@ coderag webui         → open http://localhost:9621
 - **Empty graph on startup:** MCP starts without running analyser. `get_codebase_stats` shows 0 entities.
 - **`query` unreliable:** Falls back to LLM training data when graph empty → generic/hallucinated answers.
 
-**Fixes planned:** Fix property location in `get_entities_in_file`, fix `search_entities` label, add auto-initialization on startup (detect `.sln`/`.csproj` in cwd and run analyser), better empty-graph messages.
+**Fixes implemented:**
+- `get_entities_in_file`: Fixed to iterate all labels from `get_graph_labels()`, lookup `node.get("file_path")` at node level, handle `properties=None`
+- `search_entities`: Fixed to use real labels from `get_graph_labels()`, skip invalid labels, respect limit
+- Auto-initialization: `server.py` now runs `_auto_initialize()` before starting MCP — detects `.sln`/`.csproj` in cwd, runs C# analyser via `update_relations()` to populate graph
 
 ### Phase 22 — MCP Tool Improvements ✅ COMPLETE
 
