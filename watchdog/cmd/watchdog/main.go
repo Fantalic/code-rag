@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v2"
-	"github.com/code-lightrag/watchdog/internal/crud"
-	"github.com/code-lightrag/watchdog/internal/watcher"
+	"github.com/code-lightrag/coderag/pkg/watchdog/crud"
+	"github.com/code-lightrag/coderag/pkg/watchdog/watcher"
 )
 
 var lightragProcess *exec.Cmd

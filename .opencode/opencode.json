@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "coderag-mcp": {
+      "type": "local",
+      "command": ["coderag", "mcp", "."],
+      "cwd": ".",
+      "enabled": true
+    }
+  }
+}

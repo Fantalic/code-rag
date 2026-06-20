@@ -9,80 +9,51 @@
 
 ### Architecture Decision (June 2026)
 
-**Goal:** `coderag` becomes the single CLI tool for the entire CodeLightRAG system.
+**Goal:** `coderag` is the central CLI tool for the CodeLightRAG system.
 
-**Big changes from previous architecture:**
-1. **`coderag` is both the project name AND the CLI binary** — replaces `watchdog` as the main entry point
-2. **Everything modular in Go** — `pkg/watchdog/`, `pkg/mcp/`, `pkg/lightrag/` are importable packages
-3. **Go MCP replaces Python MCP** — `daniel-lightrag-mcp/` will be removed, `pkg/mcp/` with `mark3labs/mcp-go` takes over
-4. **Docker-first** — LightRAG + WebUI run in Docker/Podman, never as host subprocess
+**Key architecture decisions made so far:**
+1. **`coderag` is the CLI binary** — replaces `watchdog` as main entry point
+2. **Python MCP kept, runs in Docker** — `daniel-lightrag-mcp` stays Python, runs as separate Docker service with SSE transport on port 9622
+3. **Everything modular in Go on host** — `pkg/watchdog/`, `pkg/lightrag/` are importable packages
+4. **Docker-first** — LightRAG + WebUI + MCP run in containers, never as host subprocess
 5. **WebUI served from LightRAG API** — static files built into Docker image
-6. **Analysers at root** — `analysers/csharp/` becomes standalone directory
+6. **Analysers at root** — `analysers/csharp/` standalone directory
+7. **MCP and watchdog are independent** — both talk only to LightRAG API, never to each other
 
-### Why this matters
-
+### Architecture
 ```
-Before:                        After:
-  watchdog (Go CLI)            coderag (Go CLI, single binary)
-  daniel-lightrag-mcp (Python)   ├── pkg/mcp/ (Go MCP, 22 tools)
-  LightRAG (Python Docker)        ├── pkg/watchdog/ (file watcher)
-  WebUI (React, host-only)        ├── pkg/lightrag/ (HTTP client)
-                                  └── cmd/coderag/main.go (CLI entry)
-
-                              Docker:
-                                ├── LightRAG API + WebUI
-                                └── Ollama (optional sidecar)
+Host side:                        Docker:
+  coderag (Go CLI)                  ├── lightrag (API + WebUI :9621)
+    ├── pkg/watchdog/                └── mcp (Python MCP SSE :9622)
+    ├── pkg/lightrag/ (HTTP client)
+    └── cmd/coderag/main.go
 ```
 
-### Implementation steps
+### Implementation status
 
-| # | Step | Status |
-|---|------|--------|
-| 1 | Move `watchdog/internal/*` → `pkg/watchdog/` | ⏳ Pending |
-| 2 | Create `pkg/lightrag/` HTTP client | ⏳ Pending |
-| 3 | Create `pkg/mcp/` with mark3labs/mcp-go (22 tools) | ⏳ Pending |
-| 4 | Create `cmd/coderag/main.go` CLI | ⏳ Pending |
-| 5 | Wire `coderag mcp` → Docker + watcher + MCP loop | ⏳ Pending |
-| 6 | Wire `coderag start` → Docker + watcher | ⏳ Pending |
-| 7 | Wire `coderag webui` → open browser | ⏳ Pending |
-| 8 | Standalone `watchdog` entry point (thin) | ⏳ Pending |
-| 9 | Remove `daniel-lightrag-mcp/` | ⏳ Pending |
-| 10 | Move `analysers/` to root | ⏳ Pending |
-| 11 | Update go.mod, Dockerfile, docker-compose.yml | ⏳ Pending |
-| 12 | Update .opencode/opencode.json | ⏳ Pending |
+| Step | Status |
+|------|--------|
+| SSE transport added to Python MCP server | ✅ Done |
+| MCP runs in Docker (port 9622) | ✅ Done |
+| WebUI built into Docker image | ✅ Done |
+| `cmd/coderag/main.go` CLI (start, watch, status, stop, query, webui) | ✅ Done |
+| `.opencode/opencode.json` remote MCP config | ✅ Done |
+| `pkg/mcp/` removed (stale Go dir) | ✅ Done |
+| Move `watchdog/internal/*` → `pkg/watchdog/` | ⏳ Pending |
+| Create `pkg/lightrag/` HTTP client | ⏳ Pending |
+| Thin standalone `watchdog` entry point | ⏳ Pending |
+| Move `analysers/` to root | ⏳ Pending |
 
-### Key CLI behavior spec
+### Key CLI behavior
 
 ```
-coderag mcp .
-  → docker compose up -d (if LightRAG not healthy at :9621)
-  → wait for health (poll 2s, timeout 60s)
-  → start file watcher on .
-  → enter MCP stdio loop
-
-coderag start .
-  → same Docker check
-  → start file watcher in foreground
-  → block until Ctrl+C
-
-coderag webui
-  → open http://localhost:9621 in browser
-
-coderag status
-  → check LightRAG health + watcher status
-
-coderag stop
-  → docker compose down
-
-coderag query "<text>"
-  → POST /query to LightRAG, print response
+coderag start <dir>   → docker compose up -d + file watcher
+coderag watch <dir>   → file watcher only (Docker must be running)
+coderag status        → check LightRAG health + watcher status
+coderag stop          → docker compose down
+coderag query "<txt>" → POST /query to LightRAG
+coderag webui         → open http://localhost:9621
 ```
-
-### Docker + Podman
-
-- First checks for Docker (`docker compose`), falls back to Podman (`podman-compose`)
-- Detection via `DOCKER_HOST` env var or `PATH` lookup
-- No direct subprocess fallback for LightRAG
 
 ---
 
@@ -114,47 +85,66 @@ coderag query "<text>"
 
 ### Running system
 ```
-coderag (Go MCP + watcher) ──HTTP──► LightRAG API (Docker) ──► Knowledge Graph
-                                              ▲
-                                     WebUI served from LightRAG
+opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
+                          │                           │
+                          └───── HTTP ──────► lightrag (Docker :9621)
+                                                    ▲
+                                               WebUI served internally
 ```
 
-### coderag CLI (in progress)
-- Not yet built — this is the restructuring goal
+### Services (all running)
+| Service | Type | Port | Status |
+|---------|------|------|--------|
+| `lightrag` (API + WebUI) | Docker | 9621 | ✅ Healthy, serves WebUI |
+| `mcp` (MCP SSE) | Docker | 9622 | ✅ 22 tools, SSE handshake |
 
-### Go watchdog (current)
-- `watchdog/cmd/watchdog/main.go` — CLI with `watch`, `start`, `status`, `stop`, `query`
+### coderag CLI
+- `cmd/coderag/main.go` — CLI entry with `start`, `watch`, `status`, `stop`, `query`, `webui`
+- No `mcp` subcommand (MCP is always in Docker now)
+- `go build ./cmd/coderag` succeeds, `go vet ./...` passes
+- Root `go.mod` module: `github.com/code-lightrag/coderag`, Go 1.25.5
+
+### Go watchdog
+- `watchdog/cmd/watchdog/main.go` — standalone entry (thin wrapper around `pkg/watchdog/`)
 - `watchdog/internal/` — watcher, diff, pipeline, parser, router, filter, crud
 - Initial sync on startup — full scan, solution-level analysis, diff-based CRUD
 - Git-based change detection (30s poll) — `git diff --name-only HEAD`
 - File hash tracking (MD5) — skips unchanged content
 - C# analyser: extracts CLASS, METHOD, PROPERTY, INHERITS_FROM, DEPENDS_ON, CALLS
 
-### Python MCP server (to be removed)
+### Python MCP server (in Docker)
 - `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 22 MCP tools in Python
-- Will be replaced by Go `pkg/mcp/`
+- SSE transport on port 9622 using Starlette + uvicorn
+- `sse_server.py` — SSE entry point with `_ASGIApp` wrapper (fixes Starlette 1.3.1 ASGI detection)
+- `server.py` — main MCP server with all 22 tool handlers
+- `client.py` — LightRAG HTTP client
 
-### Test project (`../test-csharp-project/`)
-- Separate git repo outside code-lightrag
-- `.coderag/rag_storage/` with LightRAG data (graphml + vector DB)
-- Source files: Calculator, AdvancedCalculator, DataStore, ExtendedTypes, Class1
+### Docker setup
+- `Dockerfile` — multi-stage: WebUI (bun build) → LightRAG + MCP (pip install)
+- `docker-compose.yml` — two services (`lightrag` :9621, `mcp` :9622), no Ollama
+- Uses `CMD` (not `ENTRYPOINT`) so docker-compose `command` overrides correctly
+- MCP service connects to `lightrag:9621` internally via Docker DNS
 
 ---
 
 ## Key Technical Decisions
 
-1. **Go single binary on host** — coderag is a native binary (~20MB) built on user's machine for Windows/Linux/macOS
-2. **Docker/Podman for services** — LightRAG + WebUI always in containers
-3. **Go MCP replaces Python MCP** — `mark3labs/mcp-go` library handles protocol
-4. **Modular packages** — `pkg/watchdog/`, `pkg/mcp/`, `pkg/lightrag/` can be imported independently
-5. **No API key auth** — local-only Ollama, no cloud dependencies
-6. **Project-based storage** — `.coderag/rag_storage` per project, auto-detected
-7. **WebUI served by LightRAG** — static files in Docker image, no separate server needed
-8. **Analysers at root** — `analysers/csharp/` standalone, callable from CLI, watcher, or WebUI
-9. **Entity-level CRUD** > document pipeline — no LLM calls for analyser output
-10. **Security filter built into pipeline** — secret data never reaches graph
+1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 22 tools kept.
+2. **Docker multi-service** — `lightrag` and `mcp` share same image but different `command`
+3. **`CMD` not `ENTRYPOINT`** — Allows command override in docker-compose
+4. **MCP and watchdog independent** — No communication between them. Both talk to LightRAG API only.
+5. **Docker-first, no fallback** — LightRAG + WebUI + MCP always in containers
+6. **No Ollama in Docker** — assumed on host at `http://localhost:11434`
+7. **`--workers 1` required** — Default 4 causes `dial tcp` errors
+8. **30s git watcher poll** — For debouncing
+9. **Project isolation** — `.coderag/rag_storage` per project
+10. **Entity-level CRUD > document pipeline** — No LLM calls for analyser output
+11. **Security filter built into pipeline** — Secret data never reaches graph
 
 ## Learnings
+
+### Starlette Route + ASGI detection
+Starlette 1.3.1's `Route.__init__` treats any function/staticmethod as a request handler (wrapped with `request_response()`). Raw ASGI functions must be wrapped in a class to be dispatched correctly. Fix: `_ASGIApp` wrapper class in `sse_server.py`.
 
 ### Event loop trap
 Session-scoped async fixtures + function-scoped test event loops = deadlock. Fix: `asyncio_default_test_loop_scope = session`.

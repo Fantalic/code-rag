@@ -1,19 +1,4 @@
 services:
-  ollama:
-    profiles: ["ollama-docker"]
-    image: ollama/ollama:latest
-    container_name: lightrag-ollama
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
   lightrag:
     build:
       context: .
@@ -34,6 +19,21 @@ services:
       - INPUT_DIR=/app/data/inputs
     restart: unless-stopped
 
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lightrag-mcp
+    ports:
+      - "9622:9622"
+    depends_on:
+      - lightrag
+    environment:
+      - LIGHTRAG_URL=http://lightrag:9621
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=9622
+    command: ["python", "-m", "daniel_lightrag_mcp.sse_server"]
+    restart: unless-stopped
+
 volumes:
-  ollama_data:
   rag_data:

@@ -24,7 +24,12 @@ dependencies = [
     "pydantic>=2.0.0",
     "anyio>=3.0.0",
     "python-dotenv>=1.0.0",
+    "starlette>=0.37.0",
+    "uvicorn>=0.29.0",
 ]
+
+[project.entry-points."mcp_sse"]
+sse-server = "daniel_lightrag_mcp.sse_server:main"
 
 [project.optional-dependencies]
 dev = [
