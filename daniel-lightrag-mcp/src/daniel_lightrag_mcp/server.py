@@ -457,7 +457,7 @@ async def _handle_add_note(
         "entity_type": "NOTE",
     }
     create_resp = await client.create_entity(note_entity_name, entity_data)
-    if not create_resp.created:
+    if not create_resp.created and "success" not in create_resp.message.lower():
         return AddNoteResponse(
             status="error",
             entity_name=entity_name,

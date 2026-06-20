@@ -2,6 +2,7 @@
 LightRAG API client for MCP server integration.
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -39,6 +40,37 @@ from .models import (
     RelationUpdateResponse,
     SearchEntitiesResponse,
 )
+
+
+def _extract_entity_name(node: dict[str, Any], fallback: str) -> str:
+    """Extract entity name from node with fallback chain."""
+    name = (
+        node.get("properties", {}).get("entity_name")
+        or node.get("name")
+        or node.get("id")
+    )
+    if not name:
+        name = fallback
+    return name
+
+
+def _safe_entity_data(node: dict[str, Any], fallback_name: str) -> dict[str, Any]:
+    """Build entity_data dict for EntityInfo construction with safe name extraction."""
+    node_id = node.get("id") or node.get("name") or ""
+    name = (
+        node.get("properties", {}).get("entity_name")
+        or node.get("name")
+        or node.get("id")
+    )
+    if not name:
+        name = fallback_name
+    props = node.get("properties") or {}
+    return {
+        "id": node_id,
+        "name": name,
+        "type": props.get("entity_type"),
+        "properties": props,
+    }
 
 
 # Custom Exception Hierarchy
@@ -491,38 +523,36 @@ class LightRAGClient:
             if src == entity_name:
                 outgoing.append(rel)
                 for node in graph.nodes:
-                    node_id = node.get("id", "")
+                    node_id = node.get("id") or node.get("name") or ""
                     if node_id == tgt:
-                        node_name = (
-                            node.get("properties", {}).get("entity_name")
-                            or node.get("name")
-                            or node_id
+                        fallback_name = (
+                            f"neighbor_{node_id}"
+                            if node_id
+                            else f"neighbor_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
                         )
-                        entity_data = {
-                            "id": node_id,
-                            "name": node_name,
-                            "type": node.get("properties", {}).get("entity_type"),
-                            "properties": node.get("properties", {}),
-                        }
-                        neighbors.append(EntityInfo(**entity_data))
+                        entity_data = _safe_entity_data(node, fallback_name)
+                        try:
+                            neighbors.append(EntityInfo(**entity_data))
+                        except Exception:
+                            entity_data["name"] = fallback_name
+                            neighbors.append(EntityInfo(**entity_data))
                         break
             elif tgt == entity_name:
                 incoming.append(rel)
                 for node in graph.nodes:
-                    node_id = node.get("id", "")
+                    node_id = node.get("id") or node.get("name") or ""
                     if node_id == src:
-                        node_name = (
-                            node.get("properties", {}).get("entity_name")
-                            or node.get("name")
-                            or node_id
+                        fallback_name = (
+                            f"neighbor_{node_id}"
+                            if node_id
+                            else f"neighbor_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
                         )
-                        entity_data = {
-                            "id": node_id,
-                            "name": node_name,
-                            "type": node.get("properties", {}).get("entity_type"),
-                            "properties": node.get("properties", {}),
-                        }
-                        neighbors.append(EntityInfo(**entity_data))
+                        entity_data = _safe_entity_data(node, fallback_name)
+                        try:
+                            neighbors.append(EntityInfo(**entity_data))
+                        except Exception:
+                            entity_data["name"] = fallback_name
+                            neighbors.append(EntityInfo(**entity_data))
                         break
 
         unique_neighbors: dict[str, EntityInfo] = {}
@@ -545,20 +575,14 @@ class LightRAGClient:
         entity_info: Optional[EntityInfo] = None
 
         for node in graph.nodes:
-            node_id = node.get("id") or node.get("name", "")
+            node_id = node.get("id") or node.get("name") or ""
             if node_id == entity_name:
-                node_name = (
-                    node.get("properties", {}).get("entity_name")
-                    or node.get("name")
-                    or node_id
-                )
-                entity_data = {
-                    "id": node_id,
-                    "name": node_name,
-                    "type": node.get("properties", {}).get("entity_type"),
-                    "properties": node.get("properties", {}),
-                }
-                entity_info = EntityInfo(**entity_data)
+                entity_data = _safe_entity_data(node, entity_name)
+                try:
+                    entity_info = EntityInfo(**entity_data)
+                except Exception:
+                    entity_data["name"] = entity_name
+                    entity_info = EntityInfo(**entity_data)
                 break
 
         if entity_info is None:
@@ -605,20 +629,19 @@ class LightRAGClient:
 
         for node in graph.nodes:
             node_type = node.get("properties", {}).get("entity_type", "")
-            if node_type == entity_type or node_type == entity_type.upper():
-                node_id = node.get("id", "")
-                node_name = (
-                    node.get("properties", {}).get("entity_name")
-                    or node.get("name")
-                    or node_id
+            if node_type.lower() == entity_type.lower():
+                node_id = node.get("id") or node.get("name") or ""
+                fallback_name = (
+                    f"{entity_type.lower()}_{node_id}"
+                    if node_id
+                    else f"entity_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
                 )
-                entity_data = {
-                    "id": node_id,
-                    "name": node_name,
-                    "type": node_type,
-                    "properties": node.get("properties", {}),
-                }
-                entities.append(EntityInfo(**entity_data))
+                entity_data = _safe_entity_data(node, fallback_name)
+                try:
+                    entities.append(EntityInfo(**entity_data))
+                except Exception:
+                    entity_data["name"] = fallback_name
+                    entities.append(EntityInfo(**entity_data))
 
         total = len(entities)
         paginated = entities[offset : offset + limit]
@@ -651,15 +674,18 @@ class LightRAGClient:
             if node_fp:
                 node_fp_clean = node_fp.lower().replace("\\", "/")
                 if node_fp_clean == fp_lower:
-                    node_id = node.get("id", "")
-                    node_name = props.get("entity_name") or node.get("name") or node_id
-                    entity_data = {
-                        "id": node_id,
-                        "name": node_name,
-                        "type": props.get("entity_type"),
-                        "properties": props,
-                    }
-                    entities.append(EntityInfo(**entity_data))
+                    node_id = node.get("id") or node.get("name") or ""
+                    fallback_name = (
+                        f"entity_{node_id}"
+                        if node_id
+                        else f"file_entity_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
+                    )
+                    entity_data = _safe_entity_data(node, fallback_name)
+                    try:
+                        entities.append(EntityInfo(**entity_data))
+                    except Exception:
+                        entity_data["name"] = fallback_name
+                        entities.append(EntityInfo(**entity_data))
 
         return GetEntitiesInFileResponse(
             file_path=file_path,
@@ -688,7 +714,7 @@ class LightRAGClient:
 
         matches: list[EntityInfo] = []
         for node in graph.nodes:
-            node_id = node.get("id", "")
+            node_id = node.get("id") or node.get("name") or ""
             node_name = (
                 node.get("properties", {}).get("entity_name")
                 or node.get("name")
@@ -699,15 +725,19 @@ class LightRAGClient:
             if compiled.search(node_name) or compiled.search(desc):
                 if entity_type:
                     node_type = node.get("properties", {}).get("entity_type", "")
-                    if node_type.upper() != entity_type.upper():
+                    if node_type.lower() != entity_type.lower():
                         continue
-                entity_data = {
-                    "id": node_id,
-                    "name": node_name,
-                    "type": node.get("properties", {}).get("entity_type"),
-                    "properties": node.get("properties", {}),
-                }
-                matches.append(EntityInfo(**entity_data))
+                fallback_name = (
+                    node_name
+                    if node_name
+                    else f"search_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
+                )
+                entity_data = _safe_entity_data(node, fallback_name)
+                try:
+                    matches.append(EntityInfo(**entity_data))
+                except Exception:
+                    entity_data["name"] = fallback_name
+                    matches.append(EntityInfo(**entity_data))
                 if len(matches) >= limit:
                     break
 
