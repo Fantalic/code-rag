@@ -338,20 +338,25 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 | 6 | `get_entity_neighbors` - Safe node ID resolution + entity construction | `client.py:470-540` |
 | 7 | `add_note_to_entity` - Check both 'created' flag AND message | `server.py:436-480` |
 
-### Phase 26 — Python Analyser
+### Phase 27 — Verify All MCP Tools
+- Rebuild Docker image with fixed Python MCP
+- Run full tool test against test-csharp-project
+- Verify all 13 tools work correctly
+
+### Phase 28 — Python Analyser
 - Add Python analyser (AST-based)
 - Register in `pkg/watchdog/router/file.go`
 - Entity types: CLASS, FUNCTION, IMPORT, DECORATOR
 
-### Phase 24 — Git Commit Watcher
+### Phase 29 — Git Commit Watcher
 - Extend git watcher to detect new commits (not just uncommitted changes)
 - Support `git pull` → re-scan changed files
 
-### Phase 25 — Stale Entity Cleanup
+### Phase 30 — Stale Entity Cleanup
 - Periodic sweep: entities whose `file_path` no longer exists on disk
 - Configurable interval, dry-run mode
 
-### Phase 26 — WebUI Integration
+### Phase 31 — WebUI Integration
 - WebUI served from LightRAG API (static files)
 - Browse entity graph, search, query
 - Visualize file → entity → relation mapping
