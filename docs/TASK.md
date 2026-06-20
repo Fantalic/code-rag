@@ -70,3 +70,111 @@ opencode ──stdio──► coderag mcp . (host Go binary)
 6. `coderag webui` — opens browser
 7. `coderag status` — shows healthy
 8. `coderag stop` — shuts down containers
+
+---
+
+# Phase 22 — MCP Tool Improvements for Large Codebases 🔧 IN PROGRESS
+
+## Goal
+
+Make the MCP tool set genuinely useful for large, unfamiliar codebases. Fix broken tools, add graph traversal and entity browsing capabilities.
+
+## Root Cause
+
+`get_related_files` calls `POST /query` (LLM summarization endpoint) which returns `response` (LLM text) + `references` (file paths). The method expects `query_result.results` which is always `None` — so it always returns empty.
+
+**Fix:** Use `POST /query/data` which returns structured `{entities, relationships, chunks, references}`.
+
+## Gap Analysis
+
+| Need | Current Tool | Status |
+|------|-------------|--------|
+| Orientation — "What's in this codebase?" | `get_graph_labels` | ✅ Works |
+| Finding things — "Find authentication code" | `get_related_files` | ❌ Broken |
+| Navigation — "Show me class X's methods" | (missing) | ❌ No tool |
+| Relationships — "What calls this method?" | (missing) | ❌ No tool |
+| Overview — full graph dump | `get_knowledge_graph` | ⚠️ Too large |
+| Filtering by type/file | (missing) | ❌ No tool |
+| Pattern search | (missing) | ❌ No tool |
+
+## Tool Changes
+
+### Fix Existing
+1. **`get_related_files`** — Fix to use `/query/data` endpoint, return structured results with file paths and snippets
+
+### New Exploration Tools
+2. **`query_data`** — Structured query using `/query/data`. Returns entities + relationships + references (no LLM text).
+3. **`list_entities_by_type`** — Paginated list of CLASS/METHOD/PROPERTY entities. Uses `/graphs?label=TYPE`.
+4. **`get_entities_in_file`** — Filter graph by file_path. Parse graph nodes, filter by `properties.file_path`.
+5. **`search_entities`** — Regex search on entity names/descriptions. Uses `/query/data` with pattern in query text.
+
+### New Graph Traversal
+6. **`get_entity_neighbors`** — 1-hop neighbors of an entity (all directly connected entities via any relation type).
+7. **`get_incoming_relations`** — Entities that point TO this entity (relation.source → this entity).
+8. **`get_outgoing_relations`** — Entities this entity points TO (this entity → relation.target).
+9. **`get_entity_details`** — Full entity info with all its relations (node + adjacent edges).
+
+### New Overview
+10. **`get_codebase_stats`** — Summary: entity counts by type, relation counts by type, total files, total chunks.
+
+## Implementation Details
+
+### `/query/data` response structure
+```json
+{
+  "status": "success",
+  "data": {
+    "entities": [{"entity_name": "...", "entity_type": "CLASS", "description": "...", "file_path": "...", ...}],
+    "relationships": [{"src_id": "...", "tgt_id": "...", "relation_type": "...", ...}],
+    "chunks": [...],
+    "references": [{"file_path": "...", "chunk_id": "..."}]
+  }
+}
+```
+
+### Graph traversal approach
+For neighbor/relation queries, fetch `/graphs` (full graph) once, then filter locally:
+- `get_entity_neighbors`: find all edges where src_id or tgt_id = entity_name, collect the other side
+- `get_incoming_relations`: find edges where tgt_id = entity_name
+- `get_outgoing_relations`: find edges where src_id = entity_name
+
+### Entity type filtering
+Use `/graphs?label=CLASS` to get only CLASS entities. Valid labels from `get_graph_labels`.
+
+### File path filtering
+Graph nodes have `properties.file_path`. When filtering, compare normalized paths (handle Windows/Unix differences).
+
+## Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Fix `get_related_files` to use `/query/data` | ⬜ Pending |
+| 2 | Add `query_data` tool | ⬜ Pending |
+| 3 | Add `list_entities_by_type` tool | ⬜ Pending |
+| 4 | Add `get_entities_in_file` tool | ⬜ Pending |
+| 5 | Add `search_entities` tool | ⬜ Pending |
+| 6 | Add `get_entity_neighbors` tool | ⬜ Pending |
+| 7 | Add `get_incoming_relations` / `get_outgoing_relations` | ⬜ Pending |
+| 8 | Add `get_entity_details` tool | ⬜ Pending |
+| 9 | Add `get_codebase_stats` tool | ⬜ Pending |
+| 10 | Update models.py with new request/response types | ⬜ Pending |
+| 11 | Rebuild Docker image | ⬜ Pending |
+| 12 | Verify all tools work with real codebase | ⬜ Pending |
+| 13 | Update documentation | ⬜ Pending |
+
+## Final Tool Set (12 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `query` | LLM-powered natural language query |
+| `query_data` | Structured query without LLM (entities + references) |
+| `get_related_files` | Find files by semantic search (FIXED) |
+| `get_knowledge_graph` | Full graph (with pagination consideration) |
+| `get_graph_labels` | List entity/relation types |
+| `add_note_to_entity` | Attach embedded note to entity |
+| `list_entities_by_type` | Browse entities by type |
+| `get_entities_in_file` | Filter by file path |
+| `search_entities` | Pattern search on entity names |
+| `get_entity_neighbors` | 1-hop graph traversal |
+| `get_incoming_relations` / `get_outgoing_relations` | Directional relation browsing |
+| `get_codebase_stats` | Summary statistics |

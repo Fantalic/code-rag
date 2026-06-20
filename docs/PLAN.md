@@ -78,7 +78,16 @@ Live system test: 50 nodes, 47 edges, queries work. Found entity deletion not wo
 
 ---
 
-## Phase 21 — coderag Restructuring 🔧 IN PROGRESS
+## Phase 21 — coderag Restructuring ✅ COMPLETE
+
+✅ All 12 steps completed (see TASK.md for details)
+✅ Docker multi-stage build (WebUI + LightRAG + MCP)
+✅ Fixed Starlette 1.3.1 ASGI detection bug (`_ASGIApp` wrapper)
+✅ Added `coderag mcp <dir>` stdio↔SSE bridge for opencode
+✅ MCP SSE handshake verified
+✅ opencode config updated to use `type: "local"`
+
+## Phase 22 — MCP Tool Improvements for Large Codebases 🔧 IN PROGRESS
 
 ### Goal
 
@@ -163,20 +172,86 @@ coderag status
 
 ## Future Phases
 
-### Phase 22 — Python Analyser
+### Phase 22 — MCP Tool Improvements 🔧 IN PROGRESS
+
+**Goal:** Make the MCP tool set genuinely useful for large, unfamiliar codebases.
+
+### Why
+
+The current 6-tool set (query, get_related_files, check_entity_exists, get_knowledge_graph, get_graph_labels, add_note_to_entity) is theoretically correct but has practical gaps:
+- `get_related_files` is **broken** — calls `POST /query` (LLM endpoint) but expects `results` field which is always `None`
+- No way to **browse** entities (list by type, filter by file, search by pattern)
+- No **graph traversal** (find neighbors, incoming/outgoing relations)
+- `get_knowledge_graph` returns **everything** — too large for big codebases
+
+### Problems to Solve
+
+| Problem | Impact |
+|---------|--------|
+| `get_related_files` uses wrong endpoint | Always returns empty results |
+| No entity browsing | Can't answer "What classes exist?" |
+| No graph traversal | Can't answer "What calls this method?" |
+| Full graph dump | Hangs on large codebases |
+| No pattern search | Can't answer "Find classes with 'Service' in name" |
+
+### Tools to Add/Fix
+
+**Fix existing:**
+- `get_related_files` → use `POST /query/data` (returns structured entities + references), not `/query`
+
+**New exploration tools:**
+- `query_data` — structured query using `/query/data` endpoint (entities, relationships, chunks, references)
+- `list_entities_by_type` — paginated list of CLASS/METHOD/PROPERTY entities
+- `get_entities_in_file` — all entities from a specific file path
+- `search_entities` — regex search on entity names/descriptions
+
+**New graph traversal:**
+- `get_entity_neighbors` — directly connected entities (1-hop)
+- `get_incoming_relations` — what points TO this entity
+- `get_outgoing_relations` — what this entity points TO
+- `get_entity_details` — full entity info with all relations
+
+**New overview:**
+- `get_codebase_stats` — entity counts by type, relation counts by type, file count
+
+### Implementation Notes
+
+- `/query/data` returns: `{status, data: {entities, relationships, chunks, references}}`
+- `/graphs` accepts `label` param — can filter by entity_type
+- LightRAG graph CRUD: `POST /graph/entity/create`, `POST /graph/relation/create`, `GET /graph/entity/exists`
+- Entity browsing via `/graphs?label=CLASS` etc. (no dedicated list endpoint needed)
+- For neighbor queries: fetch full graph, filter locally (no server-side traversal needed for small hops)
+
+### Steps
+
+| # | Step | What changes |
+|---|------|-------------|
+| 1 | Fix `get_related_files` client method | Use `/query/data` instead of `/query` |
+| 2 | Add `query_data` MCP tool | Structured query (entities + references) |
+| 3 | Add `list_entities_by_type` tool | Paginated entity browsing by type |
+| 4 | Add `get_entities_in_file` tool | Filter graph by file_path |
+| 5 | Add `search_entities` tool | Regex on entity names/descriptions |
+| 6 | Add `get_entity_neighbors` tool | 1-hop traversal from an entity |
+| 7 | Add `get_incoming_relations` / `get_outgoing_relations` | Directional relation browsing |
+| 8 | Add `get_entity_details` tool | Full entity info + relations |
+| 9 | Add `get_codebase_stats` tool | Summary counts by type |
+| 10 | Update docs | DOCUMENTATION.md, CURRENT_CONTEXT.md |
+| 11 | Verify all tools work | Test against real codebase |
+
+### Phase 23 — Python Analyser
 - Add Python analyser (AST-based)
 - Register in `pkg/watchdog/router/file.go`
 - Entity types: CLASS, FUNCTION, IMPORT, DECORATOR
 
-### Phase 23 — Git Commit Watcher
+### Phase 24 — Git Commit Watcher
 - Extend git watcher to detect new commits (not just uncommitted changes)
 - Support `git pull` → re-scan changed files
 
-### Phase 24 — Stale Entity Cleanup
+### Phase 25 — Stale Entity Cleanup
 - Periodic sweep: entities whose `file_path` no longer exists on disk
 - Configurable interval, dry-run mode
 
-### Phase 25 — WebUI Integration
+### Phase 26 — WebUI Integration
 - WebUI served from LightRAG API (static files)
 - Browse entity graph, search, query
 - Visualize file → entity → relation mapping
