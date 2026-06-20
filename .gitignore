@@ -90,6 +90,12 @@ LightRAG/lightrag/api/webui/
 local_neo4jWorkDir/
 neo4jWorkDir/
 
+# Binary build artifacts
+watchdog/watchdog.exe
+
+# Moved outside repo
+test-csharp-project/
+
 # Project-specific
 *.ignore.*
 *.ini
