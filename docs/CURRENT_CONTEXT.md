@@ -1,7 +1,8 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 21** — coderag Restructuring 🔧 IN PROGRESS
+- 🔥 **Phase 22** — MCP Tool Improvements 🔧 COMPLETE
+- **Phase 21** — coderag Restructuring ✅ COMPLETE
 - **Phase 20** — VDB Embedding & file_path Persistence ✅ COMPLETE
 - **Phase 19** — Incremental Update Pipeline Fixes ✅ COMPLETE
 
@@ -59,6 +60,22 @@ coderag webui         → open http://localhost:9621
 
 ## Previous Phase Summary
 
+### Phase 22 — MCP Tool Improvements ✅ COMPLETE
+
+- **Reduced MCP tools from 22 to 6** (Phase 21 tool reduction)
+- **Expanded from 6 to 13 tools** for large codebase exploration
+- **Bug fix:** `get_related_files` was calling wrong endpoint (`/query`) — fixed to use `/query/data` which returns structured entities and references
+- **8 new tools added:** `query_data`, `get_codebase_stats`, `get_entity_neighbors`, `get_entity_details`, `list_entities_by_type`, `get_entities_in_file`, `search_entities`, and the fixed `get_related_files`
+- **New exploration capabilities:** graph traversal (neighbors), entity browsing (by type/file), pattern search, codebase statistics
+
+### Phase 21 — coderag Restructuring ✅ COMPLETE
+
+- Docker multi-stage build (WebUI + LightRAG + MCP)
+- Fixed Starlette 1.3.1 ASGI detection bug (`_ASGIApp` wrapper in `sse_server.py`)
+- Added `coderag mcp <dir>` stdio↔SSE bridge for opencode integration
+- MCP SSE handshake verified
+- opencode config updated to use `type: "local"`
+
 ### Phase 20 — VDB Embedding & file_path Persistence ✅ COMPLETE
 
 - `aedit_entity()` and `aedit_relation()` now include `file_path` in VDB upsert
@@ -96,7 +113,7 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 | Service | Type | Port | Status |
 |---------|------|------|--------|
 | `lightrag` (API + WebUI) | Docker | 9621 | ✅ Healthy, serves WebUI |
-| `mcp` (MCP SSE) | Docker | 9622 | ✅ 6 tools, SSE handshake |
+| `mcp` (MCP SSE) | Docker | 9622 | ✅ 13 tools, SSE handshake |
 
 ### coderag CLI
 - `cmd/coderag/main.go` — CLI entry with `start`, `watch`, `status`, `stop`, `query`, `webui`
@@ -113,13 +130,14 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 - C# analyser: extracts CLASS, METHOD, PROPERTY, INHERITS_FROM, DEPENDS_ON, CALLS
 
 ### Python MCP server (in Docker)
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 6 MCP tools in Python (reduced from 22)
-- **Tools:** `query`, `get_related_files`, `check_entity_exists`, `get_knowledge_graph`, `get_graph_labels`, `add_note_to_entity`
-- **add_note_to_entity:** Creates embedded NOTE entity linked to target entity via HAS_NOTE relationship. Parameters: `entity_name`, `note_text`. LightRAG embeds the description for semantic search.
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 13 MCP tools in Python
+- **Core tools (6):** `query`, `get_related_files`, `check_entity_exists`, `get_knowledge_graph`, `get_graph_labels`, `add_note_to_entity`
+- **New exploration tools (7):** `query_data`, `get_codebase_stats`, `get_entity_neighbors`, `get_entity_details`, `list_entities_by_type`, `get_entities_in_file`, `search_entities`
 - SSE transport on port 9622 using Starlette + uvicorn
 - `sse_server.py` — SSE entry point with `_ASGIApp` wrapper (fixes Starlette 1.3.1 ASGI detection)
-- `server.py` — main MCP server with 6 tool handlers
-- `client.py` — LightRAG HTTP client (cleaned up, removed unused methods)
+- `server.py` — main MCP server with 13 tool handlers
+- `client.py` — LightRAG HTTP client with all new methods
+- **Bug fix:** `get_related_files` now correctly uses `/query/data` endpoint (was using `/query` which returned LLM text instead of structured results)
 
 ### Docker setup
 - `Dockerfile` — multi-stage: WebUI (bun build) → LightRAG + MCP (pip install)
@@ -131,7 +149,7 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 
 ## Key Technical Decisions
 
-1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 6 focused tools for AI agent codebase exploration (query, get_related_files, check_entity_exists, get_knowledge_graph, get_graph_labels, add_note_to_entity).
+1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 13 tools for AI agent codebase exploration (query, query_data, get_related_files, check_entity_exists, get_knowledge_graph, get_graph_labels, add_note_to_entity, get_codebase_stats, get_entity_neighbors, get_entity_details, list_entities_by_type, get_entities_in_file, search_entities).
 2. **Docker multi-service** — `lightrag` and `mcp` share same image but different `command`
 3. **`CMD` not `ENTRYPOINT`** — Allows command override in docker-compose
 4. **MCP and watchdog independent** — No communication between them. Both talk to LightRAG API only.
@@ -165,3 +183,6 @@ Skip only `description`/`methods`, not the entire entity. `file_path` needs to u
 
 ### VDB upsert replaces entirely
 NanoVectorDB `upsert()` replaces the full entry. Every field must be included in every upsert, not just changed fields.
+
+### LightRAG /query vs /query/data endpoints
+LightRAG has two query endpoints: `POST /query` returns LLM-generated text + references (file paths). `POST /query/data` returns structured data: entities, relationships, chunks, references. Code expecting `results` field (from naive/local/global query modes) will get None when calling `/query` directly. Use `/query/data` for structured programmatic access.
