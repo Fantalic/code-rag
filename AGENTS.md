@@ -1,81 +1,108 @@
 # CodeGraph Agent Guidelines
 
-This is a **forked monorepo** based on LightRAG, extended with an MCP server, code analysers, and a file watchdog. The project transforms codebases into knowledge graphs for AI agent consumption.
+**coderag** is the central CLI tool for the CodeLightRAG system. It transforms codebases into knowledge graphs for AI agent consumption.
 
 ## Project Structure
 
 ```
 code-lightrag/
-├── LightRAG/                    ← Main fork: RAG engine + API + WebUI
+├── cmd/
+│   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
+├── pkg/
+│   ├── mcp/                     ← MCP server (mark3labs/mcp-go, 22 tools)
+│   ├── watchdog/                ← File watcher (importable Go package)
+│   │   ├── watcher/             ← fsnotify + git observer
+│   │   ├── diff/                ← Entity/relation diff engine
+│   │   ├── pipeline/            ← Pipeline orchestration
+│   │   ├── parser/              ← Analyser output parsers
+│   │   ├── router/              ← File extension → analyser mapping
+│   │   ├── filter/              ← Security filter (PII/keys/secrets)
+│   │   └── crud/                ← LightRAG HTTP CRUD client
+│   └── lightrag/                ← LightRAG HTTP API client
+├── watchdog/                    ← Standalone entry (thin wrapper)
+│   └── cmd/watchdog/main.go
+├── analysers/                   ← Language analysers
+│   └── csharp/                  ← C# Roslyn-based analyser
+├── LightRAG/                    ← Python RAG engine (Docker)
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
 │   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── daniel-lightrag-mcp/         ← MCP server (22 tools for agent access)
-│   ├── src/daniel_lightrag_mcp/ ← Python MCP server code
-│   └── analysers/               ← Code analysers (C#, etc.)
-├── watchdog/                    ← File change watcher for auto-ingestion
-│   └── main.py                  ← Watchdog script
-├── .opencode/                   ← CodeGraph prompts (scan-complete, scan-targeted, code-graph)
-└── .clinerules/                 ← Agent rules
+├── .opencode/                   ← CodeGraph prompts + opencode.json
+├── Dockerfile                   ← LightRAG + WebUI image
+├── docker-compose.yml           ← LightRAG + optional Ollama
+└── go.mod
 ```
 
-## Python Environment
-
-**Always use a venv.** Never install or run Python commands in the global/system interpreter.
+## Quick Start
 
 ```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
+# Build coderag CLI
+go build -o coderag ./cmd/coderag
 
-## Quick Start (one command)
+# Start everything (Docker + file watcher)
+coderag start <project-dir>
 
-```powershell
-.\scripts\setup.ps1          # Full install: LightRAG[api] + MCP + watchdog
-```
-
-Or manually (inside venv):
-
-```bash
-pip install -e LightRAG\[api]
-pip install -e daniel-lightrag-mcp\[dev]
-pip install watchdog
+# MCP server mode (for opencode)
+coderag mcp <project-dir>
 ```
 
 ## Development Commands
 
-### LightRAG server
+### Build coderag CLI
 ```bash
-lightrag-server              # or uvicorn lightrag.api.lightrag_server:app --reload
+go build -o coderag ./cmd/coderag
 ```
 
-### MCP server (connects to running LightRAG on :9621)
+### Run MCP server (for testing with opencode)
 ```bash
-python -m daniel_lightrag_mcp
+coderag mcp .
 ```
 
-### Watchdog (auto-ingest files into LightRAG)
+### Run file watcher only
 ```bash
-python watchdog/main.py
+coderag watch <dir>
 ```
 
-### Test (root suite, 63 tests)
+### Docker
+```bash
+docker compose up -d              # Start LightRAG + Ollama
+docker compose down               # Stop all
+```
+
+### LightRAG server (standalone, outside Docker)
+```bash
+cd LightRAG
+lightrag-server --workers 1
+```
+
+### Test
 ```bash
 pytest tests/ -v
-pytest daniel-lightrag-mcp/tests/ -v  # MCP test suite (163 tests)
 ```
 
 ### Lint
 ```bash
+# Go
+go vet ./...
+golangci-lint run ./...
+
+# Python
 ruff check .
 ```
 
 ## Coding Style
 
+### Go
+- Standard Go formatting (`gofmt`)
+- Error handling: return errors, log at caller
+- Use `pkg/lightrag` client for all LightRAG API calls
+- Use `pkg/watchdog` for file watching and diff logic
+- goroutines for concurrent watchers, channels for events
+- snake_case for filenames, PascalCase for exported identifiers
+
 ### Python
 - PEP 8 with four-space indentation, line length 88 (Black)
 - Type annotations on all functions
-- Use `lightrag.utils.logger` instead of `print`
 - snake_case for functions/variables, PascalCase for classes
 - Imports grouped: stdlib → third-party → local (isort with Black profile)
 
@@ -90,22 +117,19 @@ ruff check .
 - PascalCase for types/methods, camelCase for locals
 
 ## Testing
-- Always activate the venv first: `.\venv\Scripts\Activate.ps1`
-- pytest for Python (functions start with `test_`)
-- Vitest for UI components
+- `go test ./...` for Go packages
+- `pytest tests/ -v` for Python tests
 - Export required `LIGHTRAG_*` env vars before integration tests
 
 ## Documentation
 
 | File | What it's for | Keep updated |
 |------|---------------|--------------|
-| `docs/DOCUMENTATION.md` | High-level system reference — architecture, components, pipeline, security | ✅ **Always** — update when adding/modifying endpoints, analysers, or flow |
-| `docs/API_REFERENCE.md` | Detailed API schemas — every endpoint with request/response, internal function refs | ✅ **Always** — update when adding/changing endpoints or internal graph functions |
+| `docs/DOCUMENTATION.md` | High-level system reference — architecture, components, pipeline, security | ✅ **Always** |
+| `docs/API_REFERENCE.md` | Detailed API schemas — every endpoint with request/response | ✅ **Always** |
 | `docs/PLAN.md` | High-level roadmap — where we're going, what's next | ✅ Update when phases change |
 | `docs/CURRENT_CONTEXT.md` | Session memory — current state, what's been done, key decisions | ✅ Update after each task |
 | `docs/TASK.md` | Active task breakdown — detailed steps for what we're building now | ✅ Update before/after each task |
-
-**Rule**: If you change how a component works, update `DOCUMENTATION.md` in the same commit. It's the single source of truth for the system.
 
 ## Current Task
 The active sub-task prompt is in `docs/TASK.md`. Read it first before starting any work on the current phase.
@@ -116,9 +140,8 @@ See `.opencode/` for detailed agent instructions on scanning codebases:
 - `scan-complete.md`: Full project scanning (6-task approach)
 - `scan-targeted.md`: Targeted entry-point scanning (6-task approach)
 
-## Git Workflow (inline with KEEPTRACK.md)
+## Git Workflow
 - Work with git and make commits frequently — commit after each completed task
-- Follow KEEPTRACK.md steps 5-6-7: write before acting, update after acting, keep PLAN.md current
 - Before committing: `git status`, `git diff` to verify only intended files are staged
 - Write concise commit messages that match the repo style
 - Never commit `.env`, secrets, or generated build artifacts

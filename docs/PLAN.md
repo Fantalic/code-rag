@@ -1,17 +1,23 @@
-# 🗺️ CodeLightRAG — Where We're Going
+# CodeLightRAG — Where We're Going
 
 ## The Big Idea
 
 A **live, minimal-work knowledge graph** for codebases. When you save a file, only the affected entities and relations update — no full rebuilds, no wasted tokens, no secrets leaked.
 
+`coderag` is the single CLI to rule them all. One native binary on the host, Docker/Podman for persistent services, opencode for AI agent access.
+
+---
+
 ## What We Have ✅
 
-- Monorepo: LightRAG + MCP server + watchdog working together
-- 22 MCP tools for AI agents to query the knowledge graph
+- Monorepo: LightRAG + WebUI + watchdog + analysers working together
+- 22 MCP tools defined (currently in Python `daniel-lightrag-mcp`)
 - C# analyser (Roslyn-based, compiled binary) — extracts classes, methods, inheritance, deps
-- File-watch with debouncing + hash tracking (skips no-op events)
-- 226 passing tests (63 root + 168 MCP with Phase 14 additions)
-- **Go watchdog** (Phase 12-13) — standalone CLI binary replaces Python watchdog
+- Go file watcher with debouncing + hash tracking + git poll
+- Graph CRUD client, diff engine, security filter, pipeline runner (all in Go)
+- Project-based storage (`.coderag/rag_storage`)
+- VDB `file_path` persistence fix — entity/relation updates preserve file_path in vector DB
+- 74 passing tests
 
 ## Phase 11 — Efficient Incremental Updates ✅
 
@@ -27,231 +33,157 @@ All 7 steps done (Python prototype):
 
 Go watchdog (standalone CLI binary) replacing the Python prototype.
 
-### Go package structure
-
-```
-watchdog/
-├── cmd/watchdog/main.go       # CLI entry (urfave/cli/v2)
-├── go.mod
-├── internal/
-│   ├── crud/client.go         # Graph CRUD HTTP client
-│   ├── diff/engine.go         # Diff engine (EntityAction, RelationAction)
-│   ├── filter/security.go     # Security filter (PII/keys/secrets)
-│   ├── router/file.go         # Extension -> analyser mapping
-│   ├── parser/csharp.go       # C# analyser output parser
-│   ├── pipeline/run.go        # Pipeline orchestration
-│   └── watcher/observer.go    # File watcher + worker pool
-└── Dockerfile
-```
-
-### CLI commands
-
-```bash
-watchdog watch <dir>            # Watch project folder (connects to existing LightRAG)
-watchdog start <dir>            # Start LightRAG + watchdog together
-watchdog status                 # Show running services
-watchdog stop                   # Stop all services
-watchdog query "<text>"         # Query the graph directly
-```
-
-### Configuration (env vars + CLI flags)
-
-| Variable | Flag | Default |
-|----------|------|---------|
-| LIGHTRAG_URL | --url | http://localhost:9621 |
-| OLLAMA_HOST | --ollama | http://localhost:11434 |
-| INPUT_DIR | positional | — |
-| DEBOUNCE_SECONDS | --debounce | 0.5 |
-| WATCHER_WORKERS | --workers | 4 |
-| LIGHTRAG_API_KEY | --api-key | — |
-
 ## Phase 13 — Concurrent Analyser Race Fix ✅
 
-Fixed three issues in the Go watchdog pipeline:
+Solution-level mutex, undirected graph direction fix, duplicate relation dedup.
 
-### Issue 1 — Concurrent analyser invocations
-- Multiple workers (4 by default) each ran the C# analyser on the same solution independently
-- Result: duplicate analyser runs, race conditions, duplicate relation creation errors
-- **Fix**: Solution-level mutex (`sync.Mutex` + `chan struct{}` per sln path). Initial sync groups files by solution, runs analyser once, shares results with all workers.
+## Phase 14 — Testing, MCP Tool Usage & Test Expansion ✅
 
-### Issue 2 — LightRAG undirected graph direction swap
-- LightRAG uses `nx.Graph()` (undirected). API serializes edges with `source`/`target` alphabetically sorted for consistency
-- Relations like `Calculator→Add` appeared as `source=Add, target=Calculator` in graph queries
-- **Fix**: `loadCurrentRelations` now reads `src_id`/`tgt_id` from edge `properties` (preserves real creation order)
+Expanded test-csharp-project with inheritance, interfaces, properties. 168 MCP tests.
 
-### Issue 3 — Duplicate relation creation
-- Concurrent workers tried to create same relations, LightRAG returned "already exists" errors
-- **Fix**: `sync.Map` dedup set in pipeline prevents same relation from being created twice
+## Phase 15 — End-to-End System Testing ✅
 
-### Files modified (Phase 13)
-- `watchdog/internal/pipeline/run.go` — `AnalyserResult` type, `RunEvent`, relation dedup, fix `loadCurrentRelations`
-- `watchdog/internal/watcher/observer.go` — solution grouping, mutex, Event carries pre-computed results
-- `watchdog/internal/parser/csharp.go` — METHOD entities now created alongside CLASS entities
+Live system test: 50 nodes, 47 edges, queries work. Found entity deletion not working.
 
-### Test result
-- C# project: 7 entities (3 CLASS + 4 METHOD), 4 relations (Calculator→Add, Calculator→Subtract, DataStore→AddItem, DataStore→GetAll)
-- Directions correct via `src_id`/`tgt_id` from edge properties
+## Phase 16 — Fix Entity Deletion & File Change Handling ✅
 
-## Phase 14 — Testing, MCP Tool Usage & Test Expansion 🔥
+- Entity deletion confirmed working with JSON body
+- `DeleteEntitiesByFilePath()` added to Go watchdog
+- Modified files refresh entities correctly
 
-### Goals
-1. **Test system with code changes** — verify relations and updates work correctly
-2. **Use MCP tools extensively** — gather insights on what's working and what needs improvement
-3. **Expand test project** — add new tests, features, coverage
-4. **Verify update_relations** — confirm the C# analyser + LightRAG integration pipeline works end-to-end
+## Phase 17 — Relation Creation Fix ✅
 
-### Test-csharp-project expanded (Phase 14)
-New files added:
-- `TestLib/AdvancedCalculator.cs` — inheritance (AdvancedCalculator extends Calculator), IOperation interface
-- `TestLib/ExtendedTypes.cs` — IRepository<T>, EntityBase → User inheritance, properties (Count, Email, etc.)
+- Router filters non-C# files
+- Git watcher path cleaning
+- `loadCurrentRelations()` fix for undirected graph edges
+- CLASS entity update skip narrowed (only `description`/`methods`)
 
-Analyser now extracts: INHERITS_FROM, DEPENDS_ON, PROPERTY, CALLS relations (not just CLASS/METHOD)
+## Phase 18 — Project-Based Storage & GraphML Fix ✅
 
-### Go parser fix
-Updated `watchdog/internal/parser/csharp.go` to handle new relationship types:
-- `INHERITS_FROM` → creates inheritance relation
-- `DEPENDS_ON` → creates interface implementation relation
-- `PROPERTY:` → creates PROPERTY entities alongside CLASS and METHOD
-- `CALLS` → creates method call relations (cross-file references)
+- `.coderag/rag_storage` per project, auto-detected
+- GraphML NoneType fix
+- No `.env` requirement
 
-### New tests added
-5 new tests in `daniel-lightrag-mcp/tests/test_analyser_runner.py`:
-- `TestRealProjectAnalysis` class with tests for inheritance, interface, property relations
-- Total MCP tests: **168 passing** (163 original + 5 new)
+## Phase 19 — Incremental Update Pipeline Fixes ✅
 
-## Phase 15 — End-to-End System Testing ✅ COMPLETE
+- `RelationKey` sorts src/tgt
+- ParseCSharpFile rewritten (per-class accumulator)
+- Modified pipeline re-runs analyser when results empty
 
-### Live System Test Results
+## Phase 20 — VDB file_path Persistence ✅
 
-**Verified Working:**
-- LightRAG server healthy (qwen3-coder:480b-cloud + bge-m3:latest)
-- Graph has 50 nodes, 47 edges from previous `update_relations`
-- Versioned file_source (`#v2`) successfully adds new entities (Increment)
-- Queries return relevant context about Calculator methods
+- `aedit_entity()` and `aedit_relation()` now include `file_path` in VDB upsert
+- 11 new integration tests
+- All 74 root tests pass
 
-**Verified NOT Working:**
-- Entity deletion endpoint `DELETE /documents/delete_entity` returns **405 Method Not Allowed**
-- No automatic entity cleanup when files are modified
-- No relation cleanup when methods are removed
+---
 
-### Key Finding: Versioned file_source Required
-LightRAG returns "duplicated" for same `file_source`. Must use incrementing versions:
-- `TestLib_Calculator.txt` → first ingestion
-- `TestLib_Calculator.txt#v2` → re-ingest after change
-- `TestLib_Calculator.txt#v3` → next change
+## Phase 21 — coderag Restructuring 🔧 IN PROGRESS
 
-This means both old AND new entities exist after file changes — no replacement.
+### Goal
 
-## Phase 16 — Fix Entity Deletion & File Change Handling ✅ COMPLETE
+Restructure the monorepo so `coderag` is the central CLI. Everything becomes modular Go packages. The Python MCP server is replaced by Go MCP built into the `coderag` binary.
 
-### What Was Fixed
+### Architecture Decision
 
-1. **Entity deletion works** — confirmed `DELETE /documents/delete_entity` with JSON body works
-2. **Entity deletion on file delete** — added `DeleteEntitiesByFilePath(filePath)` to Go watchdog
-3. **Modified files refresh entities** — `runCSharpPipelineModified()` deletes old entities before re-processing
-4. **Relation cleanup automatic** — LightRAG deletes relations when entity is deleted
+| Before | After |
+|--------|-------|
+| `watchdog/` = CLI + watcher | `cmd/coderag/` = CLI, `pkg/watchdog/` = importable watcher |
+| `daniel-lightrag-mcp/` (Python MCP) | `pkg/mcp/` (Go MCP, mark3labs/mcp-go) |
+| MCP + CRUD logic in Python | All Go, single binary on host |
+| Docker hosts everything | Docker hosts LightRAG + WebUI only |
+| Python MCP started from watchdog `start` | `coderag mcp` is the MCP server itself |
 
-### Files Modified
-- `watchdog/internal/crud/client.go` — `GetEntitiesByFilePath()`, `DeleteEntitiesByFilePath()`
-- `watchdog/internal/pipeline/run.go` — `RunEventWithChangeType()`, `runCSharpPipelineModified()`
-- `watchdog/internal/watcher/observer.go` — handles "modified" and "deleted" with entity cleanup
+### Steps
 
-### Test Results
-- Go build: **SUCCESS**
-- MCP tests: **168 passed**
+| # | Step | What changes |
+|---|------|-------------|
+| 1 | Restructure `watchdog/internal/*` → `pkg/watchdog/` | Move watcher, diff, pipeline, parser, router, filter, crud to `pkg/watchdog/` with shared `go.mod` |
+| 2 | Create `pkg/lightrag/` HTTP client | Extract from `pkg/watchdog/crud/` — shared between MCP and watchdog |
+| 3 | Create `pkg/mcp/` with mark3labs/mcp-go | Go MCP server: 22 tools, stdio transport |
+| 4 | Create `cmd/coderag/main.go` | CLI with `start/mcp/watch/status/stop/query/webui` subcommands |
+| 5 | Wire `coderag mcp` → Docker + watcher + MCP | Auto-start Docker compose, wait for health, start watcher goroutine, enter stdio loop |
+| 6 | Wire `coderag start` → Docker + watcher | Same Docker logic, foreground watcher, Ctrl+C shutdown |
+| 7 | Wire `coderag webui` → open browser | Check Docker, print URL |
+| 8 | Standalone `watchdog` entry point | Thin wrapper at `watchdog/cmd/watchdog/main.go` importing `pkg/watchdog` |
+| 9 | Remove `daniel-lightrag-mcp/` | All functionality replaced by `pkg/mcp/` |
+| 10 | Move `analysers/` to root | From `daniel-lightrag-mcp/analysers/` to `analysers/` |
+| 11 | Update go.mod, Dockerfile, docker-compose.yml | Single Go module, Docker image has LightRAG + WebUI only |
+| 12 | Update .opencode/opencode.json | MCP points to `["coderag", "mcp", "."]` |
 
-## Phase 17 — Relation Creation Fix ✅ COMPLETE
+### Package Dependency
 
-### Issues Fixed
+```
+cmd/coderag/
+├── pkg/mcp/          (mark3labs/mcp-go)
+│   └── pkg/lightrag/ (HTTP client)
+│       └── (net/http)
+├── pkg/watchdog/
+│   ├── watcher/      (fsnotify)
+│   ├── diff/
+│   ├── pipeline/
+│   ├── parser/
+│   ├── router/
+│   ├── filter/
+│   └── crud/ → pkg/lightrag/ (or replaced by it)
+│
+watchdog/cmd/watchdog/
+  └── pkg/watchdog/
+```
 
-1. **Router processed non-C# files** — `.go`, `.py`, `.md` files were being routed to C# analyser. Fix: `router/file.go` now checks `.cs` extension AND not obj/bin directory.
+### Key CLI behavior
 
-2. **Git watcher reported files as deleted repeatedly** — git returning relative paths, security check failed. Fix: `observer.go` uses `filepath.Clean()` and verifies paths are under project root.
+```
+coderag mcp .
+  → docker compose up -d (if LightRAG not healthy)
+  → wait for :9621
+  → start file watcher on .
+  → enter MCP stdio loop
 
-3. **Entity count shrank after initial sync** — wrong files creating invalid entities. Fix: Router filters to only C# source files.
+coderag start .
+  → same Docker check
+  → start file watcher in foreground
+  → block until Ctrl+C
 
-4. **Relations never created (0 edges)** — `loadCurrentRelations()` looked for `src_id`/`tgt_id` in edge properties but LightRAG returns `source`/`target` at top level. Fix: `pipeline/run.go` reads edge source/target directly.
+coderag webui
+  → open http://localhost:9621 in browser
 
-### Files Modified
-- `watchdog/internal/router/file.go` — C# file filtering
-- `watchdog/internal/watcher/observer.go` — path cleaning + git path validation
-- `watchdog/internal/pipeline/run.go` — fix `loadCurrentRelations()`, skip CLASS entity updates
+coderag status
+  → check LightRAG health + watcher status
+```
 
-## Phase 18 — Project-Based Storage & GraphML Fix ✅ COMPLETE
+### Docker + Podman
 
-### Changes Made
+- `coderag mcp` and `coderag start` first try Docker, fall back to Podman
+- Detection: `docker compose` → `podman-compose` → `podman`
+- No direct subprocess fallback — containers are required for LightRAG + WebUI
+- WebUI static files built into the Docker image, served by LightRAG API
 
-**Project-Based Storage:**
-- `.coderag/rag_storage` per project folder, auto-detected on startup
-- `LightRAG/lightrag/api/config.py`: `find_project_root()`, `get_default_working_dir()`
-- Watchdog `start` command passes `LIGHTRAG_WORKING_DIR` and sets `Dir = inputDir`
-- `scripts/init-project.ps1` for project initialization
+---
 
-**GraphML NoneType Fix:**
-- `networkx_impl.py`: filter None values in `upsert_node()`, `upsert_edge()`, `write_nx_graph()`
-- Prevents "GraphML does not support type <class 'NoneType'> as data values" error
+## Future Phases
 
-**No `.env` Requirement:**
-- `utils_api.py`: `check_env_file()` always returns `True`
-- Single-instance design doesn't need multi-instance safety checks
+### Phase 22 — Python Analyser
+- Add Python analyser (AST-based)
+- Register in `pkg/watchdog/router/file.go`
+- Entity types: CLASS, FUNCTION, IMPORT, DECORATOR
 
-### Test Results
-- Fresh start: 29 nodes, 25 edges (all C# entities parsed)
-- After adding IRepository + methods: 31 nodes, 28 edges
-- After adding ClearAll: 32 nodes, 29 edges
-- GraphML properly persisted (14,768 bytes, valid XML)
-- Vector DB embeddings generated for new entities
-- No GraphML errors
+### Phase 23 — Git Commit Watcher
+- Extend git watcher to detect new commits (not just uncommitted changes)
+- Support `git pull` → re-scan changed files
 
-### Files Modified
-- `LightRAG/lightrag/api/config.py` — `find_project_root()`, `get_default_working_dir()`
-- `LightRAG/lightrag/api/utils_api.py` — simplified `check_env_file()`
-- `LightRAG/lightrag/kg/networkx_impl.py` — None filtering in write/upsert
-- `watchdog/cmd/watchdog/main.go` — LIGHTRAG_WORKING_DIR + Dir settings
+### Phase 24 — Stale Entity Cleanup
+- Periodic sweep: entities whose `file_path` no longer exists on disk
+- Configurable interval, dry-run mode
 
-## Phase 19 — Incremental Update Pipeline Fixes ✅ COMPLETE
+### Phase 25 — WebUI Integration
+- WebUI served from LightRAG API (static files)
+- Browse entity graph, search, query
+- Visualize file → entity → relation mapping
 
-### Issues Found & Fixed
+---
 
-**1. RelationKey unsorted — "already exists" errors**
-- `watchdog/internal/diff/engine.go`: `RelationKey()` now sorts `src`/`tgt` alphabetically
-- Without this fix, every CREATE action on an existing relation fails with HTTP 400
-
-**2. CLASS entity update skip too broad**
-- `watchdog/internal/pipeline/run.go`: CLASS entities now filter only `description`/`methods` instead of skipping entirely
-- `file_path`, `source_id` now get updated on CLASS entities
-
-**3. Modified file pipeline — no analyser results**
-- `runCSharpPipelineModified` re-runs C# analyser when results are empty
-
-**4. ParseCSharpFile dropped all but the last class per output file** ⚠️ NEW
-- Old parser only emitted the last CLASS match per analyser output file
-- ALL classes in each output file were silently dropped except the last one
-- EntityBase, IRepository, IOperation, Id, CreatedAt, Name, Get, GetAll, Remove, FindById, Add, Contains were all missing
-- **Fix**: Complete rewrite of `watchdog/internal/parser/csharp.go` with per-class accumulator
-
-### Phase 19 Verification
-- 42 entities (up from 33), 45 relations, zero errors
-- All previously missing entities now present
-- `file_path` values still empty — `getString()` variadic behavior is a bug
-
-### Files Modified
-- `watchdog/internal/pipeline/run.go` — re-run analyser, CLASS update filter
-- `watchdog/internal/diff/engine.go` — sort src/tgt in RelationKey
-- `watchdog/internal/parser/csharp.go` — full rewrite with flushClass()
-
-## Phase 20 — Fix file_path & Test Incremental Updates 🔧 IN PROGRESS
-
-1. **Fix `getString()` default value behavior** — variadic args should support key + default fallback
-2. **Ensure parser sets `FilePath`** — trace through `ParseCSharpFile` → `Entity.FilePath` → CRUD client
-3. **Rebuild watchdog**, clear rag_storage, re-initialize
-4. **Verify `file_path` populated** in GraphML and vector DB
-5. **Make incremental change** to test file, verify diff engine processes correctly
-6. **Verify stale entities cleanup** — `DeleteEntitiesByFilePath` works with correct `file_path`
-7. **Add stale entity cleanup** — periodic sweep of entities whose `file_path` no longer exists on disk
-8. **Add git commit watcher** — extend git watcher to detect new commits (not just uncommitted changes)
-
-### Security
+## Security
 
 All analysers **must** filter before inserting into the graph:
 - 🔴 API keys, tokens, passwords (`sk-...`, `ghp_...`, etc.)
