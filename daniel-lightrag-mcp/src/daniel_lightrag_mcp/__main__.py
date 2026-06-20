@@ -4,6 +4,7 @@ Main entry point for daniel-lightrag-mcp package.
 """
 
 import asyncio
+
 from .cli import main
 
 if __name__ == "__main__":

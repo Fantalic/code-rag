@@ -21,7 +21,6 @@ Restructure the monorepo so `coderag` is the central CLI tool. File watcher + an
 - **Built and verified both Docker images** — `lightrag` and `mcp` both compile and start
 - **Fixed Starlette ASGI detection bug** — `_ASGIApp` wrapper class for raw ASGI handlers in `sse_server.py`
 - **Verified MCP SSE handshake** — `/sse` returns `event: endpoint` with session ID
-- **Verified MCP tool availability** — all 22 tools listed via `tools/list`
 - **Verified health endpoint** — `GET /health` returns `{"status":"ok"}`
 - **Verified LightRAG API** — health check returns full config (version 1.4.9.4)
 - **Verified WebUI** — serves at `http://localhost:9621/`, returns 200
@@ -29,6 +28,15 @@ Restructure the monorepo so `coderag` is the central CLI tool. File watcher + an
 - **cppencode bridge verified** — `initialize` + `tools/list` return all 22 tools via stdio
 - **opencode config updated** — `coderag-mcp` uses `type: "local"` with `command: ["coderag", "mcp", "."]`
 - **Backup saved** — `~/.config/opencode/opencode.json.backup.*`
+
+### Tool Reduction (June 2026) ✅
+- **Reduced MCP tool set from 22 to 6 focused tools** for AI agent codebase exploration
+- **6 tools kept:** `query`, `get_related_files`, `check_entity_exists`, `get_knowledge_graph`, `get_graph_labels`, `add_note_to_entity`
+- **Removed:** all document management tools (insert_text, insert_texts, upload_document, scan_documents, get_documents, delete_document, etc.)
+- **`add_note_to_entity` implemented** — creates embedded NOTE entity linked via HAS_NOTE relationship
+  - Takes `entity_name` and `note_text` parameters
+  - Checks entity exists, creates NOTE entity with description=note_text (LightRAG embeds it), creates HAS_NOTE relation
+  - Returns `AddNoteResponse` with status, entity_name, note_entity_name, relationship_created
 
 ## Architecture
 

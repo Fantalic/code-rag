@@ -3,13 +3,15 @@ Pydantic models for LightRAG API requests and responses.
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
 
 
 # Enums for status types and mode parameters
 class DocStatus(str, Enum):
     """Document status enumeration."""
+
     PENDING = "pending"
     PROCESSING = "processing"
     PROCESSED = "processed"
@@ -19,6 +21,7 @@ class DocStatus(str, Enum):
 
 class QueryMode(str, Enum):
     """Query mode enumeration."""
+
     NAIVE = "naive"
     LOCAL = "local"
     GLOBAL = "global"
@@ -27,6 +30,7 @@ class QueryMode(str, Enum):
 
 class PipelineStatus(str, Enum):
     """Pipeline status enumeration."""
+
     IDLE = "idle"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -36,6 +40,7 @@ class PipelineStatus(str, Enum):
 # Common Models
 class TextDocument(BaseModel):
     """Text document model."""
+
     title: Optional[str] = None
     content: str = Field(..., description="Document content")
     metadata: Optional[dict[str, Any]] = None
@@ -43,6 +48,7 @@ class TextDocument(BaseModel):
 
 class PaginationInfo(BaseModel):
     """Pagination information model."""
+
     page: int = Field(1, ge=1, description="Page number")
     page_size: int = Field(10, ge=1, le=100, description="Number of items per page")
     total_items: Optional[int] = Field(None, description="Total number of items")
@@ -53,6 +59,7 @@ class PaginationInfo(BaseModel):
 
 class ValidationError(BaseModel):
     """Validation error model."""
+
     loc: list[str | int]
     msg: str
     type: str
@@ -60,35 +67,45 @@ class ValidationError(BaseModel):
 
 class HTTPValidationError(BaseModel):
     """HTTP validation error model."""
+
     detail: list[ValidationError]
 
 
 # Document Management Request Models
 class InsertTextRequest(BaseModel):
     """Request model for inserting a single text document."""
+
     text: str = Field(..., description="Text content to insert")
-    file_source: str = Field(default="text_input.txt", description="Source file name for the text")
+    file_source: str = Field(
+        default="text_input.txt", description="Source file name for the text"
+    )
 
 
 class InsertTextsRequest(BaseModel):
     """Request model for inserting multiple text documents."""
+
     texts: list[str] = Field(..., description="List of text strings to insert")
-    file_sources: list[str] = Field(default_factory=list, description="List of file sources for the texts")
+    file_sources: list[str] = Field(
+        default_factory=list, description="List of file sources for the texts"
+    )
 
 
 class DeleteDocRequest(BaseModel):
     """Request model for deleting a document by ID."""
+
     doc_ids: list[str] = Field(..., description="List of document IDs to delete")
 
 
 class DeleteEntityRequest(BaseModel):
     """Request model for deleting an entity."""
+
     entity_id: str = Field(..., description="ID of the entity to delete")
     entity_name: str = Field(..., description="Name of the entity to delete")
 
 
 class DeleteRelationRequest(BaseModel):
     """Request model for deleting a relation."""
+
     relation_id: str = Field(..., description="ID of the relation to delete")
     source_entity: str = Field(..., description="Source entity name")
     target_entity: str = Field(..., description="Target entity name")
@@ -96,6 +113,7 @@ class DeleteRelationRequest(BaseModel):
 
 class DocumentsRequest(BaseModel):
     """Request model for paginated documents."""
+
     page: int = Field(1, ge=1, description="Page number")
     page_size: int = Field(10, ge=1, le=100, description="Number of items per page")
     status_filter: Optional[DocStatus] = None
@@ -103,12 +121,14 @@ class DocumentsRequest(BaseModel):
 
 class ClearCacheRequest(BaseModel):
     """Request model for clearing cache."""
+
     cache_type: Optional[str] = None
 
 
 # Query Request Models
 class QueryRequest(BaseModel):
     """Request model for text queries."""
+
     query: str = Field(..., description="Query text")
     mode: QueryMode = Field(QueryMode.HYBRID, description="Query mode")
     only_need_context: bool = Field(False, description="Whether to only return context")
@@ -116,46 +136,83 @@ class QueryRequest(BaseModel):
 
 
 # Knowledge Graph Request Models
+class EntityCreateRequest(BaseModel):
+    """Request model for creating an entity."""
+
+    entity_name: str = Field(..., description="Name of the entity to create")
+    entity_data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Entity properties (description, entity_type, etc.)",
+    )
+
+
 class EntityUpdateRequest(BaseModel):
     """Request model for updating an entity."""
+
     entity_id: str = Field(..., description="ID of the entity to update")
     entity_name: str = Field(..., description="Name of the entity to update")
     updated_data: dict[str, Any] = Field(..., description="Updated data for the entity")
 
 
+class RelationCreateRequest(BaseModel):
+    """Request model for creating a relation."""
+
+    source_entity: str = Field(..., description="Source entity name")
+    target_entity: str = Field(..., description="Target entity name")
+    relation_data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Relation properties (description, keywords, weight, etc.)",
+    )
+
+
 class RelationUpdateRequest(BaseModel):
     """Request model for updating a relation."""
-    # relation_id: str = Field(..., description="ID of the relation to update")
+
     source_id: str = Field(..., description="Source entity ID")
     target_id: str = Field(..., description="Target entity ID")
-    updated_data: dict[str, Any] = Field(..., description="Updated data for the relation")
+    updated_data: dict[str, Any] = Field(
+        ..., description="Updated data for the relation"
+    )
+
 
 class BatchRelationUpdateRequest(BaseModel):
     """Request model for batch updating relations."""
-    updates: list[RelationUpdateRequest] = Field(..., description="List of relation updates")
+
+    updates: list[RelationUpdateRequest] = Field(
+        ..., description="List of relation updates"
+    )
+
 
 class RelatedFilesRequest(BaseModel):
     """Request model for getting related files."""
+
     query: str = Field(..., description="Query or keywords to find related files")
     mode: QueryMode = Field(QueryMode.HYBRID, description="Query mode")
-    limit: int = Field(10, ge=1, le=100, description="Maximum number of related files to return")
+    limit: int = Field(
+        10, ge=1, le=100, description="Maximum number of related files to return"
+    )
+
 
 class RelatedFilesResponse(BaseModel):
     """Response model for related files."""
-    related_files: list['DocumentInfo'] = Field(default_factory=list, description="List of related document info")
+
+    related_files: list["DocumentInfo"] = Field(
+        default_factory=list, description="List of related document info"
+    )
     query: str = Field(..., description="Original query")
     total_found: int = Field(0, description="Total number of related files found")
 
 
-
 class EntityExistsRequest(BaseModel):
     """Request model for checking if entity exists."""
+
     entity_name: str = Field(..., description="Name of the entity to check")
 
 
 # Authentication Request Models
 class LoginRequest(BaseModel):
     """Request model for login."""
+
     username: str = Field(..., description="Username")
     password: str = Field(..., description="Password")
 
@@ -163,6 +220,7 @@ class LoginRequest(BaseModel):
 # Document Management Response Models
 class InsertResponse(BaseModel):
     """Response model for document insertion."""
+
     status: str = "success"
     message: str = ""
     track_id: str = ""
@@ -171,16 +229,19 @@ class InsertResponse(BaseModel):
 
 class ScanResponse(BaseModel):
     """Response model for document scanning."""
+
     status: str = "success"
     message: str = ""
     track_id: str = ""
     scanned: int = 0
-    new_documents: list[str] = Field(default_factory=list, description="List of new document names")
-
+    new_documents: list[str] = Field(
+        default_factory=list, description="List of new document names"
+    )
 
 
 class UploadResponse(BaseModel):
     """Response model for file upload."""
+
     status: str = "success"
     filename: Optional[str] = None
     message: Optional[str] = None
@@ -189,29 +250,40 @@ class UploadResponse(BaseModel):
 
 class DocumentInfo(BaseModel):
     """Document information model."""
+
     id: str = Field(..., description="Document ID")
     title: Optional[str] = None
-    status: DocStatus = Field(..., description="Document status")
+    status: DocStatus = Field(DocStatus.PROCESSED, description="Document status")
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
+    snippet: Optional[str] = None
 
 
 class DocumentsResponse(BaseModel):
     """Response model for retrieving documents."""
-    documents: list[DocumentInfo] = Field(default_factory=list, description="Document list")
-    statuses: dict[str, Any] = Field(default_factory=dict, description="Document statuses")
+
+    documents: list[DocumentInfo] = Field(
+        default_factory=list, description="Document list"
+    )
+    statuses: dict[str, Any] = Field(
+        default_factory=dict, description="Document statuses"
+    )
 
 
 class PaginatedDocsResponse(BaseModel):
     """Response model for paginated documents."""
+
     documents: list[DocumentInfo] = Field(default_factory=list)
     pagination: PaginationInfo = Field(..., description="Pagination information")
-    status_counts: dict[str, int] = Field(default_factory=dict, description="Status counts")
+    status_counts: dict[str, int] = Field(
+        default_factory=dict, description="Status counts"
+    )
 
 
 class DeleteDocByIdResponse(BaseModel):
     """Response model for document deletion by ID."""
+
     status: str = "success"
     deleted: bool = False
     doc_id: Optional[str] = None
@@ -221,16 +293,20 @@ class DeleteDocByIdResponse(BaseModel):
 
 class ClearDocumentsResponse(BaseModel):
     """Response model for clearing all documents."""
+
     status: str = Field(..., description="Clearing status")
     message: Optional[str] = None
 
 
 class PipelineStatusResponse(BaseModel):
     """Response model for pipeline status."""
+
     status: str = "idle"
     autoscanned: bool = False
     busy: bool = False
-    progress: Optional[float] = Field(None, ge=0, le=100, description="Progress percentage")
+    progress: Optional[float] = Field(
+        None, ge=0, le=100, description="Progress percentage"
+    )
     current_task: Optional[str] = None
     job_name: Optional[str] = None
     job_start: Optional[str] = None
@@ -246,26 +322,35 @@ class PipelineStatusResponse(BaseModel):
 
 class TrackStatusResponse(BaseModel):
     """Response model for track status."""
+
     track_id: str = ""
     status: str = ""
     progress: Optional[float] = None
-    documents: list[dict[str, Any]] = Field(default_factory=list, description="Documents in track")
+    documents: list[dict[str, Any]] = Field(
+        default_factory=list, description="Documents in track"
+    )
     total_count: int = Field(0, description="Total document count")
-    status_summary: dict[str, Any] = Field(default_factory=dict, description="Status summary")
+    status_summary: dict[str, Any] = Field(
+        default_factory=dict, description="Status summary"
+    )
 
 
 class StatusCountsResponse(BaseModel):
     """Response model for document status counts."""
+
     pending: int = Field(0, ge=0)
     processing: int = Field(0, ge=0)
     processed: int = Field(0, ge=0)
     failed: int = Field(0, ge=0)
     total: int = Field(0, ge=0)
-    status_counts: dict[str, int] = Field(default_factory=dict, description="Status counts mapping")
+    status_counts: dict[str, int] = Field(
+        default_factory=dict, description="Status counts mapping"
+    )
 
 
 class ClearCacheResponse(BaseModel):
     """Response model for cache clearing."""
+
     status: str = "success"
     message: Optional[str] = None
     cache_type: Optional[str] = None
@@ -273,6 +358,7 @@ class ClearCacheResponse(BaseModel):
 
 class DeletionResult(BaseModel):
     """Response model for entity/relation deletion."""
+
     deleted: bool = False
     id: str = ""
     type: str = ""
@@ -282,6 +368,7 @@ class DeletionResult(BaseModel):
 # Query Response Models
 class QueryResult(BaseModel):
     """Query result model."""
+
     document_id: str = Field(..., description="Document ID")
     snippet: str = Field(..., description="Text snippet")
     score: Optional[float] = Field(None, ge=0, le=1)
@@ -290,6 +377,7 @@ class QueryResult(BaseModel):
 
 class QueryResponse(BaseModel):
     """Response model for text queries."""
+
     response: str = ""
     query: Optional[str] = None
     results: Optional[list[QueryResult]] = None
@@ -301,6 +389,7 @@ class QueryResponse(BaseModel):
 # Knowledge Graph Response Models
 class EntityInfo(BaseModel):
     """Entity information model."""
+
     id: str = Field(..., description="Entity ID")
     name: str = Field(..., description="Entity name")
     type: Optional[str] = None
@@ -311,6 +400,7 @@ class EntityInfo(BaseModel):
 
 class RelationInfo(BaseModel):
     """Relation information model."""
+
     id: str = Field(..., description="Relation ID")
     source_entity: str = Field(..., description="Source entity ID")
     target_entity: str = Field(..., description="Target entity ID")
@@ -323,15 +413,20 @@ class RelationInfo(BaseModel):
 
 class GraphResponse(BaseModel):
     """Response model for knowledge graph."""
-    nodes: list[dict[str, Any]] = Field(default_factory=list, description="Graph nodes (entities)")
-    edges: list[dict[str, Any]] = Field(default_factory=list, description="Graph edges (relations)")
+
+    nodes: list[dict[str, Any]] = Field(
+        default_factory=list, description="Graph nodes (entities)"
+    )
+    edges: list[dict[str, Any]] = Field(
+        default_factory=list, description="Graph edges (relations)"
+    )
     is_truncated: bool = Field(False, description="Whether the graph is truncated")
-    
+
     @property
     def entities(self) -> list[EntityInfo]:
         """Entities parsed from nodes."""
         return [EntityInfo(**n) for n in self.nodes]
-    
+
     @property
     def relations(self) -> list[RelationInfo]:
         """Relations parsed from edges."""
@@ -340,19 +435,54 @@ class GraphResponse(BaseModel):
 
 class LabelsResponse(BaseModel):
     """Response model for graph labels."""
+
     entity_labels: list[str] = Field(default_factory=list)
     relation_labels: list[str] = Field(default_factory=list)
 
 
 class EntityExistsResponse(BaseModel):
     """Response model for entity existence check."""
+
     exists: bool = False
     entity_name: Optional[str] = None
     entity_id: Optional[str] = None
 
 
+class EntityCreateResponse(BaseModel):
+    """Response model for entity creation."""
+
+    status: str = "success"
+    created: bool = False
+    entity_name: str = ""
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class RelationCreateResponse(BaseModel):
+    """Response model for relation creation."""
+
+    status: str = "success"
+    created: bool = False
+    source_entity: str = ""
+    target_entity: str = ""
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class AddNoteResponse(BaseModel):
+    """Response model for add_note_to_entity."""
+
+    status: str = "success"
+    entity_name: str = ""
+    note_entity_name: str = ""
+    note_text: str = ""
+    relationship_created: bool = False
+    message: str = ""
+
+
 class EntityUpdateResponse(BaseModel):
     """Response model for entity update."""
+
     status: str = "success"
     updated: bool = False
     entity_id: str = ""
@@ -362,6 +492,7 @@ class EntityUpdateResponse(BaseModel):
 
 class RelationUpdateResponse(BaseModel):
     """Response model for relation update."""
+
     status: str = "success"
     updated: bool = False
     relation_id: str = ""
@@ -372,6 +503,7 @@ class RelationUpdateResponse(BaseModel):
 # System Management Response Models
 class HealthResponse(BaseModel):
     """Response model for health check."""
+
     status: str = "healthy"
     version: Optional[str] = None
     uptime: Optional[float] = None
@@ -383,12 +515,14 @@ class HealthResponse(BaseModel):
 # Authentication Response Models
 class AuthStatusResponse(BaseModel):
     """Response model for authentication status."""
+
     authenticated: bool = Field(..., description="Whether user is authenticated")
     user: Optional[str] = None
 
 
 class LoginResponse(BaseModel):
     """Response model for login."""
+
     success: bool = Field(..., description="Whether login was successful")
     token: Optional[str] = None
     user: Optional[str] = None
@@ -398,21 +532,25 @@ class LoginResponse(BaseModel):
 # Ollama API Models (for completeness)
 class OllamaVersionResponse(BaseModel):
     """Response model for Ollama version."""
+
     version: str = Field(..., description="Ollama version")
 
 
 class OllamaTagsResponse(BaseModel):
     """Response model for Ollama tags."""
+
     models: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class OllamaProcessResponse(BaseModel):
     """Response model for Ollama running processes."""
+
     models: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class OllamaGenerateRequest(BaseModel):
     """Request model for Ollama generate."""
+
     model: str = Field(..., description="Model name")
     prompt: str = Field(..., description="Prompt text")
     stream: bool = Field(False, description="Whether to stream response")
@@ -420,12 +558,14 @@ class OllamaGenerateRequest(BaseModel):
 
 class OllamaChatMessage(BaseModel):
     """Chat message model for Ollama."""
+
     role: str = Field(..., description="Message role (user/assistant)")
     content: str = Field(..., description="Message content")
 
 
 class OllamaChatRequest(BaseModel):
     """Request model for Ollama chat."""
+
     model: str = Field(..., description="Model name")
     messages: list[OllamaChatMessage] = Field(..., description="Chat messages")
     stream: bool = Field(False, description="Whether to stream response")
@@ -434,11 +574,13 @@ class OllamaChatRequest(BaseModel):
 # File upload models
 class Body_upload_to_input_dir_documents_upload_post(BaseModel):
     """Request body for file upload."""
+
     file: bytes = Field(..., description="File content")
 
 
 class Body_login_login_post(BaseModel):
     """Request body for login."""
+
     username: str = Field(..., description="Username")
     password: str = Field(..., description="Password")
 
@@ -446,6 +588,7 @@ class Body_login_login_post(BaseModel):
 # Status response models
 class DocStatusResponse(BaseModel):
     """Response model for document status."""
+
     document_id: str = Field(..., description="Document ID")
     status: DocStatus = Field(..., description="Document status")
     message: Optional[str] = None
@@ -453,5 +596,6 @@ class DocStatusResponse(BaseModel):
 
 class DocsStatusesResponse(BaseModel):
     """Response model for multiple document statuses."""
+
     statuses: list[DocStatusResponse] = Field(default_factory=list)
     total: int = Field(0, ge=0)

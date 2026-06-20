@@ -4,6 +4,7 @@ CLI entry point for the Daniel LightRAG MCP server.
 
 import asyncio
 import sys
+
 from .server import main
 
 

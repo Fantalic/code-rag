@@ -96,7 +96,7 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 | Service | Type | Port | Status |
 |---------|------|------|--------|
 | `lightrag` (API + WebUI) | Docker | 9621 | ✅ Healthy, serves WebUI |
-| `mcp` (MCP SSE) | Docker | 9622 | ✅ 22 tools, SSE handshake |
+| `mcp` (MCP SSE) | Docker | 9622 | ✅ 6 tools, SSE handshake |
 
 ### coderag CLI
 - `cmd/coderag/main.go` — CLI entry with `start`, `watch`, `status`, `stop`, `query`, `webui`
@@ -113,11 +113,13 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 - C# analyser: extracts CLASS, METHOD, PROPERTY, INHERITS_FROM, DEPENDS_ON, CALLS
 
 ### Python MCP server (in Docker)
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 22 MCP tools in Python
+- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 6 MCP tools in Python (reduced from 22)
+- **Tools:** `query`, `get_related_files`, `check_entity_exists`, `get_knowledge_graph`, `get_graph_labels`, `add_note_to_entity`
+- **add_note_to_entity:** Creates embedded NOTE entity linked to target entity via HAS_NOTE relationship. Parameters: `entity_name`, `note_text`. LightRAG embeds the description for semantic search.
 - SSE transport on port 9622 using Starlette + uvicorn
 - `sse_server.py` — SSE entry point with `_ASGIApp` wrapper (fixes Starlette 1.3.1 ASGI detection)
-- `server.py` — main MCP server with all 22 tool handlers
-- `client.py` — LightRAG HTTP client
+- `server.py` — main MCP server with 6 tool handlers
+- `client.py` — LightRAG HTTP client (cleaned up, removed unused methods)
 
 ### Docker setup
 - `Dockerfile` — multi-stage: WebUI (bun build) → LightRAG + MCP (pip install)
@@ -129,7 +131,7 @@ opencode ──MCP SSE──► mcp (Docker :9622)     watchdog (host Go binary)
 
 ## Key Technical Decisions
 
-1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 22 tools kept.
+1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 6 focused tools for AI agent codebase exploration (query, get_related_files, check_entity_exists, get_knowledge_graph, get_graph_labels, add_note_to_entity).
 2. **Docker multi-service** — `lightrag` and `mcp` share same image but different `command`
 3. **`CMD` not `ENTRYPOINT`** — Allows command override in docker-compose
 4. **MCP and watchdog independent** — No communication between them. Both talk to LightRAG API only.

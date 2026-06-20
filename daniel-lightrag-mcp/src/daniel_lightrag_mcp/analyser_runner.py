@@ -4,10 +4,9 @@ C# analyser runner — invokes CSharpAnalyzerTool.exe and collects output.
 
 from __future__ import annotations
 
-import os
+import logging
 import re
 import subprocess
-import logging
 from pathlib import Path
 from typing import List, Tuple
 
@@ -50,16 +49,12 @@ def _find_solution_file(project_path: str) -> Path:
         if path.suffix == ".sln":
             return path
         if path.suffix == ".csproj":
-            raise ValueError(
-                f"C# analyser requires a .sln file, not a .csproj: {path}"
-            )
+            raise ValueError(f"C# analyser requires a .sln file, not a .csproj: {path}")
         raise ValueError(f"Unsupported file type: {path.suffix}")
 
     sln_files = list(path.glob("*.sln"))
     if not sln_files:
-        raise FileNotFoundError(
-            f"No .sln file found in directory: {path}"
-        )
+        raise FileNotFoundError(f"No .sln file found in directory: {path}")
     if len(sln_files) > 1:
         logger.warning(
             f"Multiple .sln files found in {path}, using first: {sln_files[0]}"
@@ -108,7 +103,9 @@ def _read_output_files(output_dir: Path) -> List[Tuple[str, str]]:
     return results
 
 
-def run_analysis(project_path: str, output_dir: str | None = None) -> List[Tuple[str, str]]:
+def run_analysis(
+    project_path: str, output_dir: str | None = None
+) -> List[Tuple[str, str]]:
     """
     Run the C# analyser on a project and return (filename, content) pairs.
 
@@ -132,9 +129,7 @@ def run_analysis(project_path: str, output_dir: str | None = None) -> List[Tuple
     work_dir = Path(output_dir).resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(
-        f"Running C# analyser on {solution_path}, cwd={work_dir}"
-    )
+    logger.info(f"Running C# analyser on {solution_path}, cwd={work_dir}")
 
     try:
         result = subprocess.run(

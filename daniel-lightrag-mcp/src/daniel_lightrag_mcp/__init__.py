@@ -7,16 +7,16 @@ __author__ = "Daniel Simpkins"
 __description__ = "MCP server for LightRAG integration"
 
 from .client import LightRAGClient, LightRAGError
-from .server import mcp_server
 from .models import *
+from .server import mcp_server
 
 __all__ = [
-    "LightRAGClient", 
-    "LightRAGError", 
+    "LightRAGClient",
+    "LightRAGError",
     "server",
     # Enums
     "DocStatus",
-    "QueryMode", 
+    "QueryMode",
     "PipelineStatus",
     # Common models
     "TextDocument",
@@ -25,7 +25,7 @@ __all__ = [
     "HTTPValidationError",
     # Request models
     "InsertTextRequest",
-    "InsertTextsRequest", 
+    "InsertTextsRequest",
     "DeleteDocRequest",
     "DeleteEntityRequest",
     "DeleteRelationRequest",

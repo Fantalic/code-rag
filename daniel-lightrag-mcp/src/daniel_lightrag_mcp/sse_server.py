@@ -8,15 +8,14 @@ import os
 from contextlib import asynccontextmanager
 
 import uvicorn
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
-from starlette.responses import JSONResponse
-
-from mcp.server.sse import SseServerTransport
-from mcp.server.models import InitializationOptions
 from mcp.server import NotificationOptions
+from mcp.server.models import InitializationOptions
+from mcp.server.sse import SseServerTransport
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
-from .server import mcp_server, lightrag_client, _get_lightrag_url
+from .server import _get_lightrag_url, mcp_server
 
 # Set up logging
 logging.basicConfig(
