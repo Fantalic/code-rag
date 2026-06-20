@@ -16,11 +16,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool
 
-from .client import (
-    LightRAGAPIError,
-    LightRAGClient,
-    LightRAGError,
-)
+from .client import LightRAGAPIError, LightRAGClient, LightRAGError
 from .models import AddNoteResponse
 
 logging.basicConfig(
@@ -529,11 +525,46 @@ def _error(tool_name: str, error: Exception) -> dict:
 # ---------------------------------------------------------------------------
 
 
+async def _auto_initialize() -> None:
+    global lightrag_client
+
+    cwd = os.getcwd()
+    sln_files = [f for f in os.listdir(cwd) if f.endswith(".sln")]
+    csproj_files = [f for f in os.listdir(cwd) if f.endswith(".csproj")]
+
+    if not sln_files and not csproj_files:
+        logger.info(
+            f"No .sln or .csproj files found in {cwd} — skipping auto-initialization"
+        )
+        return
+
+    project_path = sln_files[0] if sln_files else csproj_files[0]
+    logger.info(f"Auto-initialization: detected {project_path} in {cwd}")
+
+    base_url = _get_lightrag_url()
+    api_key = os.getenv("LIGHTRAG_API_KEY", None)
+    timeout = float(os.getenv("LIGHTRAG_TIMEOUT", "30.0"))
+    lightrag_client = LightRAGClient(
+        base_url=base_url, api_key=api_key, timeout=timeout
+    )
+
+    logger.info(f"Running C# analyser on {project_path}...")
+    try:
+        results = await lightrag_client.update_relations(project_path)
+        for r in results:
+            logger.info(f"  {r}")
+    except Exception as e:
+        logger.error(f"Auto-initialization failed: {e}")
+        lightrag_client = None
+
+
 async def main() -> None:
     load_dotenv()
     logger.info(
         f"Starting LightRAG MCP server (6 tools), LightRAG URL: {_get_lightrag_url()}"
     )
+
+    await _auto_initialize()
 
     try:
         async with stdio_server() as (read_stream, write_stream):

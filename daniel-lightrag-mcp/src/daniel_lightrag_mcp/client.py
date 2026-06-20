@@ -579,16 +579,25 @@ class LightRAGClient:
 
     async def get_entities_in_file(self, file_path: str) -> GetEntitiesInFileResponse:
         """Get all entities from a specific file path."""
-        graph = await self.get_knowledge_graph(label="*")
+        labels_resp = await self.get_graph_labels()
+        entity_labels = labels_resp.entity_labels or []
+
         entities: list[EntityInfo] = []
         fp_lower = file_path.lower().replace("\\", "/")
 
-        for node in graph.nodes:
-            node_fp = node.get("properties", {}).get("file_path", "")
-            if node_fp:
-                node_fp_clean = node_fp.lower().replace("\\", "/")
-                if node_fp_clean == fp_lower:
-                    entities.append(EntityInfo(**node))
+        for label in entity_labels:
+            try:
+                graph = await self.get_knowledge_graph(label=label)
+            except Exception:
+                continue
+
+            for node in graph.nodes:
+                props = node.get("properties") or {}
+                node_fp = node.get("file_path") or props.get("file_path", "")
+                if node_fp:
+                    node_fp_clean = node_fp.lower().replace("\\", "/")
+                    if node_fp_clean == fp_lower:
+                        entities.append(EntityInfo(**node))
 
         return GetEntitiesInFileResponse(
             file_path=file_path,
@@ -605,22 +614,41 @@ class LightRAGClient:
         except re.error:
             raise LightRAGValidationError(f"Invalid regex pattern: {pattern}")
 
-        label = entity_type if entity_type else "*"
-        graph = await self.get_knowledge_graph(label=label)
+        labels_resp = await self.get_graph_labels()
+        entity_labels = labels_resp.entity_labels or []
+
+        if not entity_labels:
+            return SearchEntitiesResponse(
+                pattern=pattern,
+                matches=[],
+                total=0,
+            )
+
+        target_labels = [entity_type] if entity_type else entity_labels
 
         matches: list[EntityInfo] = []
-        for node in graph.nodes:
-            name = node.get("name", "")
-            desc = node.get("properties", {}).get("description", "")
+        for label in target_labels:
+            try:
+                graph = await self.get_knowledge_graph(label=label)
+            except Exception:
+                continue
 
-            if compiled.search(name) or compiled.search(desc):
-                if entity_type:
-                    node_type = node.get("properties", {}).get("entity_type", "")
-                    if node_type.upper() != entity_type.upper():
-                        continue
-                matches.append(EntityInfo(**node))
-                if len(matches) >= limit:
-                    break
+            for node in graph.nodes:
+                name = node.get("name", "")
+                desc = node.get("properties", {}).get("description", "")
+
+                if compiled.search(name) or compiled.search(desc):
+                    if entity_type:
+                        node_type = node.get("properties", {}).get("entity_type", "")
+                        if node_type.upper() != entity_type.upper():
+                            continue
+                    matches.append(EntityInfo(**node))
+                    if len(matches) >= limit:
+                        return SearchEntitiesResponse(
+                            pattern=pattern,
+                            matches=matches,
+                            total=len(matches),
+                        )
 
         return SearchEntitiesResponse(
             pattern=pattern,
