@@ -63,6 +63,10 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
     # Only calculate api_key_configured as it depends on the function parameter
     api_key_configured = bool(api_key)
 
+    # CodeLightRAG: local-only Ollama mode.
+    # When api_key is empty/None, api_key_configured = False.
+    # Combined with auth_configured = False (no accounts), all requests pass at step 3 below.
+    # See lightrag_server.py line 318 — LIGHTRAG_API_KEY is optional.
     # Create security dependencies with proper descriptions for Swagger UI
     oauth2_scheme = OAuth2PasswordBearer(
         tokenUrl="login", auto_error=False, description="OAuth2 Password Authentication"

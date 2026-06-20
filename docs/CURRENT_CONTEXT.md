@@ -1,10 +1,59 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 18** — Project-Based Storage & GraphML Fix ✅ COMPLETE
+- 🔥 **Phase 20** — VDB Embedding & file_path Persistence ✅ COMPLETE
+- **Phase 19** — Incremental Update Pipeline Fixes ✅ COMPLETE
+- **Phase 18** — Project-Based Storage & GraphML Fix ✅ COMPLETE
 - **Phase 17** — Relation Creation Fix ✅ COMPLETE
 - **Phase 15-16**: End-to-End System Testing ✅ COMPLETE
 - **Phase 14**: Testing, MCP tool usage, test expansion ✅
+
+## Phase 20 — VDB Embedding & file_path Persistence ✅ COMPLETE
+
+### Issues Found & Fixed
+
+**1. Relation "already exists" errors on CREATE**
+- **Root Cause**: `RelationKey` does not sort `src`/`tgt` — LightRAG stores edges in sorted order (undirected graph). Keys don't match → CREATE on existing → error.
+- **Fix**: `watchdog/internal/diff/engine.go:RelationKey()` sorts `src` > `tgt` alphabetically.
+
+**2. CLASS entity `file_path` not updated**
+- **Root Cause**: `applyCSharpResults` skipped ALL CLASS entity updates. `file_path`, `source_id` never persisted.
+- **Fix**: `watchdog/internal/pipeline/run.go` — delete only `description`/`methods` from CLASS update data instead of skipping entirely.
+
+**3. Modified file pipeline fails — no analyser results**
+- **Root Cause**: Git watcher sends events without pre-computed `Results`.
+- **Fix**: `runCSharpPipelineModified` re-runs C# analyser when `results` is empty.
+
+**4. ParseCSharpFile dropped all but the last class per output file**
+- **Root Cause**: Old parser only emitted the last `CLASS:` match per output file. EntityBase, IRepository, IOperation, Id, CreatedAt, Name, Get, GetAll, Remove, FindById, Add, Contains were all lost.
+- **Fix**: Rewrote `watchdog/internal/parser/csharp.go` — per-class accumulator with `flushClass()` at each `CLASS:` boundary; `cleanFilePath()` strips `[LINK: ...]` suffix.
+
+### Issues Found & Fixed
+
+**1. Entity `file_path` lost in VDB after update (`aedit_entity`)**
+- **Root Cause**: `aedit_entity()` at `utils_graph.py:337` re-built the VDB entry without `file_path`. The diff engine emits `ActionUpdate` for every entity after the first `ActionCreate` (multiple .cs files share the same classes), so the edit path **overwrote** the VDB entry created by `acreate_entity()` (which correctly included `file_path`).
+- **Fix**: Added `"file_path": new_node_data.get("file_path", "")` to the VDB upsert dict in `aedit_entity()`.
+- **Verified**: Create → VDB has `file_path` ✅ ; Update → VDB preserves `file_path` ✅
+
+**2. Relation `file_path` lost in VDB after update (`aedit_relation`)**
+- **Root Cause**: Same pattern — `aedit_relation()` at `utils_graph.py:453` omitted `file_path` from VDB upsert.
+- **Fix**: Added `"file_path": new_edge_data.get("file_path", "")` to the VDB upsert dict in `aedit_relation()`.
+- **Verified**: Create → VDB has `file_path` ✅ ; Update → VDB preserves `file_path` ✅ ; Update without `file_path` falls back to graph edge data ✅
+
+### Test Coverage Added
+11 new integration tests in `tests/test_integration_graph_vdb.py`:
+- **TestEntityVDB** (4 tests): create embeds file_path, update preserves file_path, create without file_path defaults, rename preserves vector
+- **TestRelationVDB** (3 tests): create embeds file_path, update preserves file_path, create without file_path defaults
+- **TestGraphEmbeddingIntegrity** (4 tests): full entity/relation create+update workflow, update without file_path keeps original for both entities and relations
+- All tests run against mocked server (session-scoped) via httpx ASGITransport
+
+### Verified: Initial Sync Results
+- **42 entities** (up from 33) — all previously missing entities now present
+- **45 relations**
+- **Zero errors** — no "already exists", no NoneType crashes
+- GraphML persists correctly, vector DB populated
+
+
 
 ## Phase 18 — Project-Based Storage & GraphML Fix ✅
 
@@ -129,7 +178,7 @@ All modules under `watchdog/internal/`:
 5. **Solution-level analysis** — entire solution re-analyzed on any file change (ensures cross-file consistency)
 6. **Entity-level CRUD** > document pipeline — no LLM calls for analyser output
 7. **Security filter built into pipeline** — secret data never reaches graph
-8. **LightRAG undirected graph** — edge `source`/`target` not directional. Use edge type/properties for direction.
+8. **LightRAG undirected graph** — edge `source`/`target` not directional. `RelationKey` MUST sort src/tgt for correct diff comparison.
 
 ## Learnings
 
@@ -144,3 +193,9 @@ NetworkX's GraphML writer rejects `None` attribute values. Must filter before ev
 
 ### Project detection
 `find_project_root()` searches from cwd upward for `.coderag`. Watchdog's `start` command now sets `lightragProcess.Dir = inputDir` so cwd matches the project root.
+
+### Undirected graph relation key sorting
+LightRAG stores edges with sorted `source`/`target` (alphabetic). The watchdog diff engine compares relation keys (`src|tgt`). If the diff uses unsorted keys while the graph uses sorted ones, every existing relation appears "new" → duplicate CREATE → "already exists" error. Fix: `RelationKey()` must always sort both sides.
+
+### CLASS entity update skip is too broad
+The pipeline skips all CLASS entity updates because descriptions are "auto-generated". But `file_path` is also a CLASS property and needs updating. Either skip only the `description` field or update it selectively.

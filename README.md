@@ -1,5 +1,7 @@
 # CodeLightRAG — Live Codebase Knowledge Graphs for AI Agents
 
+> **⚠️ Local-only Ollama:** This fork supports **only local Ollama** for LLM inference and embeddings. No cloud API keys, no OpenAI/Azure/Bedrock backends. See [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
+
 > Transform your codebase into a queryable knowledge graph. AI agents query via MCP instead of reading files — no more "read these 400 files" prompts.
 
 ```
@@ -75,7 +77,8 @@ Incremental changes (git-based or filesystem)
 ### Prerequisites
 - Python 3.10+ with venv
 - [.NET 9 runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (for C# analyser)
-- [Ollama](https://ollama.com/) running locally with models: `qwen3-coder:480b-cloud`, `bge-m3:latest`
+- [Ollama](https://ollama.com/) running locally — **the only supported LLM/embedding backend**
+  - Required models: `mistral-nemo:latest` (or any code-capable model), `bge-m3:latest`
 
 ### Quick Setup
 
@@ -137,7 +140,7 @@ watchdog.exe stop
 | Variable | Flag | Default | Description |
 |----------|------|---------|-------------|
 | `LIGHTRAG_URL` | `--url` | `http://localhost:9621` | LightRAG API endpoint |
-| `OLLAMA_HOST` | `--ollama` | `http://localhost:11434` | Ollama endpoint |
+| `OLLAMA_HOST` | `--ollama` | `http://localhost:11434` | **Only supported LLM backend** — Ollama local |
 | `INPUT_DIR` | positional | — | Project folder to watch |
 | `USE_GIT_WATCHER` | — | `true` | Use git diff for changes (default), `false` for filesystem watching |
 | `DEBOUNCE_SECONDS` | `--debounce` | `0.5` | Debounce delay per file path |

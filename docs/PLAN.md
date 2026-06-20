@@ -209,13 +209,47 @@ This means both old AND new entities exist after file changes — no replacement
 - `LightRAG/lightrag/kg/networkx_impl.py` — None filtering in write/upsert
 - `watchdog/cmd/watchdog/main.go` — LIGHTRAG_WORKING_DIR + Dir settings
 
-## Phase 19 — Next Tasks
+## Phase 19 — Incremental Update Pipeline Fixes ✅ COMPLETE
 
-1. **Add stale entity cleanup** — periodic sweep of entities whose `file_path` no longer exists on disk
-2. **Add git commit watcher** — extend git watcher to detect new commits (not just uncommitted changes)
-3. **Add unit tests** for CRUD client methods (`GetEntitiesByFilePath`, `DeleteEntitiesByFilePath`)
-4. **Add more language analysers** — Python, Go, TypeScript
-5. **Handle `.sln` creation** — auto-create solution file if missing (currently required for C# analysis)
+### Issues Found & Fixed
+
+**1. RelationKey unsorted — "already exists" errors**
+- `watchdog/internal/diff/engine.go`: `RelationKey()` now sorts `src`/`tgt` alphabetically
+- Without this fix, every CREATE action on an existing relation fails with HTTP 400
+
+**2. CLASS entity update skip too broad**
+- `watchdog/internal/pipeline/run.go`: CLASS entities now filter only `description`/`methods` instead of skipping entirely
+- `file_path`, `source_id` now get updated on CLASS entities
+
+**3. Modified file pipeline — no analyser results**
+- `runCSharpPipelineModified` re-runs C# analyser when results are empty
+
+**4. ParseCSharpFile dropped all but the last class per output file** ⚠️ NEW
+- Old parser only emitted the last CLASS match per analyser output file
+- ALL classes in each output file were silently dropped except the last one
+- EntityBase, IRepository, IOperation, Id, CreatedAt, Name, Get, GetAll, Remove, FindById, Add, Contains were all missing
+- **Fix**: Complete rewrite of `watchdog/internal/parser/csharp.go` with per-class accumulator
+
+### Phase 19 Verification
+- 42 entities (up from 33), 45 relations, zero errors
+- All previously missing entities now present
+- `file_path` values still empty — `getString()` variadic behavior is a bug
+
+### Files Modified
+- `watchdog/internal/pipeline/run.go` — re-run analyser, CLASS update filter
+- `watchdog/internal/diff/engine.go` — sort src/tgt in RelationKey
+- `watchdog/internal/parser/csharp.go` — full rewrite with flushClass()
+
+## Phase 20 — Fix file_path & Test Incremental Updates 🔧 IN PROGRESS
+
+1. **Fix `getString()` default value behavior** — variadic args should support key + default fallback
+2. **Ensure parser sets `FilePath`** — trace through `ParseCSharpFile` → `Entity.FilePath` → CRUD client
+3. **Rebuild watchdog**, clear rag_storage, re-initialize
+4. **Verify `file_path` populated** in GraphML and vector DB
+5. **Make incremental change** to test file, verify diff engine processes correctly
+6. **Verify stale entities cleanup** — `DeleteEntitiesByFilePath` works with correct `file_path`
+7. **Add stale entity cleanup** — periodic sweep of entities whose `file_path` no longer exists on disk
+8. **Add git commit watcher** — extend git watcher to detect new commits (not just uncommitted changes)
 
 ### Security
 

@@ -3,6 +3,9 @@
 > Everything about how this project works: components, data flow, pipeline, and security.
 > For detailed API request/response schemas, see [API_REFERENCE.md](API_REFERENCE.md).
 
+> **⚠️ Local-only Ollama:** This project supports **only local Ollama** for LLM inference and embeddings.
+> No cloud API keys, no API key auth needed — `LIGHTRAG_API_KEY` is unused. See §7 for env vars.
+
 ---
 
 ## 1. Overview
@@ -160,11 +163,34 @@ Runs **after** extraction, **before** graph insertion. Matched values -> `[REDAC
 
 | Suite | Location | Count |
 |-------|----------|-------|
-| Root | `tests/` | 63 |
+| Root | `tests/` | 74 |
 | MCP | `daniel-lightrag-mcp/tests/` | 163 |
 | Test project | `../test-csharp-project/` (outside repo) | C# + git |
 
-**Gotchas:**
+### Key test files
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test_integration_lightrag.py` | 11 | Health, document, query endpoints |
+| `test_integration_graph_vdb.py` | 11 | Entity/relation VDB embedding + `file_path` persistence |
+| `test_integration_mcp.py` | 4 | MCP client ↔ API integration |
+| `test_smoke_lightrag.py` | 9 | Import/instantiation smoke tests |
+| `test_smoke_mcp.py` | 10 | MCP import and model validation |
+| `test_smoke_watchdog.py` | 8 | Watchdog component instantiation |
+| `test_mcp_edge_cases.py` | 4 | Connection errors, validation, env fallback |
+| `test_pydantic_v2.py` | 4 | Pydantic v2 migration checks |
+| `test_retry.py` | 3 | Document retry logic |
+| `test_namespace.py` | 4 | Package imports and version |
+| `test_config.py` | 4 | Configuration helpers |
+
+### Vector DB test model
+- Session-scoped mocked FastAPI server (`conftest.py`) replaces `ollama_model_complete` + `ollama_embed` with dummy functions
+- Embedding mock returns `np.array([[0.1] * 1024 for _ in texts])` — constant 1024-dim vectors
+- All API endpoints tested through `httpx.AsyncClient` via `ASGITransport`
+- Entity/relation CRUD responses include `vector_data` (from `get_entity_info` / `get_relation_info` with `include_vector_data=True`)
+- VDB state assertions: `file_path`, `entity_name`, `src_id`, `tgt_id` fields directly on response
+
+### Gotchas
 - No `tests/__init__.py` — session-scoped async fixture + package marker = deadlock
 - `asyncio_default_test_loop_scope = session` in `pytest.ini` — prevents `asyncio.Lock` deadlock
 - MCP handlers return raw `dict`, not `CallToolResult`
@@ -176,10 +202,10 @@ Runs **after** extraction, **before** graph insertion. Matched values -> `[REDAC
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `LIGHTRAG_URL` | `http://localhost:9621` | API address |
-| `LIGHTRAG_API_KEY` | `None` | API auth (`X-API-Key` header) |
+| `LIGHTRAG_API_KEY` | unused | 🚫 Not needed — no cloud auth, local-only mode |
 | `LIGHTRAG_PORT` | `9621` | Server port |
 | `LIGHTRAG_WORKING_DIR` | auto-detect `.coderag/rag_storage` | Storage path |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint (the only supported LLM backend) |
 | `INPUT_DIR` | positional arg | Watchdog monitor path |
 | `DEBOUNCE_SECONDS` | `0.5` | Per-file debounce |
 | `WATCHER_WORKERS` | `4` | Thread pool size |
@@ -199,7 +225,9 @@ code-lightrag/
 │   │       ├── document_routes.py       <- Doc CRUD + dedup
 │   │       └── graph_routes.py          <- Entity/relation CRUD endpoints
 │   ├── kg/
+│   │   ├── nano_vector_db_impl.py      <- VDB upsert with meta_fields filtering
 │   │   └── networkx_impl.py            <- GraphML write with None filtering
+│   ├── utils_graph.py                  <- Entity/relation CRUD with VDB embedding + file_path
 │   └── constants.py                    <- Code/software entity types
 │
 ├── daniel-lightrag-mcp/src/daniel_lightrag_mcp/
@@ -239,12 +267,22 @@ code-lightrag/
 
 ---
 
-## 9. Known Issues
+## 9. Local-Only Design
+
+This fork is intentionally scoped to **local-only Ollama**:
+
+- **LLM backend:** Only `OLLAMA_HOST` (default `http://localhost:11434`). No OpenAI, Azure, AWS Bedrock, etc.
+- **Embedding backend:** Only Ollama (`bge-m3:latest` or similar). No cloud embedding APIs.
+- **Auth:** `LIGHTRAG_API_KEY` is optional and unused in local mode. When unset, all API routes accept requests without headers (`utils_api.py:116`).
+- **Why:** This is an experimental project for local codebase analysis. Cloud dependencies would add complexity, cost, and security surface for no benefit in this use case.
+
+## 10. Known Issues
 
 | Issue | Status | Notes |
 |-------|--------|-------|
 | GraphML NoneType error | ✅ FIXED | None values filtered in `write_nx_graph()` and `upsert_node/edge()` |
 | .env requirement | ✅ FIXED | `check_env_file()` always returns True (single-instance) |
 | LIGHTRAG_WORKING_DIR not set | ✅ FIXED | Watchdog passes it in `start` command |
+| Entity `file_path` lost in VDB on update | ✅ FIXED | `aedit_entity()` / `aedit_relation()` now include `file_path` in VDB upsert |
 | Git watcher detects uncommitted only | ⚠️ BY DESIGN | Polls `git diff HEAD` every 30s. New commits need restart. |
 | Old entities not cleaned up on file change | ⚠️ PARTIAL | Modified files delete old entities first. No periodic cleanup. |

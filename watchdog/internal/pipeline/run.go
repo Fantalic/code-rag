@@ -111,6 +111,21 @@ func runCSharpPipelineModified(filePath string, client *crud.Config, results []A
 		log.Printf("Warning: failed to delete old entities for %s: %v", filePath, err)
 	}
 
+	if len(results) == 0 {
+		sln := findSolutionFile(filePath)
+		if sln == "" {
+			return fmt.Errorf("no .sln found for %s", filePath)
+		}
+		var err error
+		results, err = RunCSharpAnalyser(sln)
+		if err != nil {
+			return fmt.Errorf("C# analyser failed: %w", err)
+		}
+		if len(results) == 0 {
+			return fmt.Errorf("C# analyser produced no output for %s", sln)
+		}
+	}
+
 	return runCSharpPipelineWithResults(filePath, client, results)
 }
 
@@ -156,8 +171,8 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 			data := filter.FilterEntityData(action.Data)
 			entityType := getString(data, "entity_type", "")
 			if entityType == "CLASS" {
-				log.Printf("Skipping CLASS update for %s (description auto-generated)", action.EntityName)
-				continue
+				delete(data, "description")
+				delete(data, "methods")
 			}
 			client.UpdateEntity(action.EntityName, data)
 		}
@@ -390,11 +405,12 @@ func loadCurrentRelations(client *crud.Config) map[string]map[string]any {
 	return result
 }
 
-func getString(m map[string]any, keys ...string) string {
-	for _, k := range keys {
-		if v, ok := m[k].(string); ok && v != "" {
-			return v
-		}
+func getString(m map[string]any, key string, defaultVal ...string) string {
+	if v, ok := m[key].(string); ok && v != "" {
+		return v
+	}
+	if len(defaultVal) > 0 {
+		return defaultVal[0]
 	}
 	return ""
 }

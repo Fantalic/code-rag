@@ -148,8 +148,24 @@ Internal: `utils_graph.py:491` — `acreate_entity()`
 5. Computes `entity_id = md5hash(entity_name, prefix="ent-")` — vector DB key
 6. `entities_vdb.upsert(entity_data)` — vector embedding
 7. Embedding content = `"{entity_name}\n{description}"`
-8. `_edit_entity_done()` — persists all storage backends
-9. Returns result via `get_entity_info()`
+8. VDB fields stored: `entity_name`, `source_id`, `description`, `entity_type`, `file_path`
+9. `_edit_entity_done()` — persists all storage backends
+10. Returns result via `get_entity_info()`
+
+**`vector_data` response fields:**
+```json
+{
+  "__id__": "ent-<md5hash>",
+  "__created_at__": 1719000000,
+  "content": "MyClass\nClass that handles user authentication",
+  "entity_name": "MyClass",
+  "source_id": "project/src/auth.py",
+  "description": "Class that handles user authentication",
+  "entity_type": "CLASS",
+  "file_path": "project/src/auth.py"
+  // "vector" field omitted — binary blob, not returned in API responses
+}
+```
 
 ---
 
@@ -190,6 +206,13 @@ Internal: `utils_graph.py:163` — `aedit_entity()`
   "detail": "Entity 'MyClass' does not exist"
 }
 ```
+
+**What happens internally (no rename):**
+1. Merges `node_data` (from graph DB) + `updated_data` (from request)
+2. `chunk_entity_relation_graph.upsert_node(entity_name, merged_data)` — graph DB
+3. Recomputes embedding: `content = entity_name + "\n" + description`
+4. `entities_vdb.upsert(entity_data)` — **includes `file_path` from merged graph node data** (fix: both `aedit_entity` and `aedit_relation` previously omitted `file_path`, overwriting VDB entries without it)
+5. `_edit_entity_done()` to persist
 
 **Rename behavior:**
 - Creates new node with new name

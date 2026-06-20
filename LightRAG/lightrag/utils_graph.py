@@ -333,6 +333,7 @@ async def aedit_entity(
                     "source_id": source_id,
                     "description": description,
                     "entity_type": entity_type,
+                    "file_path": new_node_data.get("file_path", ""),
                 }
             }
 
@@ -449,6 +450,7 @@ async def aedit_relation(
                     "description": description,
                     "keywords": keywords,
                     "weight": weight,
+                    "file_path": new_edge_data.get("file_path", ""),
                 }
             }
 

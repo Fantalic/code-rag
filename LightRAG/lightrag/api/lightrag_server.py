@@ -314,7 +314,8 @@ def create_app(args):
         if not os.path.exists(args.ssl_keyfile):
             raise Exception(f"SSL key file not found: {args.ssl_keyfile}")
 
-    # Check if API key is provided either through env var or args
+    # CodeLightRAG: local-only Ollama mode — no cloud auth needed.
+    # LIGHTRAG_API_KEY / --key is optional. When unset, auth is disabled.
     api_key = os.getenv("LIGHTRAG_API_KEY") or args.key
 
     # Initialize document manager with workspace support for data isolation

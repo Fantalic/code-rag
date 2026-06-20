@@ -177,6 +177,7 @@ func startCmd(c *cli.Context) error {
 		return err
 	}
 
+	// CodeLightRAG: local-only Ollama mode. No API keys or cloud backends.
 	env := append(os.Environ(),
 		"OLLAMA_HOST="+ollamaHost,
 		"LIGHTRAG_PORT=9621",

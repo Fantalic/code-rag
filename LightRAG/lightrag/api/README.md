@@ -1,5 +1,9 @@
 # LightRAG Server and WebUI
 
+> **⚠️ CodeLightRAG Fork — Local-only Ollama:** This fork supports **only local Ollama** for LLM and embeddings.
+> No cloud API keys, no OpenAI/Azure/Bedrock backends. `LIGHTRAG_API_KEY` is not used.
+> See [docs/DOCUMENTATION.md](../../docs/DOCUMENTATION.md) for full docs.
+
 The LightRAG Server is designed to provide a Web UI and API support. The Web UI facilitates document indexing, knowledge graph exploration, and a simple RAG query interface. LightRAG Server also provides an Ollama-compatible interface, aiming to emulate LightRAG as an Ollama chat model. This allows AI chat bots, such as Open WebUI, to access LightRAG easily.
 
 ![image-20250323122538997](./README.assets/image-20250323122538997.png)

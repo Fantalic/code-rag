@@ -197,5 +197,8 @@ func makeKey(src, tgt string) string {
 }
 
 func RelationKey(src, tgt string) string {
+	if src > tgt {
+		src, tgt = tgt, src
+	}
 	return makeKey(src, tgt)
 }
