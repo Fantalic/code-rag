@@ -1007,8 +1007,14 @@ class LightRAG:
                 )
 
     async def get_graph_labels(self):
-        text = await self.chunk_entity_relation_graph.get_all_labels()
-        return text
+        entity_labels = await self.chunk_entity_relation_graph.get_all_entity_types()
+        relation_labels = (
+            await self.chunk_entity_relation_graph.get_all_relation_types()
+        )
+        return {"entity_labels": entity_labels, "relation_labels": relation_labels}
+
+    async def get_relation_labels(self):
+        return await self.chunk_entity_relation_graph.get_all_relation_types()
 
     async def get_knowledge_graph(
         self,
@@ -1527,12 +1533,17 @@ class LightRAG:
                     max_retries = getattr(status_doc, "max_retries", 3)
 
                     # Skip FAILED docs that have exhausted retries
-                    if status_doc.status == DocStatus.FAILED and retry_count >= max_retries:
+                    if (
+                        status_doc.status == DocStatus.FAILED
+                        and retry_count >= max_retries
+                    ):
                         exhausted_count += 1
                         continue
 
                     # Increment retry count for FAILED docs being reset
-                    new_retry_count = retry_count + 1 if status_doc.status == DocStatus.FAILED else 0
+                    new_retry_count = (
+                        retry_count + 1 if status_doc.status == DocStatus.FAILED else 0
+                    )
 
                     # Prepare document for status reset to PENDING
                     docs_to_reset[doc_id] = {
@@ -1867,8 +1878,12 @@ class LightRAG:
                                             "processing_start_time": processing_start_time,
                                             "processing_end_time": processing_end_time,
                                         },
-                                        "retry_count": getattr(status_doc, "retry_count", 0),
-                                        "max_retries": getattr(status_doc, "max_retries", 3),
+                                        "retry_count": getattr(
+                                            status_doc, "retry_count", 0
+                                        ),
+                                        "max_retries": getattr(
+                                            status_doc, "max_retries", 3
+                                        ),
                                     }
                                 }
                             )
@@ -1970,8 +1985,12 @@ class LightRAG:
                                                 "processing_start_time": processing_start_time,
                                                 "processing_end_time": processing_end_time,
                                             },
-                                            "retry_count": getattr(status_doc, "retry_count", 0),
-                                            "max_retries": getattr(status_doc, "max_retries", 3),
+                                            "retry_count": getattr(
+                                                status_doc, "retry_count", 0
+                                            ),
+                                            "max_retries": getattr(
+                                                status_doc, "max_retries", 3
+                                            ),
                                         }
                                     }
                                 )
@@ -2116,9 +2135,9 @@ class LightRAG:
                     "source_id": source_id,
                     "tokens": tokens,
                     "chunk_order_index": chunk_order_index,
-                    "full_doc_id": full_doc_id
-                    if full_doc_id is not None
-                    else source_id,
+                    "full_doc_id": (
+                        full_doc_id if full_doc_id is not None else source_id
+                    ),
                     "file_path": file_path,
                     "status": DocStatus.PROCESSED,
                 }
@@ -2659,12 +2678,14 @@ class LightRAG:
             # Extract structured data from query result
             raw_data = query_result.raw_data or {}
             raw_data["llm_response"] = {
-                "content": query_result.content
-                if not query_result.is_streaming
-                else None,
-                "response_iterator": query_result.response_iterator
-                if query_result.is_streaming
-                else None,
+                "content": (
+                    query_result.content if not query_result.is_streaming else None
+                ),
+                "response_iterator": (
+                    query_result.response_iterator
+                    if query_result.is_streaming
+                    else None
+                ),
                 "is_streaming": query_result.is_streaming,
             }
 

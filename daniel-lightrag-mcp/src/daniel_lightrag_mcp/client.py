@@ -445,27 +445,31 @@ class LightRAGClient:
         entity_types = labels_resp.entity_labels or []
         relation_types = labels_resp.relation_labels or []
 
-        entity_counts: dict[str, int] = {}
-        relation_counts: dict[str, int] = {}
+        entity_counts: dict[str, int] = {t: 0 for t in entity_types}
+        relation_counts: dict[str, int] = {t: 0 for t in relation_types}
         all_files: set[str] = set()
 
-        for etype in entity_types:
-            try:
-                graph = await self.get_knowledge_graph(label=etype)
-                entity_counts[etype] = len(graph.nodes)
-                for node in graph.nodes:
-                    fp = node.get("properties", {}).get("file_path")
-                    if fp:
-                        all_files.add(fp)
-            except Exception:
-                entity_counts[etype] = 0
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+            for node in graph.nodes:
+                node_type = node.get("properties", {}).get("entity_type", "")
+                if node_type in entity_counts:
+                    entity_counts[node_type] += 1
+                fp = node.get("file_path") or node.get("properties", {}).get(
+                    "file_path", ""
+                )
+                if fp:
+                    all_files.add(fp)
 
-        for rtype in relation_types:
-            try:
-                graph = await self.get_knowledge_graph(label=rtype)
-                relation_counts[rtype] = len(graph.edges)
-            except Exception:
-                relation_counts[rtype] = 0
+            for edge in graph.edges:
+                keywords = edge.get("properties", {}).get("keywords", "")
+                if keywords:
+                    for kw in keywords.split(","):
+                        kw = kw.strip()
+                        if kw in relation_counts:
+                            relation_counts[kw] += 1
+        except Exception as e:
+            self.logger.error(f"Error getting codebase stats: {e}")
 
         total_entities = sum(entity_counts.values())
         total_relations = sum(relation_counts.values())
@@ -559,7 +563,7 @@ class LightRAGClient:
         self, entity_type: str, limit: int = 100, offset: int = 0
     ) -> ListEntitiesResponse:
         """List entities of a specific type with pagination."""
-        graph = await self.get_knowledge_graph(label=entity_type)
+        graph = await self.get_knowledge_graph(label="*")
         entities: list[EntityInfo] = []
 
         for node in graph.nodes:
@@ -579,25 +583,26 @@ class LightRAGClient:
 
     async def get_entities_in_file(self, file_path: str) -> GetEntitiesInFileResponse:
         """Get all entities from a specific file path."""
-        labels_resp = await self.get_graph_labels()
-        entity_labels = labels_resp.entity_labels or []
-
         entities: list[EntityInfo] = []
         fp_lower = file_path.lower().replace("\\", "/")
 
-        for label in entity_labels:
-            try:
-                graph = await self.get_knowledge_graph(label=label)
-            except Exception:
-                continue
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for file entities: {e}")
+            return GetEntitiesInFileResponse(
+                file_path=file_path,
+                entities=[],
+                total=0,
+            )
 
-            for node in graph.nodes:
-                props = node.get("properties") or {}
-                node_fp = node.get("file_path") or props.get("file_path", "")
-                if node_fp:
-                    node_fp_clean = node_fp.lower().replace("\\", "/")
-                    if node_fp_clean == fp_lower:
-                        entities.append(EntityInfo(**node))
+        for node in graph.nodes:
+            props = node.get("properties") or {}
+            node_fp = node.get("file_path") or props.get("file_path", "")
+            if node_fp:
+                node_fp_clean = node_fp.lower().replace("\\", "/")
+                if node_fp_clean == fp_lower:
+                    entities.append(EntityInfo(**node))
 
         return GetEntitiesInFileResponse(
             file_path=file_path,
@@ -614,41 +619,29 @@ class LightRAGClient:
         except re.error:
             raise LightRAGValidationError(f"Invalid regex pattern: {pattern}")
 
-        labels_resp = await self.get_graph_labels()
-        entity_labels = labels_resp.entity_labels or []
-
-        if not entity_labels:
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for search: {e}")
             return SearchEntitiesResponse(
                 pattern=pattern,
                 matches=[],
                 total=0,
             )
 
-        target_labels = [entity_type] if entity_type else entity_labels
-
         matches: list[EntityInfo] = []
-        for label in target_labels:
-            try:
-                graph = await self.get_knowledge_graph(label=label)
-            except Exception:
-                continue
+        for node in graph.nodes:
+            name = node.get("name", "")
+            desc = node.get("properties", {}).get("description", "")
 
-            for node in graph.nodes:
-                name = node.get("name", "")
-                desc = node.get("properties", {}).get("description", "")
-
-                if compiled.search(name) or compiled.search(desc):
-                    if entity_type:
-                        node_type = node.get("properties", {}).get("entity_type", "")
-                        if node_type.upper() != entity_type.upper():
-                            continue
-                    matches.append(EntityInfo(**node))
-                    if len(matches) >= limit:
-                        return SearchEntitiesResponse(
-                            pattern=pattern,
-                            matches=matches,
-                            total=len(matches),
-                        )
+            if compiled.search(name) or compiled.search(desc):
+                if entity_type:
+                    node_type = node.get("properties", {}).get("entity_type", "")
+                    if node_type.upper() != entity_type.upper():
+                        continue
+                matches.append(EntityInfo(**node))
+                if len(matches) >= limit:
+                    break
 
         return SearchEntitiesResponse(
             pattern=pattern,

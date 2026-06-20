@@ -211,17 +211,52 @@ class NetworkXStorage(BaseGraphStorage):
 
     async def get_all_labels(self) -> list[str]:
         """
-        Get all node labels in the graph
+        Get all node labels (entity names/IDs) in the graph.
         Returns:
-            [label1, label2, ...]  # Alphabetically sorted label list
+            [label1, label2, ...]  # Alphabetically sorted node label list
         """
         graph = await self._get_graph()
         labels = set()
         for node in graph.nodes():
-            labels.add(str(node))  # Add node id as a label
+            labels.add(str(node))
 
-        # Return sorted list
         return sorted(list(labels))
+
+    async def get_all_entity_types(self) -> list[str]:
+        """
+        Get all entity type labels in the graph.
+        Returns distinct entity_type values from node properties.
+        Returns:
+            [label1, label2, ...]  # Alphabetically sorted entity type labels
+        """
+        graph = await self._get_graph()
+        labels = set()
+        for node in graph.nodes():
+            node_data = dict(graph.nodes[node])
+            entity_type = node_data.get("entity_type")
+            if entity_type:
+                labels.add(str(entity_type))
+
+        return sorted(list(labels))
+
+    async def get_all_relation_types(self) -> list[str]:
+        """
+        Get all relation type labels in the graph.
+        Returns distinct keywords values from edge properties.
+        Returns:
+            [type1, type2, ...]  # Alphabetically sorted relation type labels
+        """
+        graph = await self._get_graph()
+        types = set()
+        for _, _, edge_data in graph.edges(data=True):
+            keywords = edge_data.get("keywords", "")
+            if keywords:
+                for kw in keywords.split(","):
+                    kw = kw.strip()
+                    if kw:
+                        types.add(kw)
+
+        return sorted(list(types))
 
     async def get_popular_labels(self, limit: int = 300) -> list[str]:
         """
