@@ -175,6 +175,160 @@ TOOLS = [
             "required": ["entity_name", "note_text"],
         },
     ),
+    Tool(
+        name="query_data",
+        description=(
+            "Query the knowledge graph and get structured results (entities, "
+            "relationships, chunks, references) without LLM text generation. "
+            "Use for programmatic analysis of what the graph contains about a topic."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Query text to search for in the knowledge graph",
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Query mode",
+                    "enum": ["naive", "local", "global", "hybrid", "mix"],
+                    "default": "hybrid",
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
+        name="get_codebase_stats",
+        description=(
+            "Get summary statistics about the codebase: total entity and relation "
+            "counts, counts broken down by type (CLASS, METHOD, etc.), and number "
+            "of unique source files indexed. Useful for initial orientation."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    Tool(
+        name="get_entity_neighbors",
+        description=(
+            "Get all entities directly connected to a given entity (1-hop neighbors) "
+            "plus all incoming and outgoing relations. Useful for understanding "
+            "what surrounds a class, method, or concept in the dependency graph."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "entity_name": {
+                    "type": "string",
+                    "description": "Name of the entity to find neighbors for",
+                }
+            },
+            "required": ["entity_name"],
+        },
+    ),
+    Tool(
+        name="get_entity_details",
+        description=(
+            "Get full details of a specific entity including all its relations "
+            "(incoming and outgoing). Returns the entity description, properties, "
+            "and every relationship it participates in."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "entity_name": {
+                    "type": "string",
+                    "description": "Name of the entity to get details for",
+                }
+            },
+            "required": ["entity_name"],
+        },
+    ),
+    Tool(
+        name="list_entities_by_type",
+        description=(
+            "List all entities of a specific type with pagination. "
+            "Entity types include: CLASS, METHOD, PROPERTY (from C# analyser). "
+            "Returns entity names, descriptions, and file paths."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "description": "Entity type to list (e.g. CLASS, METHOD, PROPERTY)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum entities to return",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 500,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Offset for pagination",
+                    "default": 0,
+                    "minimum": 0,
+                },
+            },
+            "required": ["entity_type"],
+        },
+    ),
+    Tool(
+        name="get_entities_in_file",
+        description=(
+            "Get all entities (classes, methods, properties) that come from a "
+            "specific source file. Useful for answering 'what is in this file?' "
+            "or 'show me all classes defined in Program.cs'."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": (
+                        "File path to get entities for "
+                        "(e.g. 'src/Program.cs' or 'C:/project/Program.cs')"
+                    ),
+                }
+            },
+            "required": ["file_path"],
+        },
+    ),
+    Tool(
+        name="search_entities",
+        description=(
+            "Search for entities by regex pattern matching on their names and "
+            "descriptions. Returns all matching entities with their types and file "
+            "locations. Useful for 'find all classes with 'Service' in the name'."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Regex pattern for entity name/description search",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "description": "Optional entity type filter (e.g. CLASS, METHOD)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results to return",
+                    "default": 50,
+                    "minimum": 1,
+                    "maximum": 200,
+                },
+            },
+            "required": ["pattern"],
+        },
+    ),
 ]
 
 
@@ -242,6 +396,42 @@ async def _dispatch_tool(tool_name: str, args: dict[str, Any]) -> Any:
 
     elif tool_name == "add_note_to_entity":
         return await _handle_add_note(client, args["entity_name"], args["note_text"])
+
+    elif tool_name == "query_data":
+        query = args["query"]
+        mode = args.get("mode", "hybrid")
+        return await client.query_data(query, mode=mode)
+
+    elif tool_name == "get_codebase_stats":
+        return await client.get_codebase_stats()
+
+    elif tool_name == "get_entity_neighbors":
+        entity_name = args["entity_name"]
+        return await client.get_entity_neighbors(entity_name)
+
+    elif tool_name == "get_entity_details":
+        entity_name = args["entity_name"]
+        return await client.get_entity_details(entity_name)
+
+    elif tool_name == "list_entities_by_type":
+        entity_type = args["entity_type"]
+        limit = args.get("limit", 100)
+        offset = args.get("offset", 0)
+        return await client.list_entities_by_type(
+            entity_type, limit=limit, offset=offset
+        )
+
+    elif tool_name == "get_entities_in_file":
+        file_path = args["file_path"]
+        return await client.get_entities_in_file(file_path)
+
+    elif tool_name == "search_entities":
+        pattern = args["pattern"]
+        entity_type = args.get("entity_type")
+        limit = args.get("limit", 50)
+        return await client.search_entities(
+            pattern, entity_type=entity_type, limit=limit
+        )
 
     else:
         raise LightRAGAPIError(f"Unknown tool: {tool_name}")

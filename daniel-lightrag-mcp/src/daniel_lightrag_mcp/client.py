@@ -4,29 +4,40 @@ LightRAG API client for MCP server integration.
 
 import json
 import logging
+import re
 from typing import Any, Optional
 
 import httpx
 
 from .analyser_runner import run_analysis
 from .models import (
+    CodebaseStatsResponse,
     DocumentInfo,
     EntityCreateRequest,
     EntityCreateResponse,
+    EntityDetailsResponse,
     EntityExistsResponse,
+    EntityInfo,
+    EntityNeighborsResponse,
     EntityUpdateRequest,
     EntityUpdateResponse,
+    GetEntitiesInFileResponse,
     GraphResponse,
     InsertResponse,
     InsertTextRequest,
     LabelsResponse,
+    ListEntitiesResponse,
+    QueryDataResponse,
     QueryRequest,
     QueryResponse,
+    RelatedFileInfo,
     RelatedFilesResponse,
     RelationCreateRequest,
     RelationCreateResponse,
+    RelationInfo,
     RelationUpdateRequest,
     RelationUpdateResponse,
+    SearchEntitiesResponse,
 )
 
 
@@ -297,22 +308,60 @@ class LightRAGClient:
     async def get_related_files(
         self, query: str, mode: str = "hybrid", limit: int = 10
     ) -> RelatedFilesResponse:
-        """Get files related to a query or keywords."""
-        query_result = await self.query_text(query, mode=mode)
-        related_files = []
-        if hasattr(query_result, "results") and query_result.results:
-            for r in query_result.results[:limit]:
-                related_files.append(
-                    DocumentInfo(
-                        id=r.document_id,
-                        title=r.document_id,
-                        snippet=r.snippet,
+        """Get files related to a query or keywords.
+
+        Uses /query/data endpoint which returns structured results with
+        entities, relationships, chunks, and references (file paths).
+        """
+        request_data = QueryRequest(query=query, mode=mode, only_need_context=True)
+        response_data = await self._make_request(
+            "POST", "/query/data", request_data.model_dump()
+        )
+        result = QueryDataResponse(**response_data)
+
+        files: list[RelatedFileInfo] = []
+        seen_paths: set[str] = set()
+
+        data = result.data
+        if isinstance(data, dict):
+            for entity in data.get("entities", []):
+                fp = entity.get("properties", {}).get("file_path")
+                if fp and fp not in seen_paths:
+                    seen_paths.add(fp)
+                    files.append(
+                        RelatedFileInfo(
+                            file_path=fp,
+                            snippet=entity.get("properties", {}).get("description", ""),
+                        )
                     )
-                )
+                    if len(files) >= limit:
+                        break
+
+            if len(files) < limit:
+                for ref in data.get("references", []):
+                    fp = ref.get("file_path")
+                    if fp and fp not in seen_paths:
+                        seen_paths.add(fp)
+                        files.append(
+                            RelatedFileInfo(
+                                file_path=fp,
+                                chunk_id=ref.get("chunk_id"),
+                            )
+                        )
+                        if len(files) >= limit:
+                            break
+
         return RelatedFilesResponse(
-            related_files=related_files,
+            related_files=[
+                DocumentInfo(
+                    id=f.file_path,
+                    title=f.file_path.split("/")[-1].split("\\")[-1],
+                    snippet=f.snippet or "",
+                )
+                for f in files
+            ],
             query=query,
-            total_found=len(related_files),
+            total_found=len(files),
         )
 
     # --- C# Analyser (keep for project analysis) ---
@@ -354,9 +403,7 @@ class LightRAGClient:
                 if hasattr(result, "track_id") and result.track_id:
                     track_ids.append(result.track_id)
                 tid = getattr(result, "track_id", "N/A")
-                self.logger.info(
-                    f"Ingested {filename} -> track_id={tid}"
-                )
+                self.logger.info(f"Ingested {filename} -> track_id={tid}")
             except Exception as e:
                 msg = f"Failed to ingest {filename}: {e}"
                 self.logger.error(msg)
@@ -374,3 +421,209 @@ class LightRAGClient:
             "This may take a few minutes depending on LLM speed.",
         )
         return summary_parts
+
+    # --- Phase 22: Enhanced exploration tools ---
+
+    async def query_data(
+        self, query: str, mode: str = "hybrid", only_need_context: bool = True
+    ) -> QueryDataResponse:
+        """Structured query using /query/data endpoint.
+
+        Returns entities, relationships, chunks, and references without LLM text.
+        """
+        request_data = QueryRequest(
+            query=query, mode=mode, only_need_context=only_need_context
+        )
+        response_data = await self._make_request(
+            "POST", "/query/data", request_data.model_dump()
+        )
+        return QueryDataResponse(**response_data)
+
+    async def get_codebase_stats(self) -> CodebaseStatsResponse:
+        """Get statistics about the codebase from the knowledge graph."""
+        labels_resp = await self.get_graph_labels()
+        entity_types = labels_resp.entity_labels or []
+        relation_types = labels_resp.relation_labels or []
+
+        entity_counts: dict[str, int] = {}
+        relation_counts: dict[str, int] = {}
+        all_files: set[str] = set()
+
+        for etype in entity_types:
+            try:
+                graph = await self.get_knowledge_graph(label=etype)
+                entity_counts[etype] = len(graph.nodes)
+                for node in graph.nodes:
+                    fp = node.get("properties", {}).get("file_path")
+                    if fp:
+                        all_files.add(fp)
+            except Exception:
+                entity_counts[etype] = 0
+
+        for rtype in relation_types:
+            try:
+                graph = await self.get_knowledge_graph(label=rtype)
+                relation_counts[rtype] = len(graph.edges)
+            except Exception:
+                relation_counts[rtype] = 0
+
+        total_entities = sum(entity_counts.values())
+        total_relations = sum(relation_counts.values())
+
+        return CodebaseStatsResponse(
+            total_entities=total_entities,
+            total_relations=total_relations,
+            entity_counts_by_type=entity_counts,
+            relation_counts_by_type=relation_counts,
+            unique_files=len(all_files),
+            entity_types=entity_types,
+            relation_types=relation_types,
+        )
+
+    async def get_entity_neighbors(self, entity_name: str) -> EntityNeighborsResponse:
+        """Get all entities directly connected to an entity (1-hop neighbors)."""
+        graph = await self.get_knowledge_graph(label="*")
+        neighbors: list[EntityInfo] = []
+        incoming: list[RelationInfo] = []
+        outgoing: list[RelationInfo] = []
+
+        for edge in graph.edges:
+            src = edge.get("src_id") or edge.get("source_entity", "")
+            tgt = edge.get("tgt_id") or edge.get("target_entity", "")
+
+            if src == entity_name:
+                outgoing.append(RelationInfo(**edge))
+                for node in graph.nodes:
+                    if node.get("id") == tgt or node.get("name") == tgt:
+                        neighbors.append(EntityInfo(**node))
+                        break
+            elif tgt == entity_name:
+                incoming.append(RelationInfo(**edge))
+                for node in graph.nodes:
+                    if node.get("id") == src or node.get("name") == src:
+                        neighbors.append(EntityInfo(**node))
+                        break
+
+        unique_neighbors: dict[str, EntityInfo] = {}
+        for n in neighbors:
+            unique_neighbors[n.name] = n
+
+        return EntityNeighborsResponse(
+            entity_name=entity_name,
+            neighbors=list(unique_neighbors.values()),
+            incoming_relations=incoming,
+            outgoing_relations=outgoing,
+            total_neighbors=len(unique_neighbors),
+            total_incoming=len(incoming),
+            total_outgoing=len(outgoing),
+        )
+
+    async def get_entity_details(self, entity_name: str) -> EntityDetailsResponse:
+        """Get full details of an entity including all its relations."""
+        graph = await self.get_knowledge_graph(label="*")
+        entity_info: Optional[EntityInfo] = None
+
+        for node in graph.nodes:
+            node_id = node.get("id") or node.get("name", "")
+            if node_id == entity_name:
+                entity_info = EntityInfo(**node)
+                break
+
+        if entity_info is None:
+            raise LightRAGAPIError(f"Entity '{entity_name}' not found")
+
+        incoming: list[RelationInfo] = []
+        outgoing: list[RelationInfo] = []
+        all_relations: list[RelationInfo] = []
+
+        for edge in graph.edges:
+            src = edge.get("src_id") or edge.get("source_entity", "")
+            tgt = edge.get("tgt_id") or edge.get("target_entity", "")
+            rel = RelationInfo(**edge)
+
+            if src == entity_name or tgt == entity_name:
+                all_relations.append(rel)
+            if tgt == entity_name:
+                incoming.append(rel)
+            if src == entity_name:
+                outgoing.append(rel)
+
+        return EntityDetailsResponse(
+            entity=entity_info,
+            relations=all_relations,
+            incoming_relations=incoming,
+            outgoing_relations=outgoing,
+        )
+
+    async def list_entities_by_type(
+        self, entity_type: str, limit: int = 100, offset: int = 0
+    ) -> ListEntitiesResponse:
+        """List entities of a specific type with pagination."""
+        graph = await self.get_knowledge_graph(label=entity_type)
+        entities: list[EntityInfo] = []
+
+        for node in graph.nodes:
+            node_type = node.get("properties", {}).get("entity_type", "")
+            if node_type == entity_type or node_type == entity_type.upper():
+                entities.append(EntityInfo(**node))
+
+        total = len(entities)
+        paginated = entities[offset : offset + limit]
+
+        return ListEntitiesResponse(
+            entity_type=entity_type,
+            entities=paginated,
+            total=total,
+            returned=len(paginated),
+        )
+
+    async def get_entities_in_file(self, file_path: str) -> GetEntitiesInFileResponse:
+        """Get all entities from a specific file path."""
+        graph = await self.get_knowledge_graph(label="*")
+        entities: list[EntityInfo] = []
+        fp_lower = file_path.lower().replace("\\", "/")
+
+        for node in graph.nodes:
+            node_fp = node.get("properties", {}).get("file_path", "")
+            if node_fp:
+                node_fp_clean = node_fp.lower().replace("\\", "/")
+                if node_fp_clean == fp_lower:
+                    entities.append(EntityInfo(**node))
+
+        return GetEntitiesInFileResponse(
+            file_path=file_path,
+            entities=entities,
+            total=len(entities),
+        )
+
+    async def search_entities(
+        self, pattern: str, entity_type: Optional[str] = None, limit: int = 50
+    ) -> SearchEntitiesResponse:
+        """Search entities by regex pattern on names and descriptions."""
+        try:
+            compiled = re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            raise LightRAGValidationError(f"Invalid regex pattern: {pattern}")
+
+        label = entity_type if entity_type else "*"
+        graph = await self.get_knowledge_graph(label=label)
+
+        matches: list[EntityInfo] = []
+        for node in graph.nodes:
+            name = node.get("name", "")
+            desc = node.get("properties", {}).get("description", "")
+
+            if compiled.search(name) or compiled.search(desc):
+                if entity_type:
+                    node_type = node.get("properties", {}).get("entity_type", "")
+                    if node_type.upper() != entity_type.upper():
+                        continue
+                matches.append(EntityInfo(**node))
+                if len(matches) >= limit:
+                    break
+
+        return SearchEntitiesResponse(
+            pattern=pattern,
+            matches=matches,
+            total=len(matches),
+        )

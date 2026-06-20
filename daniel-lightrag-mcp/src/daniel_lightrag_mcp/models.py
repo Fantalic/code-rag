@@ -599,3 +599,141 @@ class DocsStatusesResponse(BaseModel):
 
     statuses: list[DocStatusResponse] = Field(default_factory=list)
     total: int = Field(0, ge=0)
+
+
+# Phase 22: MCP Tool Improvement Models
+# ---------------------------------------------------------------------------
+
+
+class QueryDataResponse(BaseModel):
+    """Response model for /query/data structured queries."""
+
+    status: str = Field(..., description="Query execution status")
+    message: str = Field(default="", description="Status message")
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Query result data: entities, relationships, chunks, references",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Query metadata: mode, keywords, tokens"
+    )
+
+
+class EntityNeighborsResponse(BaseModel):
+    """Response model for entity neighbor queries."""
+
+    entity_name: str = Field(..., description="Source entity name")
+    neighbors: list[EntityInfo] = Field(
+        default_factory=list, description="Directly connected entities"
+    )
+    incoming_relations: list[RelationInfo] = Field(
+        default_factory=list, description="Relations pointing TO this entity"
+    )
+    outgoing_relations: list[RelationInfo] = Field(
+        default_factory=list, description="Relations from this entity to others"
+    )
+    total_neighbors: int = Field(0, description="Total neighbor count")
+    total_incoming: int = Field(0, description="Total incoming relation count")
+    total_outgoing: int = Field(0, description="Total outgoing relation count")
+
+
+class EntityDetailsResponse(BaseModel):
+    """Response model for full entity details with relations."""
+
+    entity: EntityInfo = Field(..., description="Entity information")
+    relations: list[RelationInfo] = Field(
+        default_factory=list, description="All relations involving this entity"
+    )
+    incoming_relations: list[RelationInfo] = Field(
+        default_factory=list, description="Relations pointing TO this entity"
+    )
+    outgoing_relations: list[RelationInfo] = Field(
+        default_factory=list, description="Relations from this entity"
+    )
+
+
+class CodebaseStatsResponse(BaseModel):
+    """Response model for codebase statistics."""
+
+    total_entities: int = Field(0, description="Total entity count")
+    total_relations: int = Field(0, description="Total relation count")
+    entity_counts_by_type: dict[str, int] = Field(
+        default_factory=dict, description="Entity count per type"
+    )
+    relation_counts_by_type: dict[str, int] = Field(
+        default_factory=dict, description="Relation count per type"
+    )
+    unique_files: int = Field(0, description="Number of unique source files")
+    entity_types: list[str] = Field(
+        default_factory=list, description="All entity types present"
+    )
+    relation_types: list[str] = Field(
+        default_factory=list, description="All relation types present"
+    )
+
+
+class ListEntitiesRequest(BaseModel):
+    """Request model for listing entities by type."""
+
+    entity_type: str = Field(
+        ..., description="Entity type to list (e.g. CLASS, METHOD)"
+    )
+    limit: int = Field(100, ge=1, le=500, description="Maximum entities to return")
+    offset: int = Field(0, ge=0, description="Offset for pagination")
+
+
+class ListEntitiesResponse(BaseModel):
+    """Response model for entity listing."""
+
+    entity_type: str = Field(..., description="Entity type requested")
+    entities: list[EntityInfo] = Field(default_factory=list)
+    total: int = Field(0, description="Total entities of this type")
+    returned: int = Field(0, description="Entities returned in this response")
+
+
+class SearchEntitiesRequest(BaseModel):
+    """Request model for searching entities by pattern."""
+
+    pattern: str = Field(..., description="Regex pattern to match against entity names")
+    entity_type: Optional[str] = Field(None, description="Optional entity type filter")
+    limit: int = Field(50, ge=1, le=200, description="Maximum results to return")
+
+
+class SearchEntitiesResponse(BaseModel):
+    """Response model for entity search."""
+
+    pattern: str = Field(..., description="Search pattern used")
+    matches: list[EntityInfo] = Field(default_factory=list)
+    total: int = Field(0, description="Total matches found")
+
+
+class GetEntitiesInFileRequest(BaseModel):
+    """Request model for getting entities from a specific file."""
+
+    file_path: str = Field(..., description="File path to filter by")
+    entity_type: Optional[str] = Field(None, description="Optional entity type filter")
+
+
+class GetEntitiesInFileResponse(BaseModel):
+    """Response model for entities in a file."""
+
+    file_path: str = Field(..., description="File path queried")
+    entities: list[EntityInfo] = Field(default_factory=list)
+    total: int = Field(0, description="Total entities from this file")
+
+
+class RelatedFileInfo(BaseModel):
+    """File info for related files responses."""
+
+    file_path: str = Field(..., description="File path")
+    chunk_id: Optional[str] = None
+    snippet: Optional[str] = None
+    score: Optional[float] = None
+
+
+class RelatedFilesResponseV2(BaseModel):
+    """Response model for get_related_files (fixed to use /query/data)."""
+
+    files: list[RelatedFileInfo] = Field(default_factory=list)
+    query: str = Field(..., description="Original query")
+    total_found: int = Field(0, description="Total files found")
