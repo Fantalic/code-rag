@@ -313,4 +313,14 @@ Note: `search_entities` had a deeper issue — it used `get_knowledge_graph(labe
 
 ---
 
-# Phase 27 — Verify All MCP Tools ✅ PENDING
+# Phase 27 — Verify All MCP Tools ✅ COMPLETE
+
+**All 13 MCP tools verified working (June 21, 2026):**
+- Docker image rebuilt successfully
+- Services healthy: LightRAG (:9621) and MCP (:9622)
+- Graph: 43 entities, 46 relations after `coderag scan`
+- All broken/partial tools fixed and verified
+
+---
+
+# Phase 28 — Python Analyser 🔧 PENDING

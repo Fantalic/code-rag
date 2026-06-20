@@ -338,10 +338,19 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 | 6 | `get_entity_neighbors` - Safe node ID resolution + entity construction | `client.py:470-540` |
 | 7 | `add_note_to_entity` - Check both 'created' flag AND message | `server.py:436-480` |
 
-### Phase 27 — Verify All MCP Tools
-- Rebuild Docker image with fixed Python MCP
-- Run full tool test against test-csharp-project
-- Verify all 13 tools work correctly
+### Phase 27 — Verify All MCP Tools ✅ COMPLETE
+
+**Verified (June 21, 2026):**
+- Docker image rebuilt successfully
+- LightRAG and MCP containers healthy
+- `coderag scan` populated graph: 43 entities, 46 relations
+- All 6 previously broken/partial tools now work:
+  - `list_entities_by_type("CLASS")` → returns 8 entities (was empty)
+  - `get_entity_details("Calculator")` → returns entity with 16 relations (was ValidationError)
+  - `search_entities("Calc")` → returns 10 matches (was ValidationError)
+  - `get_entities_in_file("TestLib/Calculator.cs")` → returns 14 entities (was ValidationError)
+  - `get_entity_neighbors("Calculator")` → returns 16 neighbors (was empty)
+  - `add_note_to_entity` → returns success (was reporting error)
 
 ### Phase 28 — Python Analyser
 - Add Python analyser (AST-based)

@@ -1,7 +1,8 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 27** — Verify All MCP Tools & Rebuild Docker 🔧 IN PROGRESS
+- 🔥 **Phase 28** — Python Analyser 🔧 IN PROGRESS
+- **Phase 27** — Verify All MCP Tools ✅ COMPLETE
 - **Phase 26** — Fix Broken MCP Tools ✅ COMPLETE
 - **Phase 25** — Architecture Cleanup & MCP Fixes ✅ COMPLETE
 - **Phase 24** — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
@@ -73,6 +74,19 @@ coderag webui         → open http://localhost:9621
 - `list_entities_by_type` - fixed case-insensitive entity_type comparison
 - `get_entity_neighbors` - fixed edge source/target comparison, safe node lookup
 - `add_note_to_entity` - fixed success check to check both `created` flag AND message
+
+### Phase 27 — Verify All MCP Tools ✅ COMPLETE
+
+**Verified all 13 MCP tools work:**
+- Docker rebuilt with fixed Python MCP
+- Graph populated via `coderag scan`: 43 entities, 46 relations
+- All 6 previously broken tools now working
+- `list_entities_by_type("CLASS")` → 8 entities
+- `get_entity_details("Calculator")` → entity + 16 relations
+- `search_entities("Calc")` → 10 matches
+- `get_entities_in_file` → works with stored paths
+- `get_entity_neighbors` → 16 neighbors for Calculator
+- `add_note_to_entity` → success status
 
 ### Phase 25 — Architecture Cleanup & MCP Fixes ✅ COMPLETE
 
