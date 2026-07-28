@@ -75,33 +75,38 @@ Incremental changes (git-based or filesystem)
 ## Installation
 
 ### Prerequisites
-- Python 3.10+ with venv
+- [Go](https://go.dev/dl/) 1.25+ (for building the `coderag` CLI)
+- [Docker](https://docs.docker.com/engine/install/) (for LightRAG API + MCP server containers)
 - [Ollama](https://ollama.com/) running locally — **the only supported LLM/embedding backend**
-  - Required models: `mistral-nemo:latest` (or any code-capable model), `bge-m3:latest`
+  - Required models: `qwen3-coder:480b-cloud` (or any code-capable model), `bge-m3:latest`
 
-### Quick Setup
+### Automatic Setup
 
-```powershell
+```bash
 # Clone and setup
 git clone https://github.com/coderag/code-rag.git
 cd code-rag
 
+# Linux / macOS
+bash scripts/setup.sh
+
+# Windows (PowerShell)
+.\scripts\setup.ps1
+```
+
+The setup script installs any missing prerequisites (Go, Docker, Ollama), pulls Ollama models, builds the `coderag` CLI and C# analyser, and pre-builds Docker images.
+
+### Manual Setup
+
+```bash
 # Build coderag CLI
 go build -o coderag ./cmd/coderag
 
-# Start everything (Docker + file watcher)
-.\coderag start .\myproject
-```
+# Build C# analyser
+cd analysers/csharp && go build -o csharp_analyser . && cd ../..
 
-### Or step by step
-
-```powershell
-# Terminal 1: Docker services
-docker compose up lightrag mcp -d
-
-# Terminal 2: Watch + scan a project
-.\coderag watch .\myproject
-.\coderag scan .\myproject
+# Start everything
+./coderag start ./myproject
 ```
 
 ## Usage

@@ -1,5 +1,7 @@
 package diff
 
+import "strings"
+
 type ActionKind string
 
 const (
@@ -22,17 +24,18 @@ func NewEntityAction(kind ActionKind, entityName string, data map[string]any) *E
 }
 
 type RelationAction struct {
-	Kind   ActionKind
-	Source string
-	Target string
-	Data   map[string]any
+	Kind     ActionKind
+	Source   string
+	Target   string
+	Keywords string
+	Data     map[string]any
 }
 
-func NewRelationAction(kind ActionKind, source, target string, data map[string]any) *RelationAction {
+func NewRelationAction(kind ActionKind, source, target, keywords string, data map[string]any) *RelationAction {
 	if data == nil {
 		data = map[string]any{}
 	}
-	return &RelationAction{Kind: kind, Source: source, Target: target, Data: data}
+	return &RelationAction{Kind: kind, Source: source, Target: target, Keywords: keywords, Data: data}
 }
 
 var ignoredKeys = map[string]bool{
@@ -123,19 +126,19 @@ func DiffRelations(oldRelations, newRelations map[string]map[string]any) []*Rela
 	newKeys := keySet(newRelations)
 
 	for key := range mapDiff(oldKeys, newKeys).deleted {
-		src, tgt := splitKey(key)
-		actions = append(actions, NewRelationAction(ActionDelete, src, tgt, nil))
+		src, tgt, kw := splitKey(key)
+		actions = append(actions, NewRelationAction(ActionDelete, src, tgt, kw, nil))
 	}
 
 	for key := range mapDiff(oldKeys, newKeys).added {
-		src, tgt := splitKey(key)
-		actions = append(actions, NewRelationAction(ActionCreate, src, tgt, newRelations[key]))
+		src, tgt, kw := splitKey(key)
+		actions = append(actions, NewRelationAction(ActionCreate, src, tgt, kw, newRelations[key]))
 	}
 
 	for key := range mapIntersection(oldKeys, newKeys) {
-		src, tgt := splitKey(key)
+		src, tgt, kw := splitKey(key)
 		if dataChanged(oldRelations[key], newRelations[key]) {
-			actions = append(actions, NewRelationAction(ActionUpdate, src, tgt, newRelations[key]))
+			actions = append(actions, NewRelationAction(ActionUpdate, src, tgt, kw, newRelations[key]))
 		}
 	}
 
@@ -183,22 +186,17 @@ func keySet(m map[string]map[string]any) map[string]bool {
 	return s
 }
 
-func splitKey(key string) (string, string) {
-	for i := 0; i < len(key); i++ {
-		if key[i] == '|' {
-			return key[:i], key[i+1:]
-		}
+func splitKey(key string) (string, string, string) {
+	parts := strings.SplitN(key, "|", 3)
+	if len(parts) < 2 {
+		return "", "", ""
 	}
-	return "", ""
+	if len(parts) == 2 {
+		return parts[0], parts[1], ""
+	}
+	return parts[0], parts[1], parts[2]
 }
 
-func makeKey(src, tgt string) string {
-	return src + "|" + tgt
-}
-
-func RelationKey(src, tgt string) string {
-	if src > tgt {
-		src, tgt = tgt, src
-	}
-	return makeKey(src, tgt)
+func RelationKey(src, tgt, kw string) string {
+	return src + "|" + tgt + "|" + kw
 }

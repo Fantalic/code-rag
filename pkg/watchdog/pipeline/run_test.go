@@ -35,7 +35,7 @@ func TestRunCSharpAnalyser(t *testing.T) {
 		t.Skip("test solution not found")
 	}
 
-	results, err := RunCSharpAnalyser(sln)
+	results, err := RunCSharpAnalyser(sln, "")
 	if err != nil {
 		t.Fatalf("RunCSharpAnalyser: %v", err)
 	}

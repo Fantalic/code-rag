@@ -18,13 +18,21 @@ var (
 	thisCallRegex    = regexp.MustCompile(`(?:this|base)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	nsRegex          = regexp.MustCompile(`^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)`)
 	usingRegex       = regexp.MustCompile(`^\s*using\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;`)
-	varDeclRegex     = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|readonly|new|volatile|async)\s+(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=;]`)
+	varDeclRegex     = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|readonly|new|volatile|async)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=;]`)
 
 	reAttr       = regexp.MustCompile(`^\s*\[`)
 	reComment    = regexp.MustCompile(`^\s*//`)
 	reRegion     = regexp.MustCompile(`^\s*#`)
 	reInheritSep = regexp.MustCompile(`\s*,\s*`)
 )
+
+type classContext struct {
+	name       string
+	depth      int
+	baseType   string
+	interfaces []string
+	lineNo     int
+}
 
 type Parser struct {
 	sourcePath string
@@ -41,12 +49,7 @@ type Parser struct {
 	usings    []string
 
 	braceDepth int
-	inClass    bool
-	classDepth int
-	className  string
-	baseType   string
-	interfaces []string
-	classLine  int
+	classStack []classContext
 
 	inMethod    bool
 	methodName  string
@@ -55,6 +58,13 @@ type Parser struct {
 	methodBody  string
 
 	scopeVars []map[string]string
+}
+
+func (p *Parser) currentClass() string {
+	if len(p.classStack) == 0 {
+		return ""
+	}
+	return p.classStack[len(p.classStack)-1].name
 }
 
 func ParseFile(filePath string) (*FileResult, error) {
@@ -103,7 +113,7 @@ func (p *Parser) parse() {
 			continue
 		}
 
-		if !p.inClass && !p.inMethod {
+		if !p.inMethod {
 			if m := classRegex.FindStringSubmatch(trimmed); m != nil {
 				p.handleClassDecl(m, i, trimmed)
 				continue
@@ -114,7 +124,7 @@ func (p *Parser) parse() {
 			}
 		}
 
-		if p.inClass && !p.inMethod {
+		if len(p.classStack) > 0 && !p.inMethod {
 			if m := methodRegex.FindStringSubmatch(trimmed); m != nil && p.looksLikeMethod(trimmed) {
 				p.handleMethodDecl(m, i)
 				continue
@@ -125,6 +135,11 @@ func (p *Parser) parse() {
 			}
 			if m := autoPropRegex.FindStringSubmatch(trimmed); m != nil {
 				p.handlePropDecl(m, i)
+				continue
+			}
+			if v := varDeclRegex.FindStringSubmatch(trimmed); v != nil && v[1] != "" && v[2] != "" {
+				// class-level field -> treat as property
+				p.handlePropDecl(v, i)
 				continue
 			}
 		}
@@ -141,10 +156,6 @@ func (p *Parser) parse() {
 }
 
 func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
-	if p.inClass {
-		return
-	}
-
 	kind := m[1]
 	name := m[2]
 	baseClause := ""
@@ -152,12 +163,19 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 		baseClause = strings.TrimSpace(m[3])
 	}
 
-	p.className = name
-	p.baseType = ""
-	p.interfaces = nil
-	p.classLine = lineNo
-	p.inClass = true
-	p.classDepth = p.braceDepth
+	qualifiedClassName := name
+	if len(p.classStack) >= 1 {
+		parent := p.classStack[len(p.classStack)-1].name
+		qualifiedClassName = parent + "." + name
+	}
+
+	ctx := classContext{
+		name:       qualifiedClassName,
+		depth:      p.braceDepth,
+		baseType:   "",
+		interfaces: nil,
+		lineNo:     lineNo,
+	}
 
 	if baseClause != "" {
 		parts := reInheritSep.Split(baseClause, -1)
@@ -167,15 +185,17 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 			if strings.HasPrefix(part, "I") && part != "" && part[0] >= 'A' && part[0] <= 'Z' {
 				rPart := "I" + part
 				if !p.isInImports(part) && part != name {
-					p.interfaces = append(p.interfaces, rPart)
+					ctx.interfaces = append(ctx.interfaces, rPart)
 					p.imports = append(p.imports, rPart)
 				}
 			} else if part != "" && part != name {
-				p.baseType = part
+				ctx.baseType = part
 				p.imports = append(p.imports, part)
 			}
 		}
 	}
+
+	p.classStack = append(p.classStack, ctx)
 
 	entityType := EntityClass
 	switch kind {
@@ -187,14 +207,32 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 		entityType = EntityEnum
 	}
 
+	entityName := name
+	if len(p.classStack) >= 2 {
+		parent := p.classStack[len(p.classStack)-2].name
+		entityName = parent + "." + name
+	}
+
 	p.addEntity(Entity{
-		Name:        name,
+		Name:        entityName,
 		Type:        entityType,
 		Description: fmt.Sprintf("%s %s", kind, name),
 		FilePath:    p.sourcePath,
 		LineNo:      lineNo + 1,
 	})
-	p.exports = append(p.exports, name)
+	p.exports = append(p.exports, entityName)
+
+	// Add relation from parent class to nested type
+	if len(p.classStack) >= 2 {
+		parent := p.classStack[len(p.classStack)-2].name
+		p.addRelation(Relation{
+			Source:      parent,
+			Target:      entityName,
+			Description: fmt.Sprintf("%s has nested type %s", parent, name),
+			Keywords:    "contains, nested",
+			Weight:      0.7,
+		})
+	}
 
 	p.countBraces(line)
 }
@@ -211,21 +249,37 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 	methodName := strings.TrimSpace(m[2])
 	params := strings.TrimSpace(m[3])
 
-	if methodName == "" || methodName == p.className {
+	cls := p.currentClass()
+	if cls == "" {
 		return
 	}
 
-	p.methodName = methodName
+	if methodName == "" {
+		return
+	}
+
+	// Skip constructors (method name matches unqualified class name)
+	unqualifiedCls := cls
+	if idx := strings.LastIndex(cls, "."); idx >= 0 {
+		unqualifiedCls = cls[idx+1:]
+	}
+	if methodName == unqualifiedCls {
+		return
+	}
+
+	qualifiedName := cls + "." + methodName
+
+	p.methodName = qualifiedName
 	p.methodLine = lineNo
 	p.methodBody = ""
 
-	desc := fmt.Sprintf("%s.%s()", p.className, methodName)
+	desc := fmt.Sprintf("%s.%s()", cls, methodName)
 	if returnType != "" {
-		desc = fmt.Sprintf("%s.%s() -> RETURNS -> %s", p.className, methodName, returnType)
+		desc = fmt.Sprintf("%s.%s() -> RETURNS -> %s", cls, methodName, returnType)
 	}
 
 	p.addEntity(Entity{
-		Name:        methodName,
+		Name:        qualifiedName,
 		Type:        EntityMethod,
 		Description: desc,
 		FilePath:    p.sourcePath,
@@ -233,15 +287,14 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 	})
 
 	p.addRelation(Relation{
-		Source:      p.className,
-		Target:      methodName,
-		Description: fmt.Sprintf("%s.%s()", p.className, methodName),
+		Source:      cls,
+		Target:      qualifiedName,
+		Description: fmt.Sprintf("%s.%s()", cls, methodName),
 		Keywords:    "method, defines",
 		Weight:      1.0,
 	})
 
-	relMethodName := fmt.Sprintf("%s.%s", p.className, methodName)
-	p.exports = append(p.exports, relMethodName)
+	p.exports = append(p.exports, qualifiedName)
 
 	isExpressionBody := strings.Contains(p.lines[lineNo], "=>")
 
@@ -278,18 +331,21 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 func (p *Parser) handlePropDecl(m []string, lineNo int) {
 	propType := strings.TrimSpace(m[1])
 	propName := strings.TrimSpace(m[2])
+	cls := p.currentClass()
 
-	if propName == "" || p.className == "" {
+	if propName == "" || cls == "" {
 		return
 	}
 
-	desc := fmt.Sprintf("%s.%s", p.className, propName)
+	qualifiedName := cls + "." + propName
+
+	desc := fmt.Sprintf("%s.%s", cls, propName)
 	if propType != "" {
-		desc = fmt.Sprintf("%s.%s -> RETURNS -> %s", p.className, propName, propType)
+		desc = fmt.Sprintf("%s.%s -> RETURNS -> %s", cls, propName, propType)
 	}
 
 	p.addEntity(Entity{
-		Name:        propName,
+		Name:        qualifiedName,
 		Type:        EntityProperty,
 		Description: desc,
 		FilePath:    p.sourcePath,
@@ -297,9 +353,9 @@ func (p *Parser) handlePropDecl(m []string, lineNo int) {
 	})
 
 	p.addRelation(Relation{
-		Source:      p.className,
-		Target:      propName,
-		Description: fmt.Sprintf("%s.%s", p.className, propName),
+		Source:      cls,
+		Target:      qualifiedName,
+		Description: fmt.Sprintf("%s.%s", cls, propName),
 		Keywords:    "property, has",
 		Weight:      0.8,
 	})
@@ -314,13 +370,16 @@ func (p *Parser) extractCalls(line string, lineNo int) {
 		return
 	}
 
+	currentCls := p.currentClass()
+
 	if tm := thisCallRegex.FindStringSubmatch(line); tm != nil {
 		callee := tm[1]
+		qualifiedCallee := currentCls + "." + callee
 		p.calls = append(p.calls, CallSite{
 			CallerFile:   p.sourcePath,
 			CallerMethod: p.methodName,
-			CalleeName:   callee,
-			CalleeClass:  p.className,
+			CalleeName:   qualifiedCallee,
+			CalleeClass:  currentCls,
 			LineNo:       lineNo + 1,
 		})
 	}
@@ -346,10 +405,15 @@ func (p *Parser) extractCalls(line string, lineNo int) {
 			}
 		}
 
+		qualifiedCallee := callee
+		if calleeClass != "" {
+			qualifiedCallee = calleeClass + "." + callee
+		}
+
 		p.calls = append(p.calls, CallSite{
 			CallerFile:   p.sourcePath,
 			CallerMethod: p.methodName,
-			CalleeName:   callee,
+			CalleeName:   qualifiedCallee,
 			CalleeClass:  calleeClass,
 			LineNo:       lineNo + 1,
 		})
@@ -376,11 +440,8 @@ func (p *Parser) countBraces(line string) {
 			if p.braceDepth < 0 {
 				p.braceDepth = 0
 			}
-			if p.inClass && p.braceDepth == p.classDepth {
-				p.inClass = false
-				p.className = ""
-				p.baseType = ""
-				p.interfaces = nil
+			if len(p.classStack) > 0 && p.braceDepth == p.classStack[len(p.classStack)-1].depth {
+				p.classStack = p.classStack[:len(p.classStack)-1]
 			}
 		}
 	}

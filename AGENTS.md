@@ -1,11 +1,11 @@
 # CodeGraph Agent Guidelines
 
-**coderag** is the central CLI tool for the CodeLightRAG system. It transforms codebases into knowledge graphs for AI agent consumption.
+**coderag** is the central CLI tool for the codeRAG system. It transforms codebases into knowledge graphs for AI agent consumption.
 
 ## Project Structure
 
 ```
-code-lightrag/
+code-rag/
 ├── cmd/
 │   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
 ├── pkg/
@@ -19,10 +19,8 @@ code-lightrag/
 │   │   ├── filter/              ← Security filter (PII/keys/secrets)
 │   │   └── crud/                ← LightRAG HTTP CRUD client
 │   └── lightrag/                ← LightRAG HTTP API client
-├── watchdog/                    ← Standalone entry (thin wrapper)
-│   └── cmd/watchdog/main.go
 ├── analysers/                   ← Language analysers
-│   └── csharp/                  ← C# Roslyn-based analyser
+│   └── csharp/                  ← C# Go native analyser
 ├── LightRAG/                    ← Python RAG engine (Docker)
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
@@ -48,46 +46,15 @@ coderag mcp <project-dir>
 
 ## Development Commands
 
-### Build coderag CLI
 ```bash
-go build -o coderag ./cmd/coderag
-```
-
-### Run MCP server (for testing with opencode)
-```bash
-coderag mcp .
-```
-
-### Run file watcher only
-```bash
-coderag watch <dir>
-```
-
-### Docker
-```bash
-docker compose up -d              # Start LightRAG + Ollama
-docker compose down               # Stop all
-```
-
-### LightRAG server (standalone, outside Docker)
-```bash
-cd LightRAG
-lightrag-server --workers 1
-```
-
-### Test
-```bash
-pytest tests/ -v
-```
-
-### Lint
-```bash
-# Go
-go vet ./...
-golangci-lint run ./...
-
-# Python
-ruff check .
+go build -o coderag ./cmd/coderag         # Build CLI
+coderag start <dir>                        # Docker + file watcher
+coderag mcp .                              # MCP bridge for opencode
+docker compose up -d                       # Start LightRAG + Ollama
+go test ./...                              # Go tests
+pytest tests/ -v                           # Python tests
+go vet ./...                               # Lint Go
+ruff check .                               # Lint Python
 ```
 
 ## Coding Style

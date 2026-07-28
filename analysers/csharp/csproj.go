@@ -83,6 +83,30 @@ func ParseProject(csprojPath string) (*ProjectFiles, error) {
 	}
 	result.SourceFiles = csFiles
 
+	// SDK-style projects: no explicit <Compile> elements means all .cs files
+	// under the project directory are implicitly included. Fall back to a
+	// directory walk when no source files were found via XML.
+	if len(result.SourceFiles) == 0 {
+		csFiles = nil
+		filepath.Walk(projectDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				name := info.Name()
+				if name == "bin" || name == "obj" || name == "node_modules" || name == ".git" || strings.HasPrefix(name, ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.EqualFold(filepath.Ext(path), ".cs") {
+				csFiles = append(csFiles, path)
+			}
+			return nil
+		})
+		result.SourceFiles = csFiles
+	}
+
 	return result, nil
 }
 

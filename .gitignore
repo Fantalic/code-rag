@@ -117,3 +117,8 @@ LightRAG.pdf
 download_models_hf.py
 lightrag-dev/
 gui/
+
+
+*.exe
+mcp_err.txt
+mcp_out.txt

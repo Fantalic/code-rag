@@ -21,6 +21,7 @@ import (
 type dedupKey struct {
 	src  string
 	tgt  string
+	kw   string
 }
 
 var (
@@ -78,7 +79,7 @@ func runCSharpPipeline(filePath string, client *crud.Config, results []AnalyserR
 
 	if results == nil {
 		var err error
-		results, err = RunCSharpAnalyser(sln)
+		results, err = RunCSharpAnalyser(sln, "")
 		if err != nil {
 			return fmt.Errorf("C# analyser failed: %w", err)
 		}
@@ -117,7 +118,7 @@ func runCSharpPipelineModified(filePath string, client *crud.Config, results []A
 			return fmt.Errorf("no .sln found for %s", filePath)
 		}
 		var err error
-		results, err = RunCSharpAnalyser(sln)
+		results, err = RunCSharpAnalyser(sln, "")
 		if err != nil {
 			return fmt.Errorf("C# analyser failed: %w", err)
 		}
@@ -187,9 +188,9 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 		case diff.ActionDelete:
 			client.DeleteRelation(action.Source, action.Target)
 		case diff.ActionCreate:
-			key := dedupKey{src: action.Source, tgt: action.Target}
+			key := dedupKey{src: action.Source, tgt: action.Target, kw: action.Keywords}
 			if _, loaded := relationDedup.LoadOrStore(key, true); loaded {
-				log.Printf("RELATION SKIP (dedup): %s -> %s", action.Source, action.Target)
+				log.Printf("RELATION SKIP (dedup): %s -> %s kw=%q", action.Source, action.Target, action.Keywords)
 				continue
 			}
 
@@ -234,7 +235,7 @@ func fallbackToLLM(filePath string, client *crud.Config) error {
 	return client.IngestText(string(content), versionedSource)
 }
 
-func RunCSharpAnalyser(sln string) ([]AnalyserResult, error) {
+func RunCSharpAnalyser(sln string, outputDir string) ([]AnalyserResult, error) {
 	analyserExe := os.Getenv("CSHARP_ANALYSER_PATH")
 	if analyserExe == "" {
 		analyserExe = findCSharpAnalyser()
@@ -243,24 +244,31 @@ func RunCSharpAnalyser(sln string) ([]AnalyserResult, error) {
 		return nil, fmt.Errorf("csharp_analyser not found")
 	}
 
-	tempDir, err := os.MkdirTemp("", "csharp_analyser")
-	if err != nil {
-		return nil, fmt.Errorf("create temp dir: %w", err)
+	if outputDir == "" {
+		var err error
+		outputDir, err = os.MkdirTemp("", "csharp_analyser")
+		if err != nil {
+			return nil, fmt.Errorf("create temp dir: %w", err)
+		}
+		defer os.RemoveAll(outputDir)
+	} else {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return nil, fmt.Errorf("create output dir: %w", err)
+		}
 	}
-	defer os.RemoveAll(tempDir)
 
-	cmd := exec.Command(analyserExe, "scan", "--solution", sln, "--output", tempDir)
+	cmd := exec.Command(analyserExe, "scan", "--solution", sln, "--output", outputDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	log.Printf("Running C# analyser on %s -> %s", sln, tempDir)
+	log.Printf("Running C# analyser on %s -> %s", sln, outputDir)
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("run analyser: %w", err)
 	}
 
-	entries, err := os.ReadDir(tempDir)
+	entries, err := os.ReadDir(outputDir)
 	if err != nil {
-		return nil, fmt.Errorf("read temp dir: %w", err)
+		return nil, fmt.Errorf("read output dir: %w", err)
 	}
 
 	var results []AnalyserResult
@@ -272,7 +280,7 @@ func RunCSharpAnalyser(sln string) ([]AnalyserResult, error) {
 		if entry.Name() == "_index.txt" {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(tempDir, entry.Name()))
+		content, err := os.ReadFile(filepath.Join(outputDir, entry.Name()))
 		if err != nil {
 			continue
 		}
@@ -357,7 +365,7 @@ func parserEntitiesToMap(entities []parser.Entity) map[string]map[string]any {
 func parserRelationsToMap(relations []parser.Relation) map[string]map[string]any {
 	result := make(map[string]map[string]any)
 	for _, r := range relations {
-		key := diff.RelationKey(r.Source, r.Target)
+		key := diff.RelationKey(r.Source, r.Target, r.Keywords)
 		result[key] = map[string]any{
 			"description": r.Description,
 			"keywords":    r.Keywords,
@@ -394,6 +402,7 @@ func loadCurrentRelations(client *crud.Config) map[string]map[string]any {
 	for _, edge := range data.Edges {
 		src := ""
 		tgt := ""
+		kw := ""
 
 		if s, ok := edge["source"].(string); ok && s != "" {
 			src = s
@@ -401,12 +410,17 @@ func loadCurrentRelations(client *crud.Config) map[string]map[string]any {
 		if t, ok := edge["target"].(string); ok && t != "" {
 			tgt = t
 		}
+		if props, ok := edge["properties"].(map[string]any); ok {
+			if k, ok := props["keywords"].(string); ok {
+				kw = k
+			}
+		}
 
 		if src == "" || tgt == "" {
 			continue
 		}
 
-		key := diff.RelationKey(src, tgt)
+		key := diff.RelationKey(src, tgt, kw)
 		result[key] = edge
 	}
 	return result

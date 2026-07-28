@@ -13,21 +13,23 @@ const headerPrefix = "# EXPORTS:"
 
 type OutputConfig struct {
 	OutputDir string
+	SlnDir    string
 }
 
-func NewOutputConfig(dir string) *OutputConfig {
-	return &OutputConfig{OutputDir: dir}
+func NewOutputConfig(dir string, slnDir string) *OutputConfig {
+	return &OutputConfig{OutputDir: dir, SlnDir: slnDir}
 }
 
 func (oc *OutputConfig) WriteFileResult(fr *FileResult) (string, error) {
-	relPath, err := filepath.Rel(oc.OutputDir, fr.FilePath)
+	relPath, err := filepath.Rel(oc.SlnDir, fr.FilePath)
 	if err != nil {
 		relPath = filepath.Base(fr.FilePath)
 	}
-	outPath := filepath.Join(oc.OutputDir, relPath+".txt")
-	outDir := filepath.Dir(outPath)
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return "", fmt.Errorf("create output dir %s: %w", outDir, err)
+	flatName := strings.ReplaceAll(relPath, "\\", "__")
+	flatName = strings.ReplaceAll(flatName, "/", "__")
+	outPath := filepath.Join(oc.OutputDir, flatName+".txt")
+	if err := os.MkdirAll(oc.OutputDir, 0755); err != nil {
+		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
 	out, err := os.Create(outPath)
@@ -48,6 +50,10 @@ func (oc *OutputConfig) WriteFileResult(fr *FileResult) (string, error) {
 
 	for _, r := range fr.Relations {
 		fmt.Fprintf(out, "RELATION|%s|%s|%s|%s|%s|%.1f\n", r.Source, r.Target, r.Description, r.Keywords, fr.FilePath, r.Weight)
+	}
+
+	for _, c := range fr.Calls {
+		fmt.Fprintf(out, "CALL|%s|%s|%s|%s|%d\n", c.CallerFile, c.CallerMethod, c.CalleeName, c.CalleeClass, c.LineNo)
 	}
 
 	return outPath, nil

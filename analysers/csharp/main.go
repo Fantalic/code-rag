@@ -69,7 +69,8 @@ func Run(cfg *CLIConfig) error {
 		outputDir = filepath.Join(filepath.Dir(absSln), ".lightrag")
 	}
 
-	outputCfg := NewOutputConfig(outputDir)
+	slnDir := filepath.Dir(absSln)
+	outputCfg := NewOutputConfig(outputDir, slnDir)
 
 	switch cfg.Command {
 	case "scan":
@@ -178,7 +179,9 @@ func runUpdate(slnPath string, outputCfg *OutputConfig, changed string) error {
 		}
 
 		relPath, _ := filepath.Rel(filepath.Dir(slnPath), cf)
-		oldOutputPath := filepath.Join(outputCfg.OutputDir, relPath+".txt")
+		flatName := strings.ReplaceAll(relPath, "\\", "__")
+		flatName = strings.ReplaceAll(flatName, "/", "__")
+		oldOutputPath := filepath.Join(outputCfg.OutputDir, flatName+".txt")
 
 		oldExports, _ := ReadOutputExports(oldOutputPath)
 

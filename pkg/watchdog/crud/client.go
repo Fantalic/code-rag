@@ -19,6 +19,7 @@ type Config struct {
 	BaseURL   string
 	APIKey    string
 	Timeout   time.Duration
+	Workspace string
 }
 
 func NewConfig() *Config {
@@ -249,6 +250,15 @@ func (c *Config) GetAllEntities() ([]map[string]any, error) {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return result.Nodes, nil
+}
+
+func (c *Config) SetWorkspace(workspace string) error {
+	payload := map[string]string{"workspace": workspace}
+	_, err := c.do(http.MethodPost, "/workspace", payload)
+	if err == nil {
+		c.Workspace = workspace
+	}
+	return err
 }
 
 func (c *Config) IngestText(content, fileSource string) error {

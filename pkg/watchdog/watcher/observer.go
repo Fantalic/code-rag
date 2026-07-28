@@ -207,7 +207,7 @@ func (w *Watcher) analyseSolution(sln string) ([]pipeline.AnalyserResult, error)
 		w.solutionLock.Unlock()
 	}()
 
-	results, err = pipeline.RunCSharpAnalyser(sln)
+	results, err = pipeline.RunCSharpAnalyser(sln, "")
 	if err != nil {
 		return nil, err
 	}

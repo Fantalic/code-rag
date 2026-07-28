@@ -27,7 +27,7 @@ import (
 func main() {
 	app := &cli.App{
 		Name:  "coderag",
-		Usage: "CodeLightRAG — knowledge graph for codebases",
+		Usage: "codeRAG — knowledge graph for codebases",
 		Commands: []*cli.Command{
 			{
 				Name:   "start",
@@ -186,6 +186,9 @@ func ensureLightRAG(ctx context.Context) error {
 				resp.Body.Close()
 				if resp.StatusCode < 400 {
 					log.Print("LightRAG is healthy")
+					// Save Docker logs after successful start
+					coderagDir := filepath.Join(filepath.Dir(composeFile), ".coderag")
+					_ = captureDockerLogs(filepath.Join(coderagDir, "docker-logs"))
 					return nil
 				}
 			}
@@ -220,6 +223,13 @@ func startCmd(c *cli.Context) error {
 	ctx := context.Background()
 	if err := ensureLightRAG(ctx); err != nil {
 		return fmt.Errorf("failed to start LightRAG: %w", err)
+	}
+
+	client := crud.NewConfig()
+	ws := projectName(inputDir)
+	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
+	if err := client.SetWorkspace(ws); err != nil {
+		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
 	}
 
 	cfg := &watcher.Config{
@@ -425,6 +435,36 @@ func startWatchdogBackground(inputDir string) {
 	}
 }
 
+func projectName(inputDir string) string {
+	name := filepath.Base(inputDir)
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+	name = strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\t' {
+			return '_'
+		}
+		return r
+	}, name)
+	return name
+}
+
+func captureDockerLogs(logsDir string) error {
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return fmt.Errorf("create logs dir: %w", err)
+	}
+	composeFile := findComposeFile()
+	cmd := exec.Command("docker", "compose", "-f", composeFile, "logs", "--no-color", "--timestamps")
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("docker logs: %w", err)
+	}
+	logFile := filepath.Join(logsDir, fmt.Sprintf("docker_%s.log", time.Now().Format("20060102_150405")))
+	if err := os.WriteFile(logFile, out, 0644); err != nil {
+		return fmt.Errorf("write log file: %w", err)
+	}
+	log.Printf("Docker logs saved to %s", logFile)
+	return nil
+}
+
 func scanCmd(c *cli.Context) error {
 	inputDir := c.Args().First()
 	if inputDir == "" {
@@ -439,6 +479,18 @@ func scanCmd(c *cli.Context) error {
 		return fmt.Errorf("failed to start LightRAG: %w", err)
 	}
 
+	coderagDir := filepath.Join(inputDir, ".coderag")
+	logsDir := filepath.Join(coderagDir, "docker-logs")
+	_ = captureDockerLogs(logsDir)
+
+	client := crud.NewConfig()
+
+	ws := projectName(inputDir)
+	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
+	if err := client.SetWorkspace(ws); err != nil {
+		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
+	}
+
 	log.Printf("Scanning %s for C# solution files...", inputDir)
 
 	sln := findSolutionFile(inputDir)
@@ -448,7 +500,8 @@ func scanCmd(c *cli.Context) error {
 	log.Printf("Found solution: %s", sln)
 
 	log.Printf("Running C# analyser...")
-	results, err := pipeline.RunCSharpAnalyser(sln)
+	analyserOut := filepath.Join(inputDir, ".coderag", "analyser_output")
+	results, err := pipeline.RunCSharpAnalyser(sln, analyserOut)
 	if err != nil {
 		return fmt.Errorf("C# analyser failed: %w", err)
 	}
@@ -456,8 +509,6 @@ func scanCmd(c *cli.Context) error {
 		return fmt.Errorf("C# analyser produced no output for %s", sln)
 	}
 	log.Printf("Analyser produced %d output files", len(results))
-
-	client := crud.NewConfig()
 
 	log.Printf("Applying results to knowledge graph...")
 	if err := applyScanResults(client, results); err != nil {

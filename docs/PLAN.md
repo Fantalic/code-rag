@@ -1,4 +1,4 @@
-# CodeLightRAG — Where We're Going
+# codeRAG — Where We're Going
 
 ## The Big Idea
 
@@ -10,14 +10,13 @@ A **live, minimal-work knowledge graph** for codebases. When you save a file, on
 
 ## What We Have ✅
 
-- Monorepo: LightRAG + WebUI + watchdog + analysers working together
-- 22 MCP tools defined (currently in Python `daniel-lightrag-mcp`)
-- C# analyser (Roslyn-based, compiled binary) — extracts classes, methods, inheritance, deps
+- Monorepo: coderag CLI (Go) + LightRAG API (Python in Docker) + MCP server (Python in Docker) + C# analyser (Go)
+- 22 MCP tools (Python, in Docker, proxied via coderag stdio↔SSE bridge)
+- C# analyser (Go native, fully static) — extracts classes, methods, properties, inheritance, deps, cross-file calls
 - Go file watcher with debouncing + hash tracking + git poll
 - Graph CRUD client, diff engine, security filter, pipeline runner (all in Go)
 - Project-based storage (`.coderag/rag_storage`)
 - VDB `file_path` persistence fix — entity/relation updates preserve file_path in vector DB
-- 74 passing tests
 
 ## Phase 11 — Efficient Incremental Updates ✅
 
@@ -31,7 +30,7 @@ All 7 steps done (Python prototype):
 
 ## Phase 12 — Go Rewrite ✅
 
-Go watchdog (standalone CLI binary) replacing the Python prototype.
+Go watchdog (pkg/watchdog/) replacing the Python prototype. The old Python watchdog (`watchdog/`) is deleted.
 
 ## Phase 13 — Concurrent Analyser Race Fix ✅
 
@@ -114,7 +113,9 @@ Restructure the monorepo so `coderag` is the central CLI. Everything becomes mod
 | 5 | Wire `coderag mcp` → Docker + watcher + MCP | Auto-start Docker compose, wait for health, start watcher goroutine, enter stdio loop |
 | 6 | Wire `coderag start` → Docker + watcher | Same Docker logic, foreground watcher, Ctrl+C shutdown |
 | 7 | Wire `coderag webui` → open browser | Check Docker, print URL |
-| 8 | Standalone `watchdog` entry point | Thin wrapper at `watchdog/cmd/watchdog/main.go` importing `pkg/watchdog` |
+| 8 | Standalone `watchdog` entry point | Thin wrapper at `watchdog/cmd/watchdog/main.go` importing `pkg/watchdog` **(later deleted — `cmd/coderag/` absorbed all functionality)** | ✅ Deleted |
+
+> **Note:** Step 12 (update opencode.json) was not needed — `coderag mcp .` is used directly as the MCP command.
 | 9 | Remove `daniel-lightrag-mcp/` | All functionality replaced by `pkg/mcp/` |
 | 10 | Move `analysers/` to root | From `daniel-lightrag-mcp/analysers/` to `analysers/` |
 | 11 | Update go.mod, Dockerfile, docker-compose.yml | Single Go module, Docker image has LightRAG + WebUI only |
@@ -124,9 +125,8 @@ Restructure the monorepo so `coderag` is the central CLI. Everything becomes mod
 
 ```
 cmd/coderag/
-├── pkg/mcp/          (mark3labs/mcp-go)
-│   └── pkg/lightrag/ (HTTP client)
-│       └── (net/http)
+├── pkg/lightrag/ (HTTP client)
+│   └── (net/http)
 ├── pkg/watchdog/
 │   ├── watcher/      (fsnotify)
 │   ├── diff/
@@ -134,10 +134,7 @@ cmd/coderag/
 │   ├── parser/
 │   ├── router/
 │   ├── filter/
-│   └── crud/ → pkg/lightrag/ (or replaced by it)
-│
-watchdog/cmd/watchdog/
-  └── pkg/watchdog/
+│   └── crud/
 ```
 
 ### Key CLI behavior
@@ -352,10 +349,10 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
   - `get_entity_neighbors("Calculator")` → returns 16 neighbors (was empty)
   - `add_note_to_entity` → returns success (was reporting error)
 
-### Phase 28 — Python Analyser
-- Add Python analyser (AST-based)
-- Register in `pkg/watchdog/router/file.go`
-- Entity types: CLASS, FUNCTION, IMPORT, DECORATOR
+### Phase 28 — Go C# Analyser ✅ COMPLETE
+- Replaced old .NET CSharpAnalyzerTool.exe with Go native analyser (`analysers/csharp/`)
+- Zero CGo, fully static binary, no .NET runtime needed
+- Pipe-delimited output format, two-phase cross-file call resolution
 
 ### Phase 29 — Git Commit Watcher
 - Extend git watcher to detect new commits (not just uncommitted changes)

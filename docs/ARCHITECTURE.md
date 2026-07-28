@@ -7,99 +7,81 @@
 ## 1. System Overview
 
 ```
-[Your Codebase] --> [Watchdog CLI] --> [LightRAG API] --> [Knowledge Graph]
+[Your Codebase] --> [coderag CLI] --> [LightRAG API] --> [Knowledge Graph]
                                                     ^
 [MCP Client] -----> [MCP Server] -----------------|
 ```
 
 The system transforms source code into a queryable knowledge graph. AI agents query it via MCP instead of reading files directly.
 
+The `coderag` binary runs on the **host machine** (native Go, fast filesystem access). LightRAG and the MCP server run in **Docker containers** (long-running Python services).
+
 ---
 
 ## 2. Component Ownership
 
-| Component | Language | Why |
-|-----------|----------|-----|
-| **LightRAG API** | Python (FastAPI) | LLM/embedding integrations, FastAPI server, rich ecosystem for RAG |
-| **MCP Server** | Python | MCP protocol, already built and working |
-| **Watchdog CLI** | Go | I/O-bound router - file watching, HTTP calls, process spawning. Fast to build, single portable binary. |
-| **Code Analysers** | Go (future: Rust/Zig) | CPU-bound parsing work. Compiled to native binary, no runtime needed. |
+| Component | Language | Where | Why |
+|-----------|----------|-------|-----|
+| **coderag CLI** | Go | Host | Orchestrator — file watching, subprocess spawning, MCP bridge, Docker management. Needs low latency and direct filesystem access. |
+| **LightRAG API** | Python (FastAPI) | Docker | LLM/embedding integrations, graph storage, vector DB. Long-running service benefits from containerization. |
+| **MCP Server** | Python | Docker | MCP tool definitions, SSE transport. Runs alongside LightRAG in Docker. |
+| **C# Analyser** | Go | Host | Subprocess launched by coderag. CPU-bound parsing, needs host filesystem access. |
+| **WebUI** | TypeScript/React | Docker | Served as static files by LightRAG API. |
 
-Python stays for the parts that are already working well (LightRAG, MCP) and where Python's ecosystem is a strength. Go for the parts that need to be fast, portable, and distribution-friendly.
+Go for the performance-critical, I/O-bound orchestration layer. Python stays for the parts that are already working well (LightRAG LLM pipeline, MCP tools).
 
 ---
 
-## 3. Watchdog CLI (watchdog/)
+## 3. coderag CLI (cmd/coderag/)
 
-A standalone Go binary that monitors a project folder and keeps the knowledge graph in sync.
+The `coderag` binary is the single entry point. It runs on the host machine and orchestrates everything.
 
-### Usage Modes
+### Architecture
 
-**Mode 1 - Watch standalone (connects to existing LightRAG):**
 ```
-watchdog watch ./myproject --url=http://localhost:9621
-```
-- Watches project folder for changes
-- Processes supported files through the pipeline
-- Posts entity/relation updates to existing LightRAG via HTTP
-- Falls back to LLM pipeline for unsupported file types
+coderag start <dir>:
+  → docker compose up -d (if LightRAG not healthy at :9621)
+  → start file watcher on <dir>
+  → block until Ctrl+C
+  → stop watcher (Docker keeps running)
 
-**Mode 2 - Start everything (launches LightRAG + watchdog):**
-```
-watchdog start ./myproject --ollama=http://localhost:11434
-```
-- Starts LightRAG API as a subprocess
-- Starts MCP server as a subprocess
-- Starts file watcher
-- All in one portable binary
+coderag mcp <dir>:
+  → docker compose up -d (if LightRAG not healthy at :9621)
+  → start file watcher on <dir> (background goroutine)
+  → stdio↔SSE bridge to Python MCP server at :9622
 
-**Mode 3 - No watchdog (original usage):**
+coderag scan <dir>:
+  → find .sln
+  → run C# analyser (csharp_analyser.exe)
+  → parse output into entities + relations
+  → diff against current graph → create/update/delete via LightRAG CRUD
+
+coderag watch <dir>:
+  → file watcher only (assumes LightRAG already running)
 ```
-docker-compose up lightrag
-# Open http://localhost:9621 for WebUI
-# Use MCP tools to query
-```
-- LightRAG + WebUI only, no file watching
-- Manual file upload via WebUI
-- Existing behavior preserved
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `watch <dir>` | Watch a project folder, connect to existing LightRAG |
-| `start <dir>` | Start LightRAG + MCP + watchdog all together |
-| `status` | Show running services |
-| `stop` | Stop all services |
-| `query "<text>"` | Query the graph directly |
-
-### Configuration
-
-All via environment variables and CLI flags:
-
-| Variable | Flag | Default | Description |
-|----------|------|---------|-------------|
-| `LIGHTRAG_URL` | `--url` | `http://localhost:9621` | LightRAG API endpoint |
-| `OLLAMA_HOST` | `--ollama` | `http://localhost:11434` | Ollama endpoint |
-| `INPUT_DIR` | positional arg | - | Project folder to watch |
-| `DEBOUNCE_SECONDS` | `--debounce` | `0.5` | Debounce delay per file path |
-| `WATCHER_WORKERS` | `--workers` | `4` | Thread pool size |
-| `LIGHTRAG_API_KEY` | `--api-key` | - | API authentication |
+| `start <dir>` | Start Docker services + file watcher in foreground |
+| `mcp <dir>` | MCP bridge mode (stdio↔SSE) for opencode/agent connections |
+| `scan <dir>` | Run C# analyser and populate knowledge graph |
+| `watch <dir>` | File watcher only (no Docker orchestration) |
+| `status` | Show running services status |
+| `stop` | Stop all services (`docker compose down`) |
+| `query "<text>"` | Quick query against the knowledge graph |
+| `webui` | Open WebUI in browser |
 
 ### File Routing
 
-Supported file types (extension -> analyser):
+Supported file types (extension → analyser):
 
 | Extension | Analyser | Notes |
 |-----------|----------|-------|
-| `.cs` | C# (Roslyn-based) | Calls CSharpAnalyzerTool.exe, output parsed to entities |
-| `.py` | - | Future: Go analyser |
-| `.js` / `.ts` | - | Future: Go analyser |
-| `.go` | - | Future: Go analyser |
-| `.rs` | - | Future: Go analyser |
-| `.md` / `.txt` / `.yaml` | - | Future: Go analyser |
-
-Unsupported files fall back to POST /documents/text (LLM pipeline) - both paths are always live.
+| `.cs` | C# Go native analyser | `analysers/csharp/csharp_analyser.exe scan --solution --output` |
+| `.py`, `.js`, `.ts`, `.go`, `.rs` | Future analysers | Planned |
+| `.md`, `.yaml`, `.json`, etc. | LLM fallback | POST /documents/text |
 
 ---
 
@@ -134,36 +116,43 @@ Both paths remain available permanently.
 
 ## 5. Analyser Design
 
-Analysers are standalone executables invoked by the watchdog. They take a project path and produce structured entity/relation output.
+Analysers are standalone executables invoked by `coderag`. They take a solution file and produce structured entity/relation output.
 
 ### Interface
 
 ```
-analyser <project-path> <output-dir>
-  Writes: <output-dir>/<ClassName>.txt  (one file per class)
-  Format: plain text, parser-dependent
+csharp_analyser scan --solution <sln> --output <output-dir>
+  Writes: <output-dir>/<ClassName>.txt  (one file per class, pipe-delimited)
+  Also:   <output-dir>/_index.txt       (global symbol index)
   Exit code: 0 = success, non-zero = error
 ```
 
 ### C# Analyser (current)
 
-- Binary: CSharpAnalyzerTool.exe (C# / .NET 9)
-- Path: daniel-lightrag-mcp/analysers/c_sharp/
-- Output format:
+- Binary: `csharp_analyser.exe` (Go native, fully static, no dependencies)
+- Path: `analysers/csharp/csharp_analyser.exe`
+- Parser: Go-native state machine (not tree-sitter, not CGo)
+- Output format (pipe-delimited):
   ```
-  FILE: <relative-path>
-
-  CLASS: <ClassName>
-    METHOD: <name> -> RETURNS -> <type>
-
-  PROJECT REFERENCES:
-    - <ProjectName>
+  # EXPORTS: ClassA, ClassB
+  # IMPORTS: System, System.Collections.Generic
+  CLASS|ClassName|path/to/file.cs|42|description
+  METHOD|MethodName|path/to/file.cs|50|description
+  RELATION|ClassA|ClassB|description|keywords|file.cs|1.0
   ```
-- Parser: Go reimplementation of analyser_parsers.go logic
+- Entity types: CLASS, METHOD, PROPERTY, INTERFACE, STRUCT, ENUM
+- Relation types: method_defines, property_has, inherits_from, implements, calls
 
-### Future Analysers (Go)
+### C# Analyser Design Decisions
 
-Analysers for Python, JS/TS, Go, Rust, and config formats (md, yaml, ini) will be written in Go. The interface stays the same - watchdog invokes the binary and parses output.
+- **Go regex-based state machine** (not tree-sitter) → zero CGo, fully static binary, cross-compilation
+- **Two-phase analysis:** Phase 1 builds global symbol index from all `.cs` files, Phase 2 resolves cross-file calls
+- **Expression-bodied methods** (`=>`) handled inline (no `{` scope)
+- **Class scope** tracked via `classDepth` (brace depth at declaration), not `braceDepth == 0`
+
+### Future Analysers
+
+Will follow the same binary interface pattern. Candidates: Go (goroutines/channels), Python (AST), Rust/Zig (zero-cost parsing).
 
 ---
 
@@ -193,15 +182,18 @@ See API_REFERENCE.md for detailed request/response schemas.
 
 ## 7. MCP Server (daniel-lightrag-mcp/)
 
-Model Context Protocol server with 22 tools. Connects AI agents to LightRAG.
+Model Context Protocol server with 22 tools. Runs in Docker on port 9622 (SSE transport). The Go `coderag` binary bridges stdio↔SSE.
+
+```
+opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → MCP Server (Docker :9622) → HTTP → LightRAG API (Docker :9621)
+```
 
 **Categories:**
-- Document management (7 tools): insert, upload, scan, query, delete
-- Query (2 tools): text query, streaming query
-- Knowledge graph (8 tools): get graph, check entity, update entity/relation, delete, get related files
-- System (4 tools): health, pipeline status, track status, status counts
-
-Key tool: update_relations - runs the C# analyser on a .sln file and ingests output via insert_text.
+- Query (2 tools): `query`, `query_data`
+- Knowledge graph (8 tools): `get_knowledge_graph`, `get_graph_labels`, `check_entity_exists`, `add_note_to_entity`, `get_related_files`, `get_entity_neighbors`, `get_entity_details`
+- Exploration (6 tools): `get_codebase_stats`, `list_entities_by_type`, `get_entities_in_file`, `search_entities`, `get_incoming_relations`, `get_outgoing_relations`
+- Document management (4 tools): `insert_text`, `insert_texts`, `upload_document`, `delete_document`
+- System (4 tools): `get_health`, `get_pipeline_status`, `get_track_status`, `get_document_status_counts`
 
 ---
 
@@ -209,34 +201,42 @@ Key tool: update_relations - runs the C# analyser on a .sln file and ingests out
 
 ### Services
 
-| Service | Dockerfile | Purpose |
-|---------|-----------|---------|
-| `lightrag` | LightRAG/Dockerfile | LightRAG API server + WebUI |
-| `watchdog` | watchdog/Dockerfile | Standalone Go binary, watch or start mode |
-| `mcp` | daniel-lightrag-mcp/Dockerfile | MCP server (optional) |
+| Service | Dockerfile | Port | Purpose |
+|---------|-----------|------|---------|
+| `lightrag` | root `Dockerfile` | `:9621` | LightRAG API server + WebUI |
+| `mcp` | `daniel-lightrag-mcp/Dockerfile` | `:9622` | MCP server (SSE transport) |
+
+The `coderag` CLI runs on the host, NOT in Docker. This is by design — the Go binary needs fast filesystem access for file watching and analyser subprocess calls.
+
+### Docker Compose
+
+Services are configured in `docker-compose.yml` at the project root. `coderag start` and `coderag mcp` call `docker compose up -d` automatically when LightRAG is not reachable.
 
 ### Ollama
 
-Ollama runs on the **host machine** (not in Docker). Services connect to it via:
-- On Windows with Docker Desktop: host.docker.internal:11434 (if host network used) or Docker bridge IP
-- Configure via OLLAMA_HOST environment variable
-
-### Volume Mounts
-
-```yaml
-watchdog:
-  volumes:
-    - /path/to/your/project:/project:ro  # read-only project mount
-  environment:
-    - INPUT_DIR=/project
-```
+Ollama runs on the **host machine** (not in Docker by default). Docker services connect via `host.docker.internal:11434` (Windows/macOS Docker Desktop) or `localhost` (Linux with host networking). Configure via `OLLAMA_HOST` environment variable. An optional Ollama sidecar container can be added to `docker-compose.yml` if desired.
 
 ---
 
 ## 9. Directory Layout
 
 ```
-code-lightrag/
+code-rag/
++-- cmd/
+|   +-- coderag/main.go         <- CLI entry point -> builds `coderag` binary
++-- pkg/
+|   +-- mcp/                    <- MCP server SDK (mark3labs/mcp-go)
+|   +-- watchdog/               <- File watcher (importable Go package)
+|   |   +-- watcher/            <- fsnotify + git observer
+|   |   +-- diff/               <- Entity/relation diff engine
+|   |   +-- pipeline/           <- Pipeline orchestration
+|   |   +-- parser/             <- Analyser output parsers
+|   |   +-- router/             <- Extension -> analyser mapping
+|   |   +-- filter/             <- Security filter (PII/keys/secrets)
+|   |   +-- crud/               <- LightRAG HTTP CRUD client
+|   +-- lightrag/               <- LightRAG HTTP API client
++-- analysers/
+|   +-- csharp/                 <- Go native C# analyser
 +-- LightRAG/                   <- Python: FastAPI server, RAG engine
 |   +-- lightrag/               <- Core RAG + graph CRUD implementation
 |   +-- lightrag-api/           <- FastAPI app + routers
@@ -245,22 +245,7 @@ code-lightrag/
 |   +-- src/daniel_lightrag_mcp/
 |   |   +-- server.py           <- 22 MCP tools
 |   |   +-- client.py           <- HTTP client for LightRAG
-|   |   +-- analyser_runner.py  <- Subprocess runner for C# analyser
-|   |   +-- analysers/c_sharp/  <- CSharpAnalyzerTool.exe binary
 |   +-- Dockerfile
-+-- watchdog/                   <- Go: Standalone CLI binary
-|   +-- cmd/watchdog/           <- main.go, CLI entry point
-|   +-- internal/
-|   |   +-- pipeline/           <- Pipeline orchestration
-|   |   +-- analyser/           <- Analyser invoker + parsers
-|   |   +-- router/             <- Extension -> analyser mapping
-|   |   +-- diff/               <- Entity/relation diff engine
-|   |   +-- filter/             <- Security filter (PII/keys/secrets)
-|   |   +-- crud/               <- Graph CRUD HTTP client
-|   +-- go.mod
-|   +-- Dockerfile
-+-- tests/                      <- Python: 63 integration tests
-+-- test-csharp-project/        <- C# test project for watchdog testing
 +-- docs/
 |   +-- ARCHITECTURE.md         <- This file
 |   +-- DOCUMENTATION.md        <- High-level system reference
@@ -269,6 +254,8 @@ code-lightrag/
 |   +-- CURRENT_CONTEXT.md      <- Session state
 |   +-- TASK.md                 <- Active task breakdown
 +-- docker-compose.yml          <- Multi-service orchestration
++-- Dockerfile                  <- LightRAG + WebUI image
++-- go.mod
 ```
 
 ---
@@ -277,10 +264,11 @@ code-lightrag/
 
 | Decision | Rationale |
 |----------|-----------|
-| Watchdog in Go, not Python | Single portable binary, fast build, no Python dependency for users |
-| Watchdog as CLI, not service | Can run standalone (watch mode) or as master (start mode) |
-| Analysers in Go | CPU-bound parsing work. Compiled, no runtime. Keep it simple for now. |
-| Keep LightRAG + MCP in Python | Already working, rich ecosystem for LLM/embedding |
-| Both ingestion paths live permanently | Path A (direct CRUD) + Path B (LLM pipeline) - user chooses via file type |
-| Ollama on host, not in Docker | Keeps Ollama GPU access simple, avoids Docker GPU passthrough complexity |
-| WebUI as separate concern | LightRAG WebUI is independent, opens in browser at port 9621 |
+| **coderag CLI on host, services in Docker** | File watching (fsnotify) and subprocess spawning need low latency + direct filesystem access. Docker adds overhead for I/O-bound orchestration. Python services (LightRAG, MCP) benefit from container isolation. |
+| **Go for coderag, not Python** | Single portable binary, fast startup, no runtime dependency. Goroutines for concurrent watchers. |
+| **C# analyser in Go, not C#/Roslyn** | Self-contained static binary (~5MB), no .NET runtime needed, cross-compilation, fast startup. |
+| **Pipe-delimited analyser output** | Simple, parseable, language-agnostic interface between analysers and pipeline. |
+| **Keep LightRAG + MCP in Python** | Already working, rich ecosystem for LLM/embedding. The MCP SSE bridge in Go is lightweight proxying. |
+| **Both ingestion paths live permanently** | Path A (direct CRUD without LLM) for structured types. Path B (LLM pipeline) for everything else. Users don't choose — file type determines the path. |
+| **Ollama on host, not in Docker by default** | Keeps Ollama GPU access simple, avoids Docker GPU passthrough complexity. Optional Docker sidecar available. |
+| **Project-based storage (`.coderag/`)** | Isolates each project's RAG data. Auto-detected by LightRAG via parent directory search. |

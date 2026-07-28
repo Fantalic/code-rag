@@ -329,11 +329,11 @@ def create_app(args):
 
         try:
             # Initialize database connections
-            await rag.initialize_storages()
+            await rag_proxy.initialize_storages()
             await initialize_pipeline_status()
 
             # Data migration regardless of storage implementation
-            await rag.check_and_migrate_data()
+            await rag_proxy.check_and_migrate_data()
 
             try:
                 ASCIIColors.green("\nServer is ready to accept connections! 🚀\n")
@@ -344,7 +344,7 @@ def create_app(args):
 
         finally:
             # Clean up database connections
-            await rag.finalize_storages()
+            await rag_proxy.finalize_storages()
 
             # Clean up shared data
             finalize_share_data()
@@ -719,12 +719,14 @@ def create_app(args):
         name=args.simulated_model_name, tag=args.simulated_model_tag
     )
 
-    # Initialize RAG with unified configuration
-    try:
-        rag = LightRAG(
+    # Build LightRAG creation kwargs (shared between initial creation and workspace switch)
+    llm_model_func = create_llm_model_func(args.llm_binding)
+
+    def _build_rag(workspace: str = "") -> LightRAG:
+        return LightRAG(
             working_dir=args.working_dir,
-            workspace=args.workspace,
-            llm_model_func=create_llm_model_func(args.llm_binding),
+            workspace=workspace or args.workspace,
+            llm_model_func=llm_model_func,
             llm_model_name=args.llm_model,
             llm_model_max_async=args.max_async,
             summary_max_tokens=args.summary_max_tokens,
@@ -755,24 +757,57 @@ def create_app(args):
             },
             ollama_server_infos=ollama_server_infos,
         )
+
+    class RAGProxy:
+        """Mutable proxy that delegates all attribute access to the current LightRAG instance."""
+        def __init__(self, rag):
+            object.__setattr__(self, "_rag", rag)
+        def set(self, rag):
+            object.__setattr__(self, "_rag", rag)
+        def __getattr__(self, name):
+            return getattr(object.__getattribute__(self, "_rag"), name)
+
+    try:
+        rag_proxy = RAGProxy(_build_rag(args.workspace))
     except Exception as e:
         logger.error(f"Failed to initialize LightRAG: {e}")
         raise
 
-    # Add routes
+    # Add routes (pass proxy so a workspace switch takes effect immediately)
     app.include_router(
         create_document_routes(
-            rag,
+            rag_proxy,
             doc_manager,
             api_key,
         )
     )
-    app.include_router(create_query_routes(rag, api_key, args.top_k))
-    app.include_router(create_graph_routes(rag, api_key))
+    app.include_router(create_query_routes(rag_proxy, api_key, args.top_k))
+    app.include_router(create_graph_routes(rag_proxy, api_key))
 
     # Add Ollama API routes
-    ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)
+    ollama_api = OllamaAPI(rag_proxy, top_k=args.top_k, api_key=api_key)
     app.include_router(ollama_api.router, prefix="/api")
+
+    @app.post("/workspace", dependencies=[Depends(combined_auth)])
+    async def set_workspace(request: dict):
+        """Switch the active workspace at runtime.
+
+        All subsequent entity/relation/document operations are isolated
+        under the new workspace subdirectory.
+        """
+        ws = request.get("workspace", "")
+        if not ws or not ws.strip():
+            raise HTTPException(status_code=400, detail="workspace must be a non-empty string")
+        ws = ws.strip()
+        try:
+            new_rag = _build_rag(workspace=ws)
+            await new_rag.initialize_storages()
+            rag_proxy.set(new_rag)
+            logger.info(f"Switched workspace to '{ws}'")
+            return {"status": "ok", "workspace": ws}
+        except Exception as e:
+            logger.error(f"Failed to switch workspace: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/")
     async def redirect_to_webui():

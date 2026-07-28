@@ -1,3 +1,53 @@
+# Phase 32 — Knowledge Graph Refactoring 🔧 IN PROGRESS
+
+## Goal
+
+Transform the codebase knowledge graph from a flat, dense spiderweb into a layered,
+navigable structure where entities have qualified names, call graph edges exist,
+and the graph can be browsed at different levels of granularity.
+
+## Master Plan
+
+Detailed plan in `docs/KG_REFACTOR_PLAN.md`.
+
+## Phase 32.1 — Qualified Entity Names 🔧 IN PROGRESS
+
+### Problem
+Entity names are flat (`Run`, `Ball`, `Console`) causing name collisions and unreadable graphs.
+Method `Snake.Run` and `Pong.Run` can't be distinguished.
+
+### Fix
+Prefix method/property/nested-type entity names with their parent class:
+- `Run` → `Snake.Run`
+- `Ball` → `Pong.Ball`
+- `Console` → `Snake.Console`
+- `X` → `Pong.Ball.X`
+- `Direction` → `Snake.Direction`
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `analysers/csharp/walker.go` | `handleMethodDecl`, `handlePropDecl`: entity name = `cls + "." + name` |
+| | `handleClassDecl` for nested: `parent + "." + name` |
+| | `extractCalls`: callee resolution uses qualified names |
+| `analysers/csharp/output.go` | (none, just data flows through) |
+| `pkg/watchdog/parser/csharp.go` | (none, names are opaque identifiers) |
+
+### Steps
+
+| # | Step | Status |
+|---|------|--------|
+| 1 | Change `handleMethodDecl` entity name to `cls.Name` | 🔧 |
+| 2 | Change `handlePropDecl` entity name to `cls.Name` | ⏳ |
+| 3 | Change nested class entity name to `parent.Name` | ⏳ |
+| 4 | Update relation targets to use qualified names | ⏳ |
+| 5 | Rebuild `csharp_analyser.exe` + `coderag.exe` | ⏳ |
+| 6 | Re-scan test project, verify output | ⏳ |
+| 7 | Test MCP tools against new graph | ⏳ |
+
+---
+
 # Phase 24 — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
 
 **Completed previously.** Fixed `get_all_labels()` returning node IDs instead of entity types, added `get_all_entity_types()` and `get_all_relation_types()`, fixed `/graph/label/list` to return structured response.
@@ -59,7 +109,7 @@ Restructure the monorepo so `coderag` is the central CLI tool. File watcher + an
 ## What Was Done
 
 ### Done ✅
-- Root `go.mod` with module `github.com/code-lightrag/coderag`
+- Root `go.mod` with module `github.com/coderag`
 - `watchdog/internal/*` moved to `pkg/watchdog/*`
 - `pkg/lightrag/` HTTP client created
 - `cmd/coderag/main.go` CLI with `start`, `watch`, `status`, `stop`, `query`, `webui`

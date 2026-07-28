@@ -49,6 +49,28 @@ func parseEntityLine(line string) (Entity, bool) {
 	}, true
 }
 
+// format: CALL|CallerFile|CallerMethod|CalleeName|CalleeClass|LineNo
+func parseCallLine(line string) (Relation, bool) {
+	parts := strings.SplitN(line, "|", 6)
+	if len(parts) < 6 {
+		return Relation{}, false
+	}
+	callerMethod := parts[2]
+	calleeName := parts[3]
+
+	if callerMethod == "" || calleeName == "" {
+		return Relation{}, false
+	}
+
+	return Relation{
+		Source:      callerMethod,
+		Target:      calleeName,
+		Description: callerMethod + " calls " + calleeName,
+		Keywords:    "calls",
+		Weight:      0.5,
+	}, true
+}
+
 // format: RELATION|Source|Target|Description|Keywords|FilePath|Weight
 func parseRelationLine(line string) (Relation, bool) {
 	parts := strings.SplitN(line, "|", 7)
@@ -111,6 +133,12 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 						}
 					}
 					continue
+				case "CALL":
+					rel, ok := parseCallLine(trimmed)
+					if ok {
+						relations = append(relations, rel)
+					}
+					continue
 				case "RELATION":
 					rel, ok := parseRelationLine(trimmed)
 					if ok {
@@ -159,7 +187,7 @@ func ParseCSharpOutput(results []struct {
 			entityMap[e.Name] = append(entityMap[e.Name], e)
 		}
 		for _, rel := range relations {
-			key := rel.Source + "|" + rel.Target
+			key := rel.Source + "|" + rel.Target + "|" + rel.Keywords
 			if !seenRelations[key] {
 				seenRelations[key] = true
 				allRelations = append(allRelations, rel)

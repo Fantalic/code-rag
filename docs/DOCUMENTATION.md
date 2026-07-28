@@ -1,4 +1,4 @@
-# CodeLightRAG — System Documentation
+# codeRAG — System Documentation
 
 > Everything about how this project works: components, data flow, pipeline, and security.
 > For detailed API request/response schemas, see [API_REFERENCE.md](API_REFERENCE.md).
@@ -8,53 +8,59 @@
 
 ---
 
-## 1. Overview
+## 1. Architecture Overview
+
+### Host vs Docker split (design rationale)
 
 ```
-                    ┌──────────────────────────────────────────────────┐
-                    │  Host Machine                                    │
-                    │                                                  │
-                    │  ┌──────────────┐   stdio (MCP)   ┌───────────┐  │
-                    │  │   opencode    │◄────────────────│ coderag  │  │
-                    │  │   (AI agent)  │                 │  mcp .   │  │
-                    │  └──────────────┘                 │           │  │
-                    │                                   │  ├── File │  │
-                    │                                   │  │   watch│  │
-                    │                                   │  │   (Go) │  │
-                    │                                   │  │        │  │
-                    │                                   │  ├── MCP  │  │
-                    │                                   │  │  tools │  │
-                    │                                   │  │  (22)  │  │
-                    │                                   │  │        │  │
-                    │                                   │  └── HTTP │  │
-                    │                                   │      │    │  │
-                    │  ┌───────────────────────────────────────┘    │  │
-                    │  │                                  │         │  │
-                    │  │  ┌───────────────────────────────▼──────┐  │  │
-                    │  │  │  Docker / Podman                    │  │  │
-                    │  │  │                                     │  │  │
-                    │  │  │  ┌─────────────────────────────┐    │  │  │
-                    │  │  │  │  LightRAG API (Python)      │    │  │  │
-                    │  │  │  │  :9621                       │    │  │  │
-                    │  │  │  │  ┌───────────────────────┐  │    │  │  │
-                    │  │  │  │  │  WebUI static files    │  │    │  │  │
-                    │  │  │  │  │  (served by LightRAG)  │  │    │  │  │
-                    │  │  │  │  └───────────────────────┘  │    │  │  │
-                    │  │  │  └─────────────────────────────┘    │  │  │
-                    │  │  │                                     │  │  │
-                    │  │  │  ┌─────────────────────────────┐    │  │  │
-                    │  │  │  │  Ollama (optional sidecar)  │    │  │  │
-                    │  │  │  │  :11434                      │    │  │  │
-                    │  │  │  └─────────────────────────────┘    │  │  │
-                    │  │  └────────────────────────────────────┘  │  │
-                    │  └──────────────────────────────────────────┘  │
-                    └──────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  HOST MACHINE (coderag CLI — native Go binary)                 │
+│  Fast, direct filesystem access, no Docker overhead            │
+│                                                                 │
+│  ┌──────────────┐   stdio    ┌───────────────────────────┐     │
+│  │   opencode    │◄─────────►│  coderag (Go binary)      │     │
+│  │  (AI agent)   │   (MCP)   │  • File watcher (fsnotify) │     │
+│  └──────────────┘            │  • C# analyser (subprocess)│     │
+│                              │  • Docker orchestration    │     │
+│                              │  • MCP stdio↔SSE bridge    │     │
+│                              └─────────┬─────────────────┘     │
+│                                        │                       │
+│                               HTTP :9621│      SSE :9622       │
+│                                        │                       │
+└────────────────────────────────────────┼───────────────────────┘
+                                         │
+         ┌───────────────────────────────┼───────────────────────┐
+         │  DOCKER / PODMAN             │                       │
+         │  Long-running services       │                       │
+         │                              │                       │
+         │  ┌────────────────────┐      │  ┌────────────────┐   │
+         │  │ LightRAG API       │◄─────┘  │ MCP Server     │   │
+         │  │ (Python FastAPI)   │  HTTP   │ (Python)       │   │
+         │  │ :9621              │         │ :9622           │   │
+         │  │ • Graph DB         │         │ • 22 MCP tools  │   │
+         │  │ • Vector DB        │         │ • SSE transport │   │
+         │  │ • WebUI            │         └────────────────┘   │
+         │  └────────────────────┘                              │
+         │                                                      │
+         │  ┌────────────────────┐                              │
+         │  │ Ollama (optional)  │◄─── localhost:11434          │
+         │  │ LLM + embeddings   │                              │
+         │  └────────────────────┘                              │
+         └──────────────────────────────────────────────────────┘
 ```
+
+**Why this split?** The `coderag` CLI runs on the host because:
+- File watching (fsnotify) needs low latency — Docker volume mounts add overhead
+- The C# analyser spawns subprocesses on the host filesystem — Docker would require complex mounts
+- The MCP bridge connects opencode (on host) to the MCP server (in Docker) via lightweight stdio↔SSE proxying
+
+Docker hosts the long-running Python services (LightRAG, MCP) where containerization provides isolation, reproducibility, and resource management.
 
 | Component | Role | Language | Runs on |
 |-----------|------|----------|---------|
-| **coderag CLI** | Central CLI — MCP server, file watcher, project orchestrator | Go | Host (native binary) |
+| **coderag CLI** | Central CLI — MCP bridge, file watcher, project orchestrator | Go | Host (native binary) |
 | **LightRAG** | RAG engine — entities/relations as a knowledge graph, LLM-powered queries | Python (FastAPI) | Docker/Podman container |
+| **MCP Server** | MCP tool definitions, SSE transport | Python | Docker/Podman container |
 | **WebUI** | React 19 UI for browsing the knowledge graph | TypeScript/React | Docker container (served by LightRAG) |
 | **Ollama** | Local LLM backend for inference + embeddings | Go | Docker container or host |
 
@@ -62,18 +68,18 @@
 
 1. User runs `coderag mcp .` in their project directory (or opencode launches it)
 2. `coderag` checks if LightRAG is healthy at `http://localhost:9621`:
-   - **No** → runs `docker compose up -d` (or compatible with Podman), waits for health
+   - **No** → runs `docker compose up -d`, waits for health
    - **Yes** → skips startup
 3. `coderag` starts the Go file watcher on the project directory (goroutine)
 4. `coderag` enters the MCP stdio loop, exposing 22 tools to opencode
-5. Tool calls are proxied to LightRAG's HTTP API or handled internally (file watcher, analysers)
+5. Tool calls are proxied via SSE to the Python MCP server in Docker, which talks to LightRAG's HTTP API
 
 ---
 
 ## 2. Project Structure
 
 ```
-code-lightrag/
+code-rag/
 ├── cmd/
 │   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
 ├── pkg/
@@ -81,23 +87,20 @@ code-lightrag/
 │   │   ├── watcher/             ← fsnotify + git observer
 │   │   ├── diff/                ← Entity/relation diff engine
 │   │   ├── pipeline/            ← Pipeline orchestration
-│   │   ├── parser/              ← Analyser output parsers (csharp.go, etc.)
+│   │   ├── parser/              ← Analyser output parsers (csharp.go)
 │   │   ├── router/              ← File extension → analyser mapping
 │   │   ├── filter/              ← Security filter (PII/keys/secrets)
 │   │   └── crud/                ← LightRAG HTTP CRUD client
-│   └── lightrag/                ← LightRAG HTTP API client
-│       ├── client.go            ← Client struct, request helpers
-│       └── types.go             ← Shared request/response types
-├── analysers/                   ← Language analysers (host-side)
-│   └── c_sharp/                 ← C# Roslyn-based analyser binary
-│       └── CSharpAnalyzerTool.exe
-├── daniel-lightrag-mcp/         ← Python MCP server (Docker)
-│   └── src/daniel_lightrag_mcp/ ← 13 MCP tools, SSE transport
+│   ├── lightrag/                ← LightRAG HTTP API client
+│   └── mcp/                     ← MCP server SDK (mark3labs/mcp-go)
+├── analysers/                   ← Language analysers (host-side, native Go)
+│   └── csharp/                  ← Go native C# analyser
 ├── LightRAG/                    ← Python RAG engine (Docker)
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
 │   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── watchdog/cmd/watchdog/       ← Standalone watcher binary entry
+├── daniel-lightrag-mcp/         ← Python MCP server (Docker)
+│   └── src/daniel_lightrag_mcp/ ← 22 MCP tools, SSE transport
 ├── Dockerfile                   ← Multi-stage: LightRAG + WebUI + MCP
 ├── docker-compose.yml           ← lightrag (:9621) + mcp (:9622)
 ├── go.mod
@@ -109,11 +112,10 @@ code-lightrag/
 
 | Package | Import path | Purpose |
 |---------|-------------|---------|
-| `pkg/watchdog` | `github.com/code-lightrag/watchdog` | File watching, diff engine, pipeline, CRUD client |
-| `pkg/lightrag` | `github.com/code-lightrag/lightrag` | LightRAG HTTP client (shared between mcp + watchdog) |
+| `pkg/watchdog` | `github.com/coderag/pkg/watchdog` | File watching, diff engine, pipeline, CRUD client |
+| `pkg/lightrag` | `github.com/coderag/pkg/lightrag` | LightRAG HTTP client |
 | `cmd/coderag` | — | CLI binary entry point (`start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`) |
 | `daniel-lightrag-mcp` | — | Python MCP server running in Docker (stdio↔SSE bridge) |
-| `watchdog/cmd/watchdog` | — | Standalone watcher entry (imports `pkg/watchdog`) |
 
 ---
 
@@ -149,16 +151,16 @@ project-root/
 
 ## 4. coderag CLI
 
-The `coderag` binary is the central CLI tool for the entire CodeLightRAG system. It is a single native binary built on the user's machine (Windows, Linux, macOS).
+The `coderag` binary is the central CLI tool for the entire codeRAG system. It is a single native binary built on the user's machine (Windows, Linux, macOS).
 
 ### CLI Commands
 
 ```bash
 coderag start   <dir>    →  Start Docker services + file watcher in foreground
-coderag mcp     <dir>    →  MCP server mode (stdio, for opencode/agent connections)
+coderag mcp     <dir>    →  MCP bridge mode (stdio, for opencode/agent connections)
                              Auto-starts Docker + watchdog in background.
                              Bridges stdio↔SSE to Python MCP in Docker.
-                             Exposes 13 tools over MCP stdio protocol.
+                             Exposes 22 tools over MCP stdio protocol.
 coderag scan    <dir>    →  Run C# analyser and populate knowledge graph
                              (explicit scan, useful for CLI-only usage)
 coderag webui   <dir>    →  Open WebUI in browser (ensure Docker is running)
@@ -186,7 +188,7 @@ Step 3:  Start file watcher on <dir> (goroutine, fsnotify + git poll)
          - Diffs entities/relations against current graph
          - Applies security filter, creates/updates/deletes via LightRAG API
 Step 4:  Enter MCP stdio loop (via SSE bridge):
-         ├─ tools/list    → return 13 tool definitions
+         ├─ tools/list    → return 22 tool definitions
          ├─ tools/call    → proxy to LightRAG HTTP API or handle internally
          └─ notifications → handle lifecycle
 ```
@@ -204,19 +206,23 @@ Step 5: On shutdown → stop watcher (Docker containers stay running)
 ### Supported containers
 
 The Docker/Podman stack includes:
-- **LightRAG API** — Python FastAPI server on `:9621`
-- **WebUI** — React static files served by the LightRAG API server
-- **Ollama** (optional) — LLM backend on `:11434`
+- **LightRAG API** — Python FastAPI server on `:9621` (includes WebUI)
+- **MCP Server** — Python MCP tool server on `:9622` (SSE transport)
+- **Ollama** (optional, on host or in container) — LLM backend on `:11434`
 
-Containers are configured in `docker-compose.yml` at the project root. The WebUI static files are built during Docker image build and served directly by the LightRAG FastAPI server.
+Containers are configured in `docker-compose.yml` at the project root.
 
 ---
 
-## 5. MCP Server (Go)
+## 5. MCP Bridge & Server
 
-The MCP server runs in Docker (`daniel-lightrag-mcp`) and communicates with `coderag` via SSE. The Go `coderag` binary acts as a stdio↔SSE bridge.
+The MCP server runs in Docker (`daniel-lightrag-mcp` on port 9622, SSE transport) and the Go `coderag` binary on the host acts as a stdio↔SSE bridge between opencode and the Python MCP server.
 
-### 13 MCP Tools
+```
+opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Docker :9622) → HTTP → LightRAG API (Docker :9621)
+```
+
+### 22 MCP Tools
 
 **Query (2 tools):**
 | Tool | Description |
@@ -243,12 +249,6 @@ The MCP server runs in Docker (`daniel-lightrag-mcp`) and communicates with `cod
 | `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) |
 | `get_entity_details` | Full entity info with all its relations |
 
-### Architecture
-
-```
-opencode (stdio) → coderag mcp (Go bridge) → MCP server (Docker :9622) → LightRAG API (Docker :9621)
-```
-
 The Go bridge (`cmd/coderag/main.go`) handles:
 1. Ensuring Docker services are up
 2. Starting watchdog in background goroutine
@@ -256,16 +256,14 @@ The Go bridge (`cmd/coderag/main.go`) handles:
 
 The Python MCP server (`daniel-lightrag-mcp`) handles:
 - Tool dispatch via LightRAG HTTP client
-- 13 tool definitions and handlers
+- 22 tool definitions and handlers
 - SSE transport on port 9622
 
 ---
 
 ## 6. Watchdog Pipeline (Go package)
 
-### Architecture
-
-The file watcher is a standalone Go package at `pkg/watchdog/` that can be imported by the `coderag` CLI or the standalone `watchdog` binary.
+The file watcher is a Go package at `pkg/watchdog/` imported by the `coderag` CLI.
 
 ```
 pkg/watchdog/
@@ -354,7 +352,6 @@ Runs **after** extraction, **before** graph insertion. Matched values -> `[REDAC
 | `test_integration_lightrag.py` | 11 | Health, document, query endpoints |
 | `test_integration_graph_vdb.py` | 11 | Entity/relation VDB embedding + `file_path` persistence |
 | `test_smoke_lightrag.py` | 9 | Import/instantiation smoke tests |
-| `test_smoke_watchdog.py` | 8 | Watchdog component instantiation |
 | `test_pydantic_v2.py` | 4 | Pydantic v2 migration checks |
 | `test_retry.py` | 3 | Document retry logic |
 | `test_namespace.py` | 4 | Package imports and version |

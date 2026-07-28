@@ -1,7 +1,13 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 28** — Python Analyser 🔧 IN PROGRESS
+- 🔥 **Phase 32** — Knowledge Graph Refactoring 🔧 IN PROGRESS
+  - **Phase 32.1** — Qualified Entity Names 🔧 IN PROGRESS
+  - **Phase 32.2** — Call Graph Insertion ⏳ PENDING
+  - **Phase 32.3** — Multi-Type Edges & Directed Relations ⏳ PENDING
+  - **Phase 32.4** — File Entities & Hierarchy ⏳ PENDING
+  - **Phase 32.5** — Graph Density Optimization ⏳ PENDING
+- **Phase 28** — Go C# Analyser ✅ COMPLETE
 - **Phase 27** — Verify All MCP Tools ✅ COMPLETE
 - **Phase 26** — Fix Broken MCP Tools ✅ COMPLETE
 - **Phase 25** — Architecture Cleanup & MCP Fixes ✅ COMPLETE
@@ -16,7 +22,7 @@
 
 ### Architecture Decision (June 2026)
 
-**Goal:** `coderag` is the central CLI tool for the CodeLightRAG system.
+**Goal:** `coderag` is the central CLI tool for the codeRAG system.
 
 **Key architecture decisions made so far:**
 1. **`coderag` is the CLI binary** — replaces `watchdog` as main entry point
@@ -46,10 +52,10 @@ Host side:                        Docker:
 | `cmd/coderag/main.go` CLI (start, watch, status, stop, query, webui) | ✅ Done |
 | `.opencode/opencode.json` remote MCP config | ✅ Done |
 | `pkg/mcp/` removed (stale Go dir) | ✅ Done |
-| Move `watchdog/internal/*` → `pkg/watchdog/` | ⏳ Pending |
-| Create `pkg/lightrag/` HTTP client | ⏳ Pending |
-| Thin standalone `watchdog` entry point | ⏳ Pending |
-| Move `analysers/` to root | ⏳ Pending |
+| Move `watchdog/internal/*` → `pkg/watchdog/` | ✅ Done |
+| Create `pkg/lightrag/` HTTP client | ✅ Done |
+| Thin standalone `watchdog` entry point | ✅ Deleted — absorbed by `cmd/coderag/` |
+| Move `analysers/` to root | ✅ Done |
 
 ### Key CLI behavior
 
@@ -195,7 +201,7 @@ opencode ──stdio──► coderag mcp (Go bridge)
 - `coderag mcp <dir>` — stdio↔SSE bridge + starts watchdog in background
 - `coderag scan <dir>` — run C# analyser and populate knowledge graph
 - `go build ./cmd/coderag` succeeds, `go vet ./...` passes
-- Root `go.mod` module: `github.com/code-lightrag/coderag`, Go 1.25.5
+- Root `go.mod` module: `github.com/coderag`, Go 1.25.5
 
 ### Go watchdog (pkg/watchdog/)
 - `pkg/watchdog/watcher/` — fsnotify + git observer, worker pool, debounce
@@ -211,10 +217,18 @@ opencode ──stdio──► coderag mcp (Go bridge)
 - C# analyser: extracts CLASS, METHOD, PROPERTY, INHERITS_FROM, DEPENDS_ON, CALLS
 
 ### C# Analyser
-- `analysers/c_sharp/CSharpAnalyzerTool.exe` — Roslyn-based analyser binary
-- Runs on solution files (`.sln`), outputs entity/relation data to `relations_output/`
-- Entity types: CLASS, METHOD, PROPERTY, INTERFACE
-- Relation types: INHERITS_FROM, DEPENDS_ON, CALLS, IMPLEMENTS
+- `analysers/csharp/` — Go-based analyser replacing the old .NET `CSharpAnalyzerTool.exe`
+- **Package:** `github.com/coderag/analysers/csharp` (`csharpanalyser`)
+- **Binary:** `csharp_analyser.exe` (self-contained, no CGo/tree-sitter, ~5MB static binary)
+- **Commands:** `scan` (full solution), `update` (incremental with stdout diff)
+- **Parser:** Go-native state machine (not tree-sitter) — detects CLASS, METHOD, PROPERTY, INTERFACE, STRUCT, ENUM
+- **Output format:** `# EXPORTS: ...` / `# IMPORTS: ...` header + entity/relation lines
+- **Diff mode:** `update` emits `REMOVED_SYMBOL` / `ADDED_SYMBOL` to stdout
+- **Cross-file calls:** Two-phase index: Phase 1 builds global symbol index from all `.cs` files, Phase 2 resolves calls against it
+- **Key design decisions:**
+  - Expression-bodied methods (`=>`) handled inline (no `{` scope)
+  - Class scope tracked via `classDepth` (brace depth at declaration), not `braceDepth == 0`
+  - Regex-based parser (not tree-sitter) for zero CGo, static binary, cross-compilation
 
 ### Python MCP server (in Docker)
 - `daniel-lightrag-mcp/src/daniel_lightrag_mcp/` — 13 MCP tools in Python
@@ -234,6 +248,28 @@ opencode ──stdio──► coderag mcp (Go bridge)
 
 ---
 
+---
+
+## Phase 32 — Knowledge Graph Refactoring
+
+### Problem
+The current knowledge graph stores every code element (class, method, property, nested type) as flat, unqualified nodes in an undirected graph. For a small game project this produces ~500 nodes and ~680 edges. The graph is too dense to be useful for codebase navigation.
+
+### Phases
+
+| Phase | What | Status |
+|-------|------|--------|
+| **32.1** | **Qualified Entity Names** — `Snake.Run`, `Pong.Ball.X` instead of `Run`, `Ball`, `X` | 🔧 IN PROGRESS |
+| 32.2 | **Call Graph Insertion** — emit already-extracted call sites as LightRAG relations | ⏳ |
+| 32.3 | **Multi-Type Edges & Directed Relations** — allow multiple relation types per pair | ⏳ |
+| 32.4 | **File Entities & Hierarchy** — FILE and NAMESPACE entity types | ⏳ |
+| 32.5 | **Graph Density Optimization** — visibility filtering, depth-param querying | ⏳ |
+
+### Design Doc
+See `docs/KG_REFACTOR_PLAN.md` for full details.
+
+---
+
 ## Key Technical Decisions
 
 1. **Python MCP kept, Docker-only** — No Go rewrite. `daniel-lightrag-mcp` runs as separate Docker service. SSE transport on port 9622. 13 tools for AI agent codebase exploration (query, query_data, get_related_files, check_entity_exists, get_knowledge_graph, get_graph_labels, add_note_to_entity, get_codebase_stats, get_entity_neighbors, get_entity_details, list_entities_by_type, get_entities_in_file, search_entities).
@@ -247,9 +283,10 @@ opencode ──stdio──► coderag mcp (Go bridge)
 9. **Project isolation** — `.coderag/rag_storage` per project
 10. **Entity-level CRUD > document pipeline** — No LLM calls for analyser output
 11. **Security filter built into pipeline** — Secret data never reaches graph
-12. **C# analyser at project root** — `analysers/c_sharp/CSharpAnalyzerTool.exe` (moved from `daniel-lightrag-mcp/analysers/`)
+12. **C# analyser at project root** — `analysers/csharp/` Go-based analyser (replaces old `analysers/c_sharp/CSharpAnalyzerTool.exe`)
 13. **`update_relations` deprecated** — MCP client's `update_relations()` is deprecated (kept for future use). Analysis is now handled by Go watchdog via `coderag scan` or automatic on file change.
 14. **`_auto_initialize()` removed** — MCP server no longer auto-runs analyser on startup. Watchdog handles initialization via background goroutine.
+15. **Go native parser (no tree-sitter)** — C# analyser uses Go regex/state-machine, not CGo/tree-sitter, for a fully static binary
 
 ## Learnings
 

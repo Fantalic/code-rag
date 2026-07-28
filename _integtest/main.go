@@ -10,7 +10,7 @@ import (
 
 func main() {
 	sln := os.Args[1]
-	results, err := pipeline.RunCSharpAnalyser(sln)
+	results, err := pipeline.RunCSharpAnalyser(sln, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "RunCSharpAnalyser error: %v\n", err)
 		os.Exit(1)
