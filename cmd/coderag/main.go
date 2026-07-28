@@ -41,12 +41,19 @@ func main() {
 				Action: mcpCmd,
 				Args:   true,
 			},
-			{
-				Name:   "scan",
-				Usage:  "Run C# analyser and populate knowledge graph",
-				Action: scanCmd,
-				Args:   true,
+		{
+			Name:   "scan",
+			Usage:  "Run C# analyser and populate knowledge graph",
+			Action: scanCmd,
+			Args:   true,
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:    "clean",
+					Aliases: []string{"c"},
+					Usage:   "Clear all existing data in LightRAG before scanning",
+				},
 			},
+		},
 			{
 				Name:   "webui",
 				Usage:  "Open WebUI in browser",
@@ -474,12 +481,29 @@ func scanCmd(c *cli.Context) error {
 		return fmt.Errorf("directory not found: %s", inputDir)
 	}
 
+	clean := c.Bool("clean")
+
 	ctx := context.Background()
 	if err := ensureLightRAG(ctx); err != nil {
 		return fmt.Errorf("failed to start LightRAG: %w", err)
 	}
 
 	coderagDir := filepath.Join(inputDir, ".coderag")
+	analyserOut := filepath.Join(coderagDir, "analyser_output")
+
+	if clean {
+		log.Printf("Clearing analyser output directory...")
+		os.RemoveAll(analyserOut)
+
+		log.Printf("Clearing existing data from LightRAG...")
+		client := crud.NewConfig()
+		if err := client.ClearAll(); err != nil {
+			return fmt.Errorf("failed to clear LightRAG: %w", err)
+		}
+		// wait for clearing to complete
+		time.Sleep(3 * time.Second)
+	}
+
 	logsDir := filepath.Join(coderagDir, "docker-logs")
 	_ = captureDockerLogs(logsDir)
 
@@ -500,7 +524,6 @@ func scanCmd(c *cli.Context) error {
 	log.Printf("Found solution: %s", sln)
 
 	log.Printf("Running C# analyser...")
-	analyserOut := filepath.Join(inputDir, ".coderag", "analyser_output")
 	results, err := pipeline.RunCSharpAnalyser(sln, analyserOut)
 	if err != nil {
 		return fmt.Errorf("C# analyser failed: %w", err)
@@ -678,7 +701,7 @@ func parserEntitiesToMapScan(entities []parser.Entity) map[string]map[string]any
 func parserRelationsToMapScan(relations []parser.Relation) map[string]map[string]any {
 	result := make(map[string]map[string]any)
 	for _, r := range relations {
-		key := diff.RelationKey(r.Source, r.Target)
+		key := diff.RelationKey(r.Source, r.Target, r.Keywords)
 		result[key] = map[string]any{
 			"description": r.Description,
 			"keywords":    r.Keywords,
@@ -715,6 +738,7 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 	for _, edge := range data.Edges {
 		src := ""
 		tgt := ""
+		kw := ""
 
 		if s, ok := edge["source"].(string); ok && s != "" {
 			src = s
@@ -722,12 +746,17 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 		if t, ok := edge["target"].(string); ok && t != "" {
 			tgt = t
 		}
+		if props, ok := edge["properties"].(map[string]any); ok {
+			if k, ok := props["keywords"].(string); ok {
+				kw = k
+			}
+		}
 
 		if src == "" || tgt == "" {
 			continue
 		}
 
-		key := diff.RelationKey(src, tgt)
+		key := diff.RelationKey(src, tgt, kw)
 		result[key] = edge
 	}
 	return result

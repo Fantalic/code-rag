@@ -51,6 +51,7 @@ coderag mcp <dir>:
   → stdio↔SSE bridge to Python MCP server at :9622
 
 coderag scan <dir>:
+  → (optional --clean) DELETE /documents + remove analyser_output
   → find .sln
   → run C# analyser (csharp_analyser.exe)
   → parse output into entities + relations
@@ -140,8 +141,8 @@ csharp_analyser scan --solution <sln> --output <output-dir>
   METHOD|MethodName|path/to/file.cs|50|description
   RELATION|ClassA|ClassB|description|keywords|file.cs|1.0
   ```
-- Entity types: CLASS, METHOD, PROPERTY, INTERFACE, STRUCT, ENUM
-- Relation types: method_defines, property_has, inherits_from, implements, calls
+- Entity types: NAMESPACE, CLASS, METHOD, PROPERTY, INTERFACE, STRUCT, ENUM
+- Relation types: method_defines, property_has, inherits_from, implements, calls, contains
 
 ### C# Analyser Design Decisions
 
@@ -182,7 +183,7 @@ See API_REFERENCE.md for detailed request/response schemas.
 
 ## 7. MCP Server (daniel-lightrag-mcp/)
 
-Model Context Protocol server with 22 tools. Runs in Docker on port 9622 (SSE transport). The Go `coderag` binary bridges stdio↔SSE.
+Model Context Protocol server with 15 tools. Runs in Docker on port 9622 (SSE transport). The Go `coderag` binary bridges stdio↔SSE.
 
 ```
 opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → MCP Server (Docker :9622) → HTTP → LightRAG API (Docker :9621)
@@ -190,10 +191,12 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → MCP Server (Do
 
 **Categories:**
 - Query (2 tools): `query`, `query_data`
-- Knowledge graph (8 tools): `get_knowledge_graph`, `get_graph_labels`, `check_entity_exists`, `add_note_to_entity`, `get_related_files`, `get_entity_neighbors`, `get_entity_details`
-- Exploration (6 tools): `get_codebase_stats`, `list_entities_by_type`, `get_entities_in_file`, `search_entities`, `get_incoming_relations`, `get_outgoing_relations`
-- Document management (4 tools): `insert_text`, `insert_texts`, `upload_document`, `delete_document`
-- System (4 tools): `get_health`, `get_pipeline_status`, `get_track_status`, `get_document_status_counts`
+- Knowledge graph & traversal (8 tools): `get_knowledge_graph` (`max_depth`), `get_graph_labels`, `check_entity_exists`, `add_note_to_entity`, `get_related_files`, `get_entity_neighbors`, `get_incoming_relations`, `get_outgoing_relations`
+- Exploration (5 tools): `get_codebase_stats` (`visibility_counts`), `list_entities_by_type`, `get_entities_in_file`, `search_entities`, `get_entity_details` (`depth`)
+
+**Depth params on tools:**
+- `get_entity_details(depth)` — 1=entity only, 2=structural (includes members), 3=full (all relations)
+- `get_knowledge_graph(max_depth)` — 1=types only, 2=types+members, 3=all nodes
 
 ---
 

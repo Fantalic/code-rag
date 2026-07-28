@@ -35,7 +35,7 @@ Each layer is **queryable independently**. An MCP tool can request "just the cla
 
 ## Implementation Plan
 
-### Phase 1 — Qualified Entity Names (HIGH priority)
+### Phase 1 — Qualified Entity Names (HIGH priority) ✅ COMPLETE
 
 **Goal:** Every entity has a globally unique, human-readable qualified name.
 
@@ -50,7 +50,7 @@ Each layer is **queryable independently**. An MCP tool can request "just the cla
 | 1.7 | Rebuild `csharp_analyser.exe` + `coderag.exe` | Build + deploy |
 | 1.8 | Re-scan test project | Verify output |
 
-### Phase 2 — Call Graph Insertion (HIGH priority)
+### Phase 2 — Call Graph Insertion (HIGH priority) ✅ COMPLETE
 
 **Goal:** Method call sites are stored as LightRAG relations.
 
@@ -62,7 +62,7 @@ Each layer is **queryable independently**. An MCP tool can request "just the cla
 | 2.4 | `pipeline/run.go:applyCSharpResults` | Pass call relations through CRUD pipeline |
 | 2.5 | Rebuild + re-scan | Verify call edges appear in graph |
 
-### Phase 3 — Multi-Type Edges & Directed Relations (MEDIUM)
+### Phase 3 — Multi-Type Edges & Directed Relations (MEDIUM) ✅ COMPLETE
 
 **Goal:** Allow multiple relation types between the same pair; store direction metadata.
 
@@ -74,9 +74,11 @@ Each layer is **queryable independently**. An MCP tool can request "just the cla
 | 3.4 | MCP client methods | When fetching neighbors, dedup by type |
 | 3.5 | Rebuild Docker, verify | |
 
-### Phase 4 — File Entities & Hierarchy (LOW priority)
+### Phase 4 — Namespace Entities & Hierarchy (LOW priority) ⚠️ SUPERSEDED
 
 **Goal:** Source files and namespaces become queryable graph nodes.
+
+> **Note:** Phase 4 is superseded by Phase 33 redesign. Instead of separate NAMESPACE entities with `contains, namespace` relations, namespace is now embedded in entity names (`Namespace.ClassName`). See `PHASE33_REDESIGN.md`.
 
 | Change | Where | What |
 |--------|-------|------|
@@ -86,7 +88,7 @@ Each layer is **queryable independently**. An MCP tool can request "just the cla
 | 4.4 | MCP `list_entities_by_type` | Support FILE, NAMESPACE types |
 | 4.5 | Rebuild + re-scan | Verify file/namespace nodes in graph |
 
-### Phase 5 — Graph Density Optimization (LOW priority)
+### Phase 5 — Graph Density Optimization (LOW priority) ✅ COMPLETE
 
 **Goal:** Top-level view shows only public API; internals are expandable.
 
@@ -121,6 +123,11 @@ Each layer is **queryable independently**. An MCP tool can request "just the cla
 4. **Downstream compatibility:** The parser (`parser/csharp.go`) and pipeline
    (`pipeline/run.go`, `cmd/coderag/main.go:applyScanResults`) use entity names as opaque
    identifiers. Changing the name format doesn't break them — it only changes the values.
+
+5. **Namespace in entity name, not separate node (Phase 33 redesign):** Instead of a separate
+   NAMESPACE entity connected to classes via `contains, namespace`, the namespace is embedded
+   directly in the entity name (e.g., `TestLib.Calculator`). This eliminates an extra hop in
+   graph navigation and reduces visual clutter.
 
 ## Files to Modify
 

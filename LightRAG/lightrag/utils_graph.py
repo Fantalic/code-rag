@@ -610,19 +610,32 @@ async def acreate_relation(
             if not target_exists:
                 raise ValueError(f"Target entity '{target_entity}' does not exist")
 
-            # Check if relation already exists
+            # Check if relation already exists — if so, merge keywords
             existing_edge = await chunk_entity_relation_graph.has_edge(
                 source_entity, target_entity
             )
+            existing_kw = ""
             if existing_edge:
-                raise ValueError(
-                    f"Relation from '{source_entity}' to '{target_entity}' already exists"
+                existing_edge_data = await chunk_entity_relation_graph.get_edge(
+                    source_entity, target_entity
                 )
+                if existing_edge_data:
+                    existing_kw = existing_edge_data.get("keywords", "")
+
+            # Merge new keywords with existing ones
+            new_kw = relation_data.get("keywords", "")
+            all_keywords = set(
+                k.strip() for k in existing_kw.split(",") if k.strip()
+            )
+            all_keywords.update(
+                k.strip() for k in new_kw.split(",") if k.strip()
+            )
+            keywords = ",".join(sorted(all_keywords))
 
             # Prepare edge data with defaults if missing
             edge_data = {
                 "description": relation_data.get("description", ""),
-                "keywords": relation_data.get("keywords", ""),
+                "keywords": keywords,
                 "source_id": relation_data.get("source_id", "manual_creation"),
                 "weight": float(relation_data.get("weight", 1.0)),
                 "file_path": relation_data.get("file_path", "manual_creation"),
@@ -669,7 +682,7 @@ async def acreate_relation(
             await _edit_relation_done(relationships_vdb, chunk_entity_relation_graph)
 
             logger.info(
-                f"Relation from '{source_entity}' to '{target_entity}' successfully created"
+                f"Relation from '{source_entity}' to '{target_entity}' successfully created/updated (keywords: {keywords})"
             )
             return await get_relation_info(
                 chunk_entity_relation_graph,

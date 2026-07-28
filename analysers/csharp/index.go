@@ -1,8 +1,18 @@
 package csharpanalyser
 
 import (
+	"strings"
 	"sync"
 )
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
 
 type IndexBuilder struct {
 	mu     sync.Mutex
@@ -28,7 +38,7 @@ func (ib *IndexBuilder) BuildIndex(files []string) (*GlobalIndex, error) {
 		wg.Add(1)
 		go func(fp string) {
 			defer wg.Done()
-			fr, err := ParseFile(fp)
+			fr, err := ParseFile(fp, nil)
 			ch <- result{file: fp, fr: fr, err: err}
 		}(f)
 	}
@@ -68,7 +78,21 @@ func (ib *IndexBuilder) BuildIndex(files []string) (*GlobalIndex, error) {
 				index.Properties[e.Name] = append(index.Properties[e.Name], pi)
 			}
 		}
+		for _, gu := range r.fr.GlobalUsings {
+			if !containsString(index.GlobalUsings, gu) {
+				index.GlobalUsings = append(index.GlobalUsings, gu)
+			}
+		}
 		ib.mu.Unlock()
+	}
+
+	// Build simple-name -> fully-qualified-names lookup
+	for name := range index.Classes {
+		simple := name
+		if idx := strings.LastIndex(name, "."); idx >= 0 {
+			simple = name[idx+1:]
+		}
+		index.SimpleNames[simple] = append(index.SimpleNames[simple], name)
 	}
 
 	ib.index = index

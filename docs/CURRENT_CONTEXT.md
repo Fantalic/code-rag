@@ -1,12 +1,12 @@
 # Current Context
 
 ## Status
-- 🔥 **Phase 32** — Knowledge Graph Refactoring 🔧 IN PROGRESS
-  - **Phase 32.1** — Qualified Entity Names 🔧 IN PROGRESS
-  - **Phase 32.2** — Call Graph Insertion ⏳ PENDING
-  - **Phase 32.3** — Multi-Type Edges & Directed Relations ⏳ PENDING
-  - **Phase 32.4** — File Entities & Hierarchy ⏳ PENDING
-  - **Phase 32.5** — Graph Density Optimization ⏳ PENDING
+- 🔥 **Phase 32** — Knowledge Graph Refactoring ✅ COMPLETE
+  - **Phase 32.1** — Qualified Entity Names ✅ COMPLETE
+  - **Phase 32.2** — Call Graph Insertion ✅ COMPLETE
+  - **Phase 32.3** — Multi-Type Edges & Directed Relations ✅ COMPLETE
+  - **Phase 32.4** — Namespace Entities ✅ COMPLETE
+  - **Phase 32.5** — Graph Density Optimization ✅ COMPLETE
 - **Phase 28** — Go C# Analyser ✅ COMPLETE
 - **Phase 27** — Verify All MCP Tools ✅ COMPLETE
 - **Phase 26** — Fix Broken MCP Tools ✅ COMPLETE
@@ -250,23 +250,48 @@ opencode ──stdio──► coderag mcp (Go bridge)
 
 ---
 
-## Phase 32 — Knowledge Graph Refactoring
+## Phase 32 — Knowledge Graph Refactoring ✅ COMPLETE
 
-### Problem
-The current knowledge graph stores every code element (class, method, property, nested type) as flat, unqualified nodes in an undirected graph. For a small game project this produces ~500 nodes and ~680 edges. The graph is too dense to be useful for codebase navigation.
+### Summary
+All 5 sub-phases implemented and verified. The graph now has qualified names (e.g., `Snake.Run`), call graph edges (`CALL|` lines → `calls` relations), directed multi-keyword relations, NAMESPACE entity layer, and visibility-tagged descriptions with depth-parameterized querying.
 
-### Phases
+### Key Implementation Details
 
-| Phase | What | Status |
-|-------|------|--------|
-| **32.1** | **Qualified Entity Names** — `Snake.Run`, `Pong.Ball.X` instead of `Run`, `Ball`, `X` | 🔧 IN PROGRESS |
-| 32.2 | **Call Graph Insertion** — emit already-extracted call sites as LightRAG relations | ⏳ |
-| 32.3 | **Multi-Type Edges & Directed Relations** — allow multiple relation types per pair | ⏳ |
-| 32.4 | **File Entities & Hierarchy** — FILE and NAMESPACE entity types | ⏳ |
-| 32.5 | **Graph Density Optimization** — visibility filtering, depth-param querying | ⏳ |
+**Phase 32.1 — Qualified Entity Names:**
+- `walker.go` `handleMethodDecl`, `handlePropDecl`: entity name = `cls.Name` (was just `Name`)
+- `handleClassDecl` for nested types: `parent + "." + name`
+- `extractCalls`: callee resolution uses qualified names from `GlobalIndex`
 
-### Design Doc
-See `docs/KG_REFACTOR_PLAN.md` for full details.
+**Phase 32.2 — Call Graph Insertion:**
+- `output.go:WriteFileResult` emits `CALL|<callee>|<caller>|<file>|<line>` lines for each `CallSite`
+- `parser/csharp.go` parses `CALL|` lines into relations with `calls, depends` keywords
+- `pipeline/run.go` passes call relations through CRUD pipeline
+
+**Phase 32.3 — Multi-Type Edges & Directed Relations:**
+- `RelationKey{Source, Target, Keywords}` — 3-field directed key (was sorted src/tgt)
+- `splitKey()` returns 3 parts
+- `RelationAction.Keywords` field added
+- All pipeline dedup keys include keywords
+- `acreate_relation` in `utils_graph.py` merges keywords instead of raising on duplicate
+
+**Phase 32.4 — Namespace Entities:**
+- `types.go`: `EntityNamespace EntityType = "NAMESPACE"`
+- `walker.go`: `postProcess()` emits NAMESPACE entity + `contains, namespace` relation to each class/struct/enum/interface in file
+- `parser/csharp.go`: added `"NAMESPACE"` to entity type switch
+- Entity naming: namespace name derived from file path (e.g., `SnakeGame`)
+
+**Phase 32.5 — Graph Density Optimization:**
+- `walker.go`: `extractVisibility()` helper; method/property descriptions include `[public]`/`[private]` suffix
+- `server.py`: `get_entity_details` has `depth` param (1=entity only, 2=structural, 3=full); `get_knowledge_graph` has `max_depth` param (1=types, 2=+members, 3=all)
+- `client.py`: Both methods implement client-side filtering
+- `models.py`: `CodebaseStatsResponse.visibility_counts` field
+
+**Additional:**
+- `scan --clean`: `crud/client.go` has `ClearAll()` method sending `DELETE /documents`; `cmd/coderag/main.go` `scanCmd` accepts `--clean`/`-c` flag removing analyser_output dir and calling `ClearAll()`
+- `csharp_analyser.exe` entry point is `cmd/csharp_analyser/main.go` (package main), not root `main.go` (package csharpanalyser)
+- `csharp_analyser.exe` must be at `analysers/csharp/` (not `cmd/csharp_analyser/`) for pipeline to find it
+- Build commands: `go build -o csharp_analyser.exe ./cmd/csharp_analyser/` then copy to `analysers/csharp/`
+- Test run: 348 files scanned, output verified with NAMESPACE entities, visibility tags, and call graph edges all present
 
 ---
 

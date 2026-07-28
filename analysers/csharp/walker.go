@@ -1,6 +1,7 @@
 package csharpanalyser
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +10,7 @@ import (
 )
 
 var (
-	classRegex       = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|new|unsafe|async|extern|virtual|override)\s+(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([A-Za-z_][A-Za-z0-9_<>,\[\].\s]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_<>,\[\].]*)*))?\s*\{?\s*$`)
+	classRegex       = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|new|unsafe|async|extern|virtual|override)\s+)*(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([A-Za-z_][A-Za-z0-9_<>,\[\].\s]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_<>,\[\].]*)*))?\s*\{?\s*$`)
 	classSimpleRegex = regexp.MustCompile(`^\s*(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([A-Za-z_][A-Za-z0-9_<>,\[\].\s]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_<>,\[\].]*)*))?\s*\{?\s*$`)
 	methodRegex      = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|new|unsafe|async|extern|virtual|override)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:where\s|=>|\s*[{;])?`)
 	propRegex        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|new|virtual|override|abstract|sealed|readonly)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*(?:get|set)`)
@@ -17,7 +18,7 @@ var (
 	callRegex        = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	thisCallRegex    = regexp.MustCompile(`(?:this|base)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	nsRegex          = regexp.MustCompile(`^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)`)
-	usingRegex       = regexp.MustCompile(`^\s*using\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;`)
+	usingRegex       = regexp.MustCompile(`^\s*(global\s+)?using\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;`)
 	varDeclRegex     = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|readonly|new|volatile|async)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=;]`)
 
 	reAttr       = regexp.MustCompile(`^\s*\[`)
@@ -45,8 +46,9 @@ type Parser struct {
 	exports   []string
 	imports   []string
 
-	namespace string
-	usings    []string
+	namespace    string
+	usings       []string
+	globalUsings []string
 
 	braceDepth int
 	classStack []classContext
@@ -58,6 +60,8 @@ type Parser struct {
 	methodBody  string
 
 	scopeVars []map[string]string
+
+	index *GlobalIndex
 }
 
 func (p *Parser) currentClass() string {
@@ -67,28 +71,68 @@ func (p *Parser) currentClass() string {
 	return p.classStack[len(p.classStack)-1].name
 }
 
-func ParseFile(filePath string) (*FileResult, error) {
+func (p *Parser) resolveType(simpleName string) string {
+	if p.index == nil {
+		return simpleName
+	}
+	// 1. Current namespace
+	if p.namespace != "" {
+		candidate := p.namespace + "." + simpleName
+		if _, ok := p.index.Classes[candidate]; ok {
+			return candidate
+		}
+	}
+	// 2. File-level usings
+	for _, u := range p.usings {
+		candidate := u + "." + simpleName
+		if _, ok := p.index.Classes[candidate]; ok {
+			return candidate
+		}
+	}
+	// 3. Global usings (from index)
+	for _, u := range p.index.GlobalUsings {
+		candidate := u + "." + simpleName
+		if _, ok := p.index.Classes[candidate]; ok {
+			return candidate
+		}
+	}
+	// 4. Exact match (already fully-qualified or global namespace)
+	if _, ok := p.index.Classes[simpleName]; ok {
+		return simpleName
+	}
+	// 5. Unique simple-name match across index (fallback)
+	if matches, ok := p.index.SimpleNames[simpleName]; ok && len(matches) == 1 {
+		return matches[0]
+	}
+	return simpleName
+}
+
+func ParseFile(filePath string, index *GlobalIndex) (*FileResult, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read file %s: %w", filePath, err)
 	}
 
+	// Strip UTF-8 BOM
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 	content := string(data)
 	p := &Parser{
 		sourcePath: filePath,
 		content:    content,
 		lines:      strings.Split(content, "\n"),
 		scopeVars:  []map[string]string{{}},
+		index:      index,
 	}
 
 	p.parse()
 	return &FileResult{
-		FilePath:  filePath,
-		Entities:  p.entities,
-		Relations: p.relations,
-		Exports:   p.exports,
-		Imports:   p.imports,
-		Calls:     p.calls,
+		FilePath:     filePath,
+		Entities:     p.entities,
+		Relations:    p.relations,
+		Exports:      p.exports,
+		Imports:      p.imports,
+		Calls:        p.calls,
+		GlobalUsings: p.globalUsings,
 	}, nil
 }
 
@@ -108,8 +152,12 @@ func (p *Parser) parse() {
 		}
 
 		if usingMatch := usingRegex.FindStringSubmatch(trimmed); usingMatch != nil {
-			p.usings = append(p.usings, usingMatch[1])
-			p.imports = append(p.imports, usingMatch[1])
+			ns := usingMatch[2]
+			p.usings = append(p.usings, ns)
+			p.imports = append(p.imports, ns)
+			if usingMatch[1] != "" {
+				p.globalUsings = append(p.globalUsings, ns)
+			}
 			continue
 		}
 
@@ -137,7 +185,7 @@ func (p *Parser) parse() {
 				p.handlePropDecl(m, i)
 				continue
 			}
-			if v := varDeclRegex.FindStringSubmatch(trimmed); v != nil && v[1] != "" && v[2] != "" {
+			if v := varDeclRegex.FindStringSubmatch(trimmed); v != nil && v[1] != "" && v[2] != "" && !isKeyword(v[1]) {
 				// class-level field -> treat as property
 				p.handlePropDecl(v, i)
 				continue
@@ -146,7 +194,7 @@ func (p *Parser) parse() {
 
 		if p.inMethod {
 			if v := varDeclRegex.FindStringSubmatch(trimmed); v != nil && v[1] != "" {
-				p.scopeVars[len(p.scopeVars)-1][v[2]] = v[1]
+				p.scopeVars[len(p.scopeVars)-1][v[2]] = p.resolveType(v[1])
 			}
 			p.extractCalls(trimmed, i)
 		}
@@ -163,10 +211,13 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 		baseClause = strings.TrimSpace(m[3])
 	}
 
+	// Build fully-qualified name: prefix top-level types with namespace, nest others under parent
 	qualifiedClassName := name
 	if len(p.classStack) >= 1 {
 		parent := p.classStack[len(p.classStack)-1].name
 		qualifiedClassName = parent + "." + name
+	} else if p.namespace != "" {
+		qualifiedClassName = p.namespace + "." + name
 	}
 
 	ctx := classContext{
@@ -181,16 +232,21 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 		parts := reInheritSep.Split(baseClause, -1)
 		for _, part := range parts {
 			part = strings.TrimSpace(part)
-			part = strings.TrimPrefix(part, "I")
-			if strings.HasPrefix(part, "I") && part != "" && part[0] >= 'A' && part[0] <= 'Z' {
-				rPart := "I" + part
-				if !p.isInImports(part) && part != name {
-					ctx.interfaces = append(ctx.interfaces, rPart)
-					p.imports = append(p.imports, rPart)
+			// Strip generic suffixes for name matching
+			simplePart := part
+			if idx := strings.IndexAny(simplePart, "<"); idx >= 0 {
+				simplePart = simplePart[:idx]
+			}
+			// Detect interfaces by "I" prefix convention + uppercase second char
+			isInterface := len(simplePart) >= 2 && simplePart[0] == 'I' && simplePart[1] >= 'A' && simplePart[1] <= 'Z'
+			if isInterface {
+				if simplePart != name {
+					ctx.interfaces = append(ctx.interfaces, simplePart)
+					p.imports = append(p.imports, simplePart)
 				}
-			} else if part != "" && part != name {
-				ctx.baseType = part
-				p.imports = append(p.imports, part)
+			} else if simplePart != "" && simplePart != name {
+				ctx.baseType = simplePart
+				p.imports = append(p.imports, simplePart)
 			}
 		}
 	}
@@ -207,11 +263,7 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 		entityType = EntityEnum
 	}
 
-	entityName := name
-	if len(p.classStack) >= 2 {
-		parent := p.classStack[len(p.classStack)-2].name
-		entityName = parent + "." + name
-	}
+	entityName := qualifiedClassName
 
 	p.addEntity(Entity{
 		Name:        entityName,
@@ -234,6 +286,34 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 		})
 	}
 
+	// Emit inheritance/implements relations via GlobalIndex
+	if p.index != nil {
+		if ctx.baseType != "" {
+			resolved := p.resolveType(ctx.baseType)
+			if _, ok := p.index.Classes[resolved]; ok {
+				p.addRelation(Relation{
+					Source:      entityName,
+					Target:      resolved,
+					Description: fmt.Sprintf("%s extends %s", entityName, resolved),
+					Keywords:    "inheritance, extends",
+					Weight:      1.0,
+				})
+			}
+		}
+		for _, iface := range ctx.interfaces {
+			resolved := p.resolveType(iface)
+			if _, ok := p.index.Classes[resolved]; ok {
+				p.addRelation(Relation{
+					Source:      entityName,
+					Target:      resolved,
+					Description: fmt.Sprintf("%s implements %s", entityName, resolved),
+					Keywords:    "implements",
+					Weight:      1.0,
+				})
+			}
+		}
+	}
+
 	p.countBraces(line)
 }
 
@@ -242,6 +322,24 @@ func (p *Parser) looksLikeMethod(line string) bool {
 		return true
 	}
 	return strings.Contains(line, "(") && strings.Contains(line, ")")
+}
+
+func extractVisibility(line string) string {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(trimmed, "public"):
+		return "public"
+	case strings.HasPrefix(trimmed, "private"):
+		return "private"
+	case strings.HasPrefix(trimmed, "protected internal"):
+		return "protected internal"
+	case strings.HasPrefix(trimmed, "protected"):
+		return "protected"
+	case strings.HasPrefix(trimmed, "internal"):
+		return "internal"
+	default:
+		return ""
+	}
 }
 
 func (p *Parser) handleMethodDecl(m []string, lineNo int) {
@@ -273,9 +371,14 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 	p.methodLine = lineNo
 	p.methodBody = ""
 
-	desc := fmt.Sprintf("%s.%s()", cls, methodName)
+	vis := extractVisibility(p.lines[lineNo])
+	visSuffix := ""
+	if vis != "" {
+		visSuffix = " [" + vis + "]"
+	}
+	desc := fmt.Sprintf("%s.%s()%s", cls, methodName, visSuffix)
 	if returnType != "" {
-		desc = fmt.Sprintf("%s.%s() -> RETURNS -> %s", cls, methodName, returnType)
+		desc = fmt.Sprintf("%s.%s() -> RETURNS -> %s%s", cls, methodName, returnType, visSuffix)
 	}
 
 	p.addEntity(Entity{
@@ -310,7 +413,7 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 			if len(parts) >= 2 {
 				paramType := parts[0]
 				paramName := parts[len(parts)-1]
-				p.scopeVars[len(p.scopeVars)-1][paramName] = paramType
+				p.scopeVars[len(p.scopeVars)-1][paramName] = p.resolveType(paramType)
 				p.imports = append(p.imports, paramType)
 			}
 		}
@@ -339,9 +442,14 @@ func (p *Parser) handlePropDecl(m []string, lineNo int) {
 
 	qualifiedName := cls + "." + propName
 
-	desc := fmt.Sprintf("%s.%s", cls, propName)
+	vis := extractVisibility(p.lines[lineNo])
+	visSuffix := ""
+	if vis != "" {
+		visSuffix = " [" + vis + "]"
+	}
+	desc := fmt.Sprintf("%s.%s%s", cls, propName, visSuffix)
 	if propType != "" {
-		desc = fmt.Sprintf("%s.%s -> RETURNS -> %s", cls, propName, propType)
+		desc = fmt.Sprintf("%s.%s -> RETURNS -> %s%s", cls, propName, propType, visSuffix)
 	}
 
 	p.addEntity(Entity{
@@ -405,11 +513,11 @@ func (p *Parser) extractCalls(line string, lineNo int) {
 			}
 		}
 
-		qualifiedCallee := callee
-		if calleeClass != "" {
-			qualifiedCallee = calleeClass + "." + callee
+		if calleeClass == "" {
+			continue
 		}
 
+		qualifiedCallee := calleeClass + "." + callee
 		p.calls = append(p.calls, CallSite{
 			CallerFile:   p.sourcePath,
 			CallerMethod: p.methodName,

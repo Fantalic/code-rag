@@ -1,50 +1,39 @@
-# Phase 32 — Knowledge Graph Refactoring 🔧 IN PROGRESS
+# Phase 33 — Graph Entity Model Redesign ✅ COMPLETE
 
-## Goal
+**All steps implemented and verified** (see `docs/PHASE33_REDESIGN.md`):
 
-Transform the codebase knowledge graph from a flat, dense spiderweb into a layered,
-navigable structure where entities have qualified names, call graph edges exist,
-and the graph can be browsed at different levels of granularity.
-
-## Master Plan
-
-Detailed plan in `docs/KG_REFACTOR_PLAN.md`.
-
-## Phase 32.1 — Qualified Entity Names 🔧 IN PROGRESS
-
-### Problem
-Entity names are flat (`Run`, `Ball`, `Console`) causing name collisions and unreadable graphs.
-Method `Snake.Run` and `Pong.Run` can't be distinguished.
-
-### Fix
-Prefix method/property/nested-type entity names with their parent class:
-- `Run` → `Snake.Run`
-- `Ball` → `Pong.Ball`
-- `Console` → `Snake.Console`
-- `X` → `Pong.Ball.X`
-- `Direction` → `Snake.Direction`
-
-### Changes
-
-| File | Change |
+| What | Status |
 |------|--------|
-| `analysers/csharp/walker.go` | `handleMethodDecl`, `handlePropDecl`: entity name = `cls + "." + name` |
-| | `handleClassDecl` for nested: `parent + "." + name` |
-| | `extractCalls`: callee resolution uses qualified names |
-| `analysers/csharp/output.go` | (none, just data flows through) |
-| `pkg/watchdog/parser/csharp.go` | (none, names are opaque identifiers) |
+| Namespace-qualified entity names (`Console_Monsters.Bases.CharacterBase`) | ✅ |
+| NAMESPACE entities + `contains, namespace` edges removed | ✅ |
+| Inheritance relations (`inheritance, extends`) emitted via GlobalIndex | ✅ |
+| Interface relations (`implements`) emitted via GlobalIndex | ✅ |
+| Framework calls (empty calleeClass) filtered from call graph | ✅ |
+| Scope variable types resolved through GlobalIndex | ✅ |
 
-### Steps
+**Bugs fixed during verification:**
+- **Multi-modifier class regex** — `classRegex` matched only one modifier, so `public abstract class X : Y` was never parsed (pre-existing). Now `(?:mod\s+)*` like method/prop regexes.
+- **Global usings ignored** — `usingRegex` didn't match `global using X;`, and `resolveType` ignored usings entirely. Cross-namespace base types (e.g. `CharacterBase` via `global using Console_Monsters.Bases;`) now resolve: current ns → file usings → global usings → unique simple-name fallback (`SimpleNames` index map).
+- **UTF-8 BOM** — files with BOM failed `nsRegex`; stripped in `ParseFile`.
+- **`return`-type property leak** — `return result;` inside methods created spurious PROPERTY entities; fixed with `isKeyword(v[1])` guard.
 
-| # | Step | Status |
-|---|------|--------|
-| 1 | Change `handleMethodDecl` entity name to `cls.Name` | 🔧 |
-| 2 | Change `handlePropDecl` entity name to `cls.Name` | ⏳ |
-| 3 | Change nested class entity name to `parent.Name` | ⏳ |
-| 4 | Update relation targets to use qualified names | ⏳ |
-| 5 | Rebuild `csharp_analyser.exe` + `coderag.exe` | ⏳ |
-| 6 | Re-scan test project, verify output | ⏳ |
-| 7 | Test MCP tools against new graph | ⏳ |
+**Verified on `dotnet-console-games` (348 files):** 154 `extends` + 4 `implements` relations, 0 NAMESPACE entities, 0 `return`-type leaks. `go test ./...` + `go vet` clean.
+
+---
+
+# Phase 32 — Knowledge Graph Refactoring ✅ COMPLETE
+
+**All 5 sub-phases (32.1–32.5) implemented and verified:**
+
+| Phase | What | Status |
+|-------|------|--------|
+| **32.1** | **Qualified Entity Names** — `Snake.Run`, `Pong.Ball.X` instead of `Run`, `Ball` | ✅ |
+| **32.2** | **Call Graph Insertion** — `CALL\|` lines emitted from analyser, parsed as `calls` relations | ✅ |
+| **32.3** | **Multi-Type Edges & Directed Relations** — `RelationKey(src, tgt, kw)` directed 3-field key; `acreate_relation` merges keywords | ✅ |
+| **32.4** | **Namespace Entities** — `EntityNamespace` type, `postProcess()` in walker emits NAMESPACE + `contains, namespace` relations | ✅ |
+| **32.5** | **Graph Density Optimization** — visibility tags (`[public]`/`[private]`), `depth`/`max_depth` params on MCP tools, `visibility_counts` in stats | ✅ |
+
+**Verified:** csharp_analyser.exe rebuilt (3.5MB), coderag.exe rebuilt, test scan of 348 files produced NAMESPACE entities, call graph edges, visibility tags. Current work: updating all documentation files.
 
 ---
 
@@ -65,40 +54,7 @@ Prefix method/property/nested-type entity names with their parent class:
 
 ---
 
-# Phase 26 — Fix Broken MCP Tools 🔧 IN PROGRESS
 
-## Bug Report
-
-From MCP tool testing:
-- `get_codebase_stats` returns 0 entities despite graph being populated
-- `get_entity_neighbors` and `get_entity_details` fail due to schema mismatches
-- Knowledge graph only contains sample Calculator class, not actual project code
-- `coderag mcp` doesn't start watchdog, so graph is never populated
-
-## Root Causes
-
-1. **C# analyser in wrong location** — `daniel-lightrag-mcp/analysers/` instead of project root `analysers/`
-2. **Edge field name mismatch** — LightRAG returns `source`/`target` but MCP client expects `src_id`/`tgt_id`
-3. **Watchdog not started** — `coderag mcp` only starts Docker + bridge, not the file watcher
-4. **No explicit scan command** — no way to trigger analysis manually
-
-## Steps
-
-| # | Step | Status |
-|---|------|--------|
-| 1 | Delete old Python watchdog code (`watchdog/` dir) | ⏳ Pending |
-| 2 | Move C# analyser to `analysers/c_sharp/` | ⏳ Pending |
-| 3 | Update Go pipeline `findCSharpAnalyser()` path | ⏳ Pending |
-| 4 | Fix MCP edge field handling in `get_entity_neighbors` | ⏳ Pending |
-| 5 | Fix MCP edge field handling in `get_entity_details` | ⏳ Pending |
-| 6 | Add `coderag scan` command | ⏳ Pending |
-| 7 | Start watchdog in background on `coderag mcp` | ⏳ Pending |
-| 8 | Deprecate `update_relations` (keep, may be used in future) | ⏳ Pending |
-| 9 | Remove `_auto_initialize()` from MCP server | ⏳ Pending |
-| 10 | Update documentation | ⏳ Pending |
-| 11 | Verify with `coderag mcp E:\_dev\_Projects\test-csharp-project` | ⏳ Pending |
-
----
 
 # Phase 21 — coderag Restructuring ✅ COMPLETE
 

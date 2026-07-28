@@ -261,6 +261,15 @@ func (c *Config) SetWorkspace(workspace string) error {
 	return err
 }
 
+func (c *Config) ClearAll() error {
+	_, err := c.do(http.MethodDelete, "/documents", nil)
+	if err != nil {
+		return fmt.Errorf("clear all: %w", err)
+	}
+	log.Printf("All documents, entities, and relations cleared")
+	return nil
+}
+
 func (c *Config) IngestText(content, fileSource string) error {
 	payload := map[string]any{"text": content, "file_source": fileSource}
 	_, err := c.do(http.MethodPost, "/documents/text", payload)

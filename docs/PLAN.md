@@ -86,11 +86,9 @@ Live system test: 50 nodes, 47 edges, queries work. Found entity deletion not wo
 ✅ MCP SSE handshake verified
 ✅ opencode config updated to use `type: "local"`
 
-## Phase 22 — MCP Tool Improvements for Large Codebases 🔧 IN PROGRESS
+## Phase 22 — MCP Tool Improvements for Large Codebases ✅ COMPLETE
 
-### Goal
-
-Restructure the monorepo so `coderag` is the central CLI. Everything becomes modular Go packages. The Python MCP server is replaced by Go MCP built into the `coderag` binary.
+All 13 MCP tools implemented and verified. See TASK.md for details.
 
 ### Architecture Decision
 
@@ -241,9 +239,9 @@ The current 6-tool set (query, get_related_files, check_entity_exists, get_knowl
 | 10 | Update docs | DOCUMENTATION.md, CURRENT_CONTEXT.md |
 | 11 | Verify all tools work | Test against real codebase |
 
-### Phase 23 — MCP Bug Fixes & Auto-Initialization 🔧 IN PROGRESS
+### Phase 23 — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
 
-**Agent test revealed critical bugs:**
+**Agent test revealed critical bugs (all fixed):**
 
 | Tool | Issue |
 |------|-------|
@@ -353,6 +351,20 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 - Replaced old .NET CSharpAnalyzerTool.exe with Go native analyser (`analysers/csharp/`)
 - Zero CGo, fully static binary, no .NET runtime needed
 - Pipe-delimited output format, two-phase cross-file call resolution
+
+### Phase 32 — Knowledge Graph Refactoring ✅ COMPLETE
+
+**All 5 sub-phases (32.1–32.5) implemented and verified:**
+
+| Phase | What | Status |
+|-------|------|--------|
+| **32.1** | **Qualified Entity Names** — `Snake.Run`, `Pong.Ball.X` instead of `Run`, `Ball` | ✅ |
+| **32.2** | **Call Graph Insertion** — `CALL\|` lines emitted from analyser, parsed as `calls` relations | ✅ |
+| **32.3** | **Multi-Type Edges & Directed Relations** — `RelationKey(src, tgt, kw)` directed 3-field key; `acreate_relation` merges keywords | ✅ |
+| **32.4** | **Namespace Entities** — `EntityNamespace` type, `postProcess()` emits NAMESPACE + `contains, namespace` | ✅ |
+| **32.5** | **Graph Density Optimization** — visibility tags (`[public]`/`[private]`), `depth`/`max_depth` params | ✅ |
+
+Key files: `analysers/csharp/walker.go` (visibility, postProcess, qualified names, calls), `analysers/csharp/types.go` (NAMESPACE), `analysers/csharp/output.go` (CALL emission), `pkg/watchdog/parser/csharp.go` (CALL parsing, NAMESPACE type), `pkg/watchdog/diff/engine.go` (3-field RelationKey), `pkg/watchdog/pipeline/run.go` (keyword-aware dedup), `cmd/coderag/main.go` (scan --clean), `pkg/watchdog/crud/client.go` (ClearAll), `LightRAG/lightrag/utils_graph.py` (keyword merge), MCP server/client/models (`depth`/`max_depth` params, `visibility_counts`).
 
 ### Phase 29 — Git Commit Watcher
 - Extend git watcher to detect new commits (not just uncommitted changes)

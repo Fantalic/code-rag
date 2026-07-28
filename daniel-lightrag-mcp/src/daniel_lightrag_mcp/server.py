@@ -126,11 +126,21 @@ TOOLS = [
         name="get_knowledge_graph",
         description=(
             "Get the knowledge graph (entities + relationships). "
-            "Returns nodes and edges representing indexed code elements."
+            "Returns nodes and edges representing indexed code elements. "
+            "Use max_depth to control detail level: 1=top-level types only, "
+            "2=+members, 3=all (default)."
         ),
         inputSchema={
             "type": "object",
-            "properties": {},
+            "properties": {
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Detail level: 1=types only, 2=+members, 3=all",
+                    "default": 3,
+                    "minimum": 1,
+                    "maximum": 3,
+                },
+            },
             "required": [],
         },
     ),
@@ -229,9 +239,9 @@ TOOLS = [
     Tool(
         name="get_entity_details",
         description=(
-            "Get full details of a specific entity including all its relations "
-            "(incoming and outgoing). Returns the entity description, properties, "
-            "and every relationship it participates in."
+            "Get full details of a specific entity including its relations. "
+            "Use depth to control level: 1=entity info only, 2=+structural relations "
+            "(contains/defines/has), 3=full including call graph (default)."
         ),
         inputSchema={
             "type": "object",
@@ -239,7 +249,14 @@ TOOLS = [
                 "entity_name": {
                     "type": "string",
                     "description": "Name of the entity to get details for",
-                }
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "Detail level: 1=entity only, 2=structural, 3=full",
+                    "default": 3,
+                    "minimum": 1,
+                    "maximum": 3,
+                },
             },
             "required": ["entity_name"],
         },
@@ -385,7 +402,8 @@ async def _dispatch_tool(tool_name: str, args: dict[str, Any]) -> Any:
         return await client.check_entity_exists(entity_name)
 
     elif tool_name == "get_knowledge_graph":
-        return await client.get_knowledge_graph()
+        max_depth = args.get("max_depth", 3)
+        return await client.get_knowledge_graph(max_depth=max_depth)
 
     elif tool_name == "get_graph_labels":
         return await client.get_graph_labels()
@@ -407,7 +425,8 @@ async def _dispatch_tool(tool_name: str, args: dict[str, Any]) -> Any:
 
     elif tool_name == "get_entity_details":
         entity_name = args["entity_name"]
-        return await client.get_entity_details(entity_name)
+        depth = args.get("depth", 3)
+        return await client.get_entity_details(entity_name, depth=depth)
 
     elif tool_name == "list_entities_by_type":
         entity_type = args["entity_type"]

@@ -335,7 +335,7 @@ Internal: `utils_graph.py:575` — `acreate_relation()`
 **What happens internally:**
 1. Acquires `graph_db_lock`
 2. Validates both entities exist via `has_node()` — raises if not
-3. Checks if relation already exists via `has_edge()` — raises if so
+3. Checks if relation already exists via `has_edge()` — if so, **merges keywords** (comma-joins new keywords to existing) instead of raising
 4. Prepares edge data with defaults: `weight = 1.0`, `source_id = "manual_creation"`
 5. `chunk_entity_relation_graph.upsert_edge(src, tgt, edge_data)` — graph DB
 6. Computes `relation_id = md5hash(src + tgt, prefix="rel-")` — vector DB key

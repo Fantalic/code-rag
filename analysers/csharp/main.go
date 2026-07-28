@@ -99,10 +99,8 @@ func runScan(slnPath string, outputCfg *OutputConfig) error {
 		return fmt.Errorf("build index: %w", err)
 	}
 
-	_ = index
-
 	for _, fp := range files {
-		fr, err := ParseFile(fp)
+		fr, err := ParseFile(fp, index)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: parse %s: %v\n", fp, err)
 			continue
@@ -169,10 +167,8 @@ func runUpdate(slnPath string, outputCfg *OutputConfig, changed string) error {
 		return fmt.Errorf("rebuild index: %w", err)
 	}
 
-	_ = index
-
 	for _, cf := range changedFiles {
-		fr, err := ParseFile(cf)
+		fr, err := ParseFile(cf, index)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: parse %s: %v\n", cf, err)
 			continue

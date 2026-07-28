@@ -670,6 +670,9 @@ class CodebaseStatsResponse(BaseModel):
     relation_types: list[str] = Field(
         default_factory=list, description="All relation types present"
     )
+    visibility_counts: dict[str, int] = Field(
+        default_factory=dict, description="Entity count by visibility (public/private/etc.)"
+    )
 
 
 class ListEntitiesRequest(BaseModel):

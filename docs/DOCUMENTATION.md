@@ -37,7 +37,7 @@
          │  │ LightRAG API       │◄─────┘  │ MCP Server     │   │
          │  │ (Python FastAPI)   │  HTTP   │ (Python)       │   │
          │  │ :9621              │         │ :9622           │   │
-         │  │ • Graph DB         │         │ • 22 MCP tools  │   │
+         │  │ • Graph DB         │         │ • 15 MCP tools  │   │
          │  │ • Vector DB        │         │ • SSE transport │   │
          │  │ • WebUI            │         └────────────────┘   │
          │  └────────────────────┘                              │
@@ -71,7 +71,7 @@ Docker hosts the long-running Python services (LightRAG, MCP) where containeriza
    - **No** → runs `docker compose up -d`, waits for health
    - **Yes** → skips startup
 3. `coderag` starts the Go file watcher on the project directory (goroutine)
-4. `coderag` enters the MCP stdio loop, exposing 22 tools to opencode
+4. `coderag` enters the MCP stdio loop, exposing 15 tools to opencode
 5. Tool calls are proxied via SSE to the Python MCP server in Docker, which talks to LightRAG's HTTP API
 
 ---
@@ -160,9 +160,9 @@ coderag start   <dir>    →  Start Docker services + file watcher in foreground
 coderag mcp     <dir>    →  MCP bridge mode (stdio, for opencode/agent connections)
                              Auto-starts Docker + watchdog in background.
                              Bridges stdio↔SSE to Python MCP in Docker.
-                             Exposes 22 tools over MCP stdio protocol.
+                              Exposes 15 tools over MCP stdio protocol.
 coderag scan    <dir>    →  Run C# analyser and populate knowledge graph
-                             (explicit scan, useful for CLI-only usage)
+                             Use `--clean`/`-c` to clear graph + VDB first
 coderag webui   <dir>    →  Open WebUI in browser (ensure Docker is running)
 coderag watch   <dir>    →  File watcher only (no Docker orchestration)
 coderag status           →  Health check all services
@@ -222,7 +222,7 @@ The MCP server runs in Docker (`daniel-lightrag-mcp` on port 9622, SSE transport
 opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Docker :9622) → HTTP → LightRAG API (Docker :9621)
 ```
 
-### 22 MCP Tools
+### 15 MCP Tools
 
 **Query (2 tools):**
 | Tool | Description |
@@ -230,24 +230,26 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | `query` | LLM-powered natural language query (hybrid mode) |
 | `query_data` | Structured query without LLM (entities + relationships) |
 
-**Knowledge Graph (6 tools):**
+**Knowledge Graph & Traversal (8 tools):**
 | Tool | Description |
 |------|-------------|
-| `get_knowledge_graph` | Retrieve full KG (nodes + edges) |
+| `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) |
 | `get_graph_labels` | Get all entity/relation label types |
 | `check_entity_exists` | Check if entity exists by name |
 | `add_note_to_entity` | Attach embedded note to entity |
 | `get_related_files` | Find files related to a query (semantic search) |
+| `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) |
+| `get_incoming_relations` | Entities pointing TO this entity |
+| `get_outgoing_relations` | Entities this entity points TO |
 
 **Exploration (5 tools):**
 | Tool | Description |
 |------|-------------|
-| `get_codebase_stats` | Entity/relation counts by type, unique file count |
-| `list_entities_by_type` | Paginated list of CLASS/METHOD/PROPERTY entities |
+| `get_codebase_stats` | Entity/relation counts by type, unique files, visibility counts |
+| `list_entities_by_type` | Paginated list of entities by type (CLASS, METHOD, NAMESPACE, etc.) |
 | `get_entities_in_file` | Filter graph by source file path |
 | `search_entities` | Regex search on entity names and descriptions |
-| `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) |
-| `get_entity_details` | Full entity info with all its relations |
+| `get_entity_details` | Full entity info with all relations; `depth` (1=entity, 2=structural, 3=full) |
 
 The Go bridge (`cmd/coderag/main.go`) handles:
 1. Ensuring Docker services are up
@@ -256,7 +258,7 @@ The Go bridge (`cmd/coderag/main.go`) handles:
 
 The Python MCP server (`daniel-lightrag-mcp`) handles:
 - Tool dispatch via LightRAG HTTP client
-- 22 tool definitions and handlers
+- 15 tool definitions and handlers
 - SSE transport on port 9622
 
 ---
@@ -312,10 +314,13 @@ The C# analyser operates at **solution level** (requires `.sln` file). When any 
 
 | Type | Example | Relation |
 |------|---------|----------|
-| CLASS | `Calculator` | defines METHOD, has PROPERTY |
-| METHOD | `Calculator.Add()` | belongs_to CLASS |
-| PROPERTY | `User.Email` | has CLASS |
-| INTERFACE | `IRepository<T>` | implemented_by CLASS |
+| NAMESPACE | `SnakeGame` | contains CLASS, INTERFACE, STRUCT, ENUM |
+| CLASS | `Snake.Calculator` | defines METHOD, has PROPERTY |
+| METHOD | `Snake.Calculator.Add()` | belongs_to CLASS |
+| PROPERTY | `Snake.User.Email` | has CLASS |
+| INTERFACE | `Snake.IRepository<T>` | implemented_by CLASS |
+| STRUCT | `Snake.Point` | value type |
+| ENUM | `Snake.Direction` | enumeration |
 | INHERITS_FROM | AdvancedCalculator → Calculator | extends CLASS |
 | DEPENDS_ON | Calculator → IOperation | implements INTERFACE |
 | CALLS | MethodA → MethodB | cross-file call reference |

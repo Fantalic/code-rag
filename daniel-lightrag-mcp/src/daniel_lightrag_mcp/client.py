@@ -259,11 +259,52 @@ class LightRAGClient:
 
     # --- Knowledge Graph ---
 
-    async def get_knowledge_graph(self, label: str = "*") -> GraphResponse:
-        """Retrieve the knowledge graph from LightRAG."""
+    async def get_knowledge_graph(
+        self, label: str = "*", max_depth: int = 3
+    ) -> GraphResponse:
+        """Retrieve the knowledge graph from LightRAG.
+
+        Args:
+            label: Entity label filter
+            max_depth: Detail level — 1=types only, 2=+members, 3=all (default)
+        """
         params = {"label": label}
         response_data = await self._make_request("GET", "/graphs", params=params)
-        return GraphResponse(**response_data)
+        result = GraphResponse(**response_data)
+
+        if max_depth >= 3:
+            return result
+
+        top_level_types = {"CLASS", "INTERFACE", "STRUCT", "ENUM", "NAMESPACE"}
+        member_types = {"METHOD", "PROPERTY"}
+
+        if max_depth == 1:
+            keep_types = top_level_types
+        else:
+            keep_types = top_level_types | member_types
+
+        filtered_nodes = []
+        for node in result.nodes:
+            props = node.get("properties") or {}
+            ntype = props.get("entity_type", "")
+            if ntype in keep_types:
+                filtered_nodes.append(node)
+
+        filtered_edges = []
+        if max_depth >= 1:
+            filtered_node_names = {
+                n.get("id") or n.get("name", "") for n in filtered_nodes
+            }
+            for edge in result.edges:
+                src = edge.get("source") or edge.get("src_id", "")
+                tgt = edge.get("target") or edge.get("tgt_id", "")
+                if src in filtered_node_names and tgt in filtered_node_names:
+                    filtered_edges.append(edge)
+
+        result.nodes = filtered_nodes
+        result.edges = filtered_edges
+        result.is_truncated = len(filtered_nodes) < len(result.nodes)
+        return result
 
     async def get_graph_labels(self) -> LabelsResponse:
         """Get labels for entities and relations in the knowledge graph."""
@@ -489,6 +530,17 @@ class LightRAGClient:
         all_entity_types = sorted(set(entity_types) | discovered_entity_types)
         all_relation_types = sorted(set(relation_types) | discovered_relation_types)
 
+        # Count by visibility
+        visibility_counts: dict[str, int] = {}
+        for node in graph.nodes:
+            desc = node.get("properties", {}).get("description", "")
+            if "[" in desc and "]" in desc:
+                end = desc.index("]")
+                start = desc.rindex("[", 0, end)
+                vis = desc[start + 1 : end]
+                if vis:
+                    visibility_counts[vis] = visibility_counts.get(vis, 0) + 1
+
         return CodebaseStatsResponse(
             total_entities=total_entities,
             total_relations=total_relations,
@@ -497,6 +549,7 @@ class LightRAGClient:
             unique_files=len(all_files),
             entity_types=all_entity_types,
             relation_types=all_relation_types,
+            visibility_counts=visibility_counts,
         )
 
     async def get_entity_neighbors(self, entity_name: str) -> EntityNeighborsResponse:
@@ -569,8 +622,15 @@ class LightRAGClient:
             total_outgoing=len(outgoing),
         )
 
-    async def get_entity_details(self, entity_name: str) -> EntityDetailsResponse:
-        """Get full details of an entity including all its relations."""
+    async def get_entity_details(
+        self, entity_name: str, depth: int = 3
+    ) -> EntityDetailsResponse:
+        """Get full details of an entity including its relations.
+
+        Args:
+            entity_name: Name of the entity
+            depth: Detail level — 1=entity only, 2=structural, 3=full (default)
+        """
         graph = await self.get_knowledge_graph(label="*")
         entity_info: Optional[EntityInfo] = None
 
@@ -612,6 +672,23 @@ class LightRAGClient:
                 incoming.append(rel)
             if src == entity_name:
                 outgoing.append(rel)
+
+        # Filter by depth
+        if depth < 3:
+            structural_kw = {"contains", "defines", "has", "nested", "method", "property"}
+            all_relations = [
+                r for r in all_relations
+                if structural_kw & set(
+                    kw.strip() for kw in r.properties.get("keywords", "").split(",") if kw.strip()
+                )
+            ]
+            incoming = [r for r in all_relations if r.target_entity == entity_name]
+            outgoing = [r for r in all_relations if r.source_entity == entity_name]
+
+        if depth == 1:
+            all_relations = []
+            incoming = []
+            outgoing = []
 
         return EntityDetailsResponse(
             entity=entity_info,

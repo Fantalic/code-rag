@@ -9,7 +9,6 @@ code-rag/
 ├── cmd/
 │   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
 ├── pkg/
-│   ├── mcp/                     ← MCP server (mark3labs/mcp-go, 22 tools)
 │   ├── watchdog/                ← File watcher (importable Go package)
 │   │   ├── watcher/             ← fsnotify + git observer
 │   │   ├── diff/                ← Entity/relation diff engine
@@ -25,6 +24,7 @@ code-rag/
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
 │   └── lightrag_webui/          ← React 19 + TypeScript UI
+├── daniel-lightrag-mcp/         ← Python MCP server (Docker, 15 tools, SSE)
 ├── .opencode/                   ← CodeGraph prompts + opencode.json
 ├── Dockerfile                   ← LightRAG + WebUI image
 ├── docker-compose.yml           ← LightRAG + optional Ollama
@@ -47,14 +47,17 @@ coderag mcp <project-dir>
 ## Development Commands
 
 ```bash
-go build -o coderag ./cmd/coderag         # Build CLI
-coderag start <dir>                        # Docker + file watcher
-coderag mcp .                              # MCP bridge for opencode
-docker compose up -d                       # Start LightRAG + Ollama
-go test ./...                              # Go tests
-pytest tests/ -v                           # Python tests
-go vet ./...                               # Lint Go
-ruff check .                               # Lint Python
+go build -o coderag ./cmd/coderag           # Build CLI
+go build -o csharp_analyser.exe ./cmd/csharp_analyser/  # Build C# analyser
+copy csharp_analyser.exe analysers\csharp\   # Deploy (Windows)
+coderag start <dir>                          # Docker + file watcher
+coderag scan <dir>                           # Run analyser (--clean to reset)
+coderag mcp .                                # MCP bridge for opencode
+docker compose up -d                         # Start LightRAG + Ollama
+go test ./...                                # Go tests
+pytest tests/ -v                             # Python tests
+go vet ./...                                 # Lint Go
+ruff check .                                 # Lint Python
 ```
 
 ## Coding Style

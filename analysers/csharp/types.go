@@ -78,28 +78,32 @@ type TypeInfo struct {
 }
 
 type GlobalIndex struct {
-	Classes    map[string]*ClassInfo
-	Methods    map[string][]*MethodInfo
-	Properties map[string][]*PropertyInfo
-	Types      map[string]*TypeInfo
+	Classes      map[string]*ClassInfo
+	Methods      map[string][]*MethodInfo
+	Properties   map[string][]*PropertyInfo
+	Types        map[string]*TypeInfo
+	GlobalUsings []string
+	SimpleNames  map[string][]string
 }
 
 func NewGlobalIndex() *GlobalIndex {
 	return &GlobalIndex{
-		Classes:    make(map[string]*ClassInfo),
-		Methods:    make(map[string][]*MethodInfo),
-		Properties: make(map[string][]*PropertyInfo),
-		Types:      make(map[string]*TypeInfo),
+		Classes:     make(map[string]*ClassInfo),
+		Methods:     make(map[string][]*MethodInfo),
+		Properties:  make(map[string][]*PropertyInfo),
+		Types:       make(map[string]*TypeInfo),
+		SimpleNames: make(map[string][]string),
 	}
 }
 
 type FileResult struct {
-	FilePath  string
-	Entities  []Entity
-	Relations []Relation
-	Exports   []string
-	Imports   []string
-	Calls     []CallSite
+	FilePath     string
+	Entities     []Entity
+	Relations    []Relation
+	Exports      []string
+	Imports      []string
+	Calls        []CallSite
+	GlobalUsings []string
 }
 
 type DiffReport struct {
