@@ -1,22 +1,11 @@
 # Current Context
 
 ## Status
+- 🔥 **Phase 33** — Graph Entity Model Redesign ✅ COMPLETE (see docs/PHASE33_REDESIGN.md)
+  - Namespace-qualified entity names, inheritance/implements relations, framework call filtering, multi-modifier classRegex, global usings
 - 🔥 **Phase 32** — Knowledge Graph Refactoring ✅ COMPLETE
-  - **Phase 32.1** — Qualified Entity Names ✅ COMPLETE
-  - **Phase 32.2** — Call Graph Insertion ✅ COMPLETE
-  - **Phase 32.3** — Multi-Type Edges & Directed Relations ✅ COMPLETE
-  - **Phase 32.4** — Namespace Entities ✅ COMPLETE
-  - **Phase 32.5** — Graph Density Optimization ✅ COMPLETE
-- **Phase 28** — Go C# Analyser ✅ COMPLETE
-- **Phase 27** — Verify All MCP Tools ✅ COMPLETE
-- **Phase 26** — Fix Broken MCP Tools ✅ COMPLETE
-- **Phase 25** — Architecture Cleanup & MCP Fixes ✅ COMPLETE
-- **Phase 24** — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
-- **Phase 23** — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
-- **Phase 22** — MCP Tool Improvements ✅ COMPLETE
-- **Phase 21** — coderag Restructuring ✅ COMPLETE
-- **Phase 20** — VDB Embedding & file_path Persistence ✅ COMPLETE
-- **Phase 19** — Incremental Update Pipeline Fixes ✅ COMPLETE
+- **Phase 27** — Verify All MCP Tools ✅ COMPLETE (verified 6/13 tools June 21; full 13-tool verification blocked by graph quality issues — see Phase 27.5 plan)
+- **Phase 27.5** — Graph Quality Fix & MCP Verification 🔧 PLANNED (see docs/PLAN.md)
 
 ## Phase 21 — coderag Restructuring ✅ COMPLETE
 

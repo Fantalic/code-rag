@@ -339,15 +339,41 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 - Docker image rebuilt successfully
 - LightRAG and MCP containers healthy
 - `coderag scan` populated graph: 43 entities, 46 relations
-- All 6 previously broken/partial tools now work:
-  - `list_entities_by_type("CLASS")` → returns 8 entities (was empty)
-  - `get_entity_details("Calculator")` → returns entity with 16 relations (was ValidationError)
-  - `search_entities("Calc")` → returns 10 matches (was ValidationError)
-  - `get_entities_in_file("TestLib/Calculator.cs")` → returns 14 entities (was ValidationError)
-  - `get_entity_neighbors("Calculator")` → returns 16 neighbors (was empty)
-  - `add_note_to_entity` → returns success (was reporting error)
+- All 6 previously broken/partial tools now work
 
-### Phase 28 — Go C# Analyser ✅ COMPLETE
+**Critical issues found during Phase 33 verification testing (July 29, 2026):**
+
+| # | Issue | Root Cause | Fix |
+|---|-------|-----------|-----|
+| 1 | **0 relations created** despite 1743 extracted | `ClearAll()` only calls `DELETE /documents`, which doesn't clear graph entities/relations stored in `rag_data` volume. `loadCurrentRelations()` reads stale pre-clear relations, so `DiffRelations` sees nothing new to create. | Purge `rag_data` volume + rebuild Docker image |
+| 2 | **Stale short-name entities** in graph (e.g. `Marsupial` not `Console_Monsters.Monsters.Marsupial`) | Old pre-Phase 33 entities persisted in Docker volume alongside new namespace-qualified ones | Full volume purge + clean rescan |
+| 3 | **Docker image not rebuilt** since Phase 33 analyser changes | `coderag scan` finds and runs the local `csharp_analyser.exe` correctly, but MCP server in Docker has stale state | Docker rebuild for clean slate |
+
+---
+
+### Phase 27.5 — Graph Quality Fix & MCP Verification (PLANNED)
+
+**Goal:** Ensure the knowledge graph contains correct Phase 33 entities with namespace-qualified names, inheritance relations, and no stale data. Verify all 13 MCP tools produce accurate results against actual codebase reality.
+
+**Root causes identified:**
+1. `ClearAll()` (`DELETE /documents`) does not purge the `rag_data` volume's graph storage — old entities and relations survive
+2. `loadCurrentRelations()` fetches stale edges from the graph that were never cleared, causing `DiffRelations` to see no new relations to create
+3. Docker volume `rag_data` persists across rebuilds, mixing pre-Phase 33 state with post-Phase 33 state
+
+**Fix steps:**
+
+| # | Step | What | Status |
+|---|------|------|--------|
+| 1 | Purge `rag_data` volume | `docker compose down -v` to remove volume (destroys all stored graph data) | Planned |
+| 2 | Rebuild Docker image | `docker compose build --no-cache` to pick up any Python MCP changes | Planned |
+| 3 | Start services | `docker compose up -d` | Planned |
+| 4 | Clean rescan | `coderag scan E:\_dev\_Projects\dotnet-console-games --clean` | Planned |
+| 5 | Verify entity count in graph | Query LightRAG `/graphs` API to confirm correct entity count and namespace-qualified names | Planned |
+| 6 | Verify relations exist | Query `/graphs` edges; confirm 154+ extends + 4 implements relations present | Planned |
+| 7 | Test all 13 MCP tools | Run each tool systematically and validate results against actual codebase | Planned |
+| 8 | Fix any bugs found | Address discrepancies between MCP results and actual codebase | Planned |
+
+### Phase 28 — Git Commit Watcher
 - Replaced old .NET CSharpAnalyzerTool.exe with Go native analyser (`analysers/csharp/`)
 - Zero CGo, fully static binary, no .NET runtime needed
 - Pipe-delimited output format, two-phase cross-file call resolution
