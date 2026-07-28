@@ -91,7 +91,12 @@ local_neo4jWorkDir/
 neo4jWorkDir/
 
 # Binary build artifacts
-watchdog/watchdog.exe
+coderag
+coderag.exe
+
+# C# Analyser
+analysers/c_sharp/
+analysers/csharp/csharp_analyser.exe
 
 # Moved outside repo
 test-csharp-project/

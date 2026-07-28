@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/code-lightrag/coderag/pkg/watchdog/crud"
-	"github.com/code-lightrag/coderag/pkg/watchdog/pipeline"
-	"github.com/code-lightrag/coderag/pkg/watchdog/router"
+	"github.com/coderag/pkg/watchdog/crud"
+	"github.com/coderag/pkg/watchdog/pipeline"
+	"github.com/coderag/pkg/watchdog/router"
 )
 
 type Config struct {

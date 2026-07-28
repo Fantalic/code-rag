@@ -1,18 +1,18 @@
-# CodeLightRAG — Live Codebase Knowledge Graphs for AI Agents
+# codeRAG — Live Codebase Knowledge Graphs for AI Agents
 
 > **⚠️ Local-only Ollama:** This fork supports **only local Ollama** for LLM inference and embeddings. No cloud API keys, no OpenAI/Azure/Bedrock backends. See [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 
 > Transform your codebase into a queryable knowledge graph. AI agents query via MCP instead of reading files — no more "read these 400 files" prompts.
 
 ```
-[Your Codebase] ──► [Watchdog CLI] ──► [LightRAG API] ──► [Knowledge Graph]
+[Your Codebase] ──► [coderag CLI] ──► [LightRAG API] ──► [Knowledge Graph]
                                                       ▲
 [MCP Client] ──► [MCP Server] ────────────────────────│
 ```
 
 ## What It Does
 
-CodeLightRAG watches your project folder and builds a live semantic knowledge graph — entities (classes, methods), their relationships (calls, dependencies), and descriptions — all indexed and queryable via [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+codeRAG watches your project folder and builds a live semantic knowledge graph — entities (classes, methods), their relationships (calls, dependencies), and descriptions — all indexed and queryable via [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
 When you change a file, only the affected entities and relations update. No full rebuilds. No wasted embeddings.
 
@@ -26,7 +26,7 @@ AI agents connect via MCP tools to ask questions like:
 - **22 MCP tools** — query, insert, knowledge graph, document management, system tools
 - **Live file watching** — git-based change detection with initial full codebase scan
 - **Dual ingestion paths** — direct graph CRUD (no LLM) for structured files, LLM pipeline for complex/unstructured content
-- **Multi-language analysers** — C# (.NET 9 compiled binary), future: Go, Rust, Zig
+- **Multi-language analysers** — C# (Go native binary), future: Go, Rust, Zig
 - **Security filter** — strips API keys, passwords, PII, secrets before any data reaches the graph
 - **Docker-ready** — LightRAG API + MCP server deploy in containers
 - **Web UI** — React 19 interface for visual graph exploration at `http://localhost:9621`
@@ -40,8 +40,8 @@ AI agents connect via MCP tools to ask questions like:
 |-----------|----------|---------|
 | **LightRAG API** | Python (FastAPI) | RAG engine, graph storage, query endpoint on port 9621 |
 | **MCP Server** | Python | 22 MCP tools, stdio transport for AI agents |
-| **Watchdog CLI** | Go (standalone binary) | File watcher with initial scan + git-based change detection |
-| **C# Analyser** | C# (.NET 9 binary) | Extracts classes, methods, project references from .NET projects |
+| **coderag CLI** | Go (static binary) | Orchestrator — file watcher, scan, MCP bridge, Docker management |
+| **C# Analyser** | Go (native) | Extracts classes, methods, project references from .NET projects |
 
 ### Two Ingestion Paths
 
@@ -57,7 +57,7 @@ File change → POST /documents/text → LightRAG LLM extraction → Graph
 ```
 LLM re-parses content for richer extraction. Both paths are always available.
 
-### Watchdog Pipeline
+### Pipeline
 
 ```
 Initial scan (per solution)
@@ -76,7 +76,6 @@ Incremental changes (git-based or filesystem)
 
 ### Prerequisites
 - Python 3.10+ with venv
-- [.NET 9 runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (for C# analyser)
 - [Ollama](https://ollama.com/) running locally — **the only supported LLM/embedding backend**
   - Required models: `mistral-nemo:latest` (or any code-capable model), `bge-m3:latest`
 
@@ -84,55 +83,52 @@ Incremental changes (git-based or filesystem)
 
 ```powershell
 # Clone and setup
-git clone https://github.com/your-repo/code-lightrag.git
-cd code-lightrag
+git clone https://github.com/coderag/code-rag.git
+cd code-rag
 
-# One command — creates venv, installs deps, sets up .env
-.\scripts\setup.ps1
+# Build coderag CLI
+go build -o coderag ./cmd/coderag
 
-# Three terminals:
-# Terminal 1: LightRAG API + WebUI
-lightrag-server
-
-# Terminal 2: MCP server
-python -m daniel_lightrag_mcp
-
-# Terminal 3: Go watchdog — watches project, syncs to LightRAG
-watchdog\watchdog.exe watch .\myproject --url http://localhost:9621
+# Start everything (Docker + file watcher)
+.\coderag start .\myproject
 ```
 
-### Or use Docker Compose
+### Or step by step
 
 ```powershell
-docker-compose up lightrag mcp
-```
+# Terminal 1: Docker services
+docker compose up lightrag mcp -d
 
-### Or start everything at once
-
-```powershell
-watchdog\watchdog.exe start .\myproject --ollama=http://localhost:11434
+# Terminal 2: Watch + scan a project
+.\coderag watch .\myproject
+.\coderag scan .\myproject
 ```
-This starts LightRAG + MCP server + watchdog in one command.
 
 ## Usage
 
-### Watchdog CLI Commands
+### coderag CLI Commands
 
 ```bash
-# Watch a project folder (connects to existing LightRAG)
-watchdog.exe watch ./myproject --url http://localhost:9621
+# Start Docker services + file watcher
+coderag start ./myproject
 
-# Start LightRAG + MCP + watchdog together
-watchdog.exe start ./myproject --ollama=http://localhost:11434
+# Watch a project folder (connects to existing LightRAG)
+coderag watch ./myproject
+
+# Run C# analyser and populate knowledge graph
+coderag scan ./myproject
+
+# MCP bridge mode (for opencode)
+coderag mcp .
 
 # Check status
-watchdog.exe status
+coderag status
 
 # Query the graph
-watchdog.exe query "What classes are in this project?"
+coderag query "What classes are in this project?"
 
 # Stop all services
-watchdog.exe stop
+coderag stop
 ```
 
 ### Configuration
@@ -160,16 +156,31 @@ watchdog.exe stop
 
 | Extension | Analyser | Path |
 |-----------|----------|------|
-| `.cs` | C# Roslyn (compiled binary) | `daniel-lightrag-mcp/analysers/c_sharp/CSharpAnalyzerTool.exe` |
-| `.py`, `.js`, `.ts`, `.go`, `.rs` | Future: Go analyser | Planned |
-| `.md`, `.yaml`, `.json`, etc. | Future: Go analyser | Planned |
+| `.cs` | C# Go native analyser | `analysers/csharp/csharp_analyser.exe` |
+| `.py`, `.js`, `.ts`, `.go`, `.rs` | Future analysers | Planned |
+| `.md`, `.yaml`, `.json`, etc. | LLM fallback | — |
 
 Unsupported files fall back to the LLM pipeline (Path B).
 
 ## Project Structure
 
 ```
-code-lightrag/
+code-rag/
+├── cmd/
+│   └── coderag/main.go           ← CLI entry point → builds `coderag` binary
+├── pkg/
+│   ├── mcp/                      ← MCP server SDK (mark3labs/mcp-go)
+│   ├── watchdog/                 ← File watcher (importable Go package)
+│   │   ├── watcher/              ← fsnotify + git observer
+│   │   ├── diff/                 ← Entity/relation diff engine
+│   │   ├── pipeline/             ← Pipeline orchestration
+│   │   ├── parser/               ← Analyser output parsers
+│   │   ├── router/               ← File extension → analyser mapping
+│   │   ├── filter/               ← Security filter (PII/keys/secrets)
+│   │   └── crud/                 ← LightRAG HTTP CRUD client
+│   └── lightrag/                 ← LightRAG HTTP API client
+├── analysers/
+│   └── csharp/                   ← Go native C# analyser
 ├── LightRAG/                     ← Python: FastAPI server, RAG engine
 │   ├── lightrag/                 ← Core RAG + graph CRUD implementation
 │   ├── lightrag-api/             ← FastAPI app + routers
@@ -177,26 +188,14 @@ code-lightrag/
 ├── daniel-lightrag-mcp/          ← Python: MCP server (22 tools)
 │   ├── src/daniel_lightrag_mcp/
 │   │   ├── server.py             ← MCP tool implementations
-│   │   ├── client.py             ← HTTP client for LightRAG
-│   │   └── analysers/c_sharp/    ← CSharpAnalyzerTool.exe binary
+│   │   └── client.py             ← HTTP client for LightRAG
 │   └── Dockerfile
-├── watchdog/                     ← Go: Standalone CLI binary
-│   ├── cmd/watchdog/main.go      ← CLI entry point
-│   ├── internal/
-│   │   ├── crud/client.go        ← Graph CRUD HTTP client
-│   │   ├── diff/engine.go        ← Entity/relation diff engine
-│   │   ├── filter/security.go    ← PII/keys/secrets filter
-│   │   ├── parser/csharp.go      ← C# analyser output parser
-│   │   ├── pipeline/run.go       ← Pipeline orchestration
-│   │   ├── router/file.go        ← Extension → analyser mapping
-│   │   └── watcher/observer.go   ← File watcher + worker pool
-│   ├── go.mod
-│   └── watchdog.exe              ← Compiled binary
-├── tests/                        ← 63 integration tests
-├── daniel-lightrag-mcp/tests/    ← 163 MCP tests
-├── docs/                         ← ARCHITECTURE, PLAN, CURRENT_CONTEXT, TASK, API_REFERENCE
+├── docs/                         ← ARCHITECTURE, PLAN, CURRENT_CONTEXT, API_REFERENCE
+├── tests/                        ← Integration tests
+├── daniel-lightrag-mcp/tests/    ← MCP tests
 ├── docker-compose.yml
-└── Dockerfile
+├── Dockerfile
+└── go.mod
 ```
 
 ## Testing
@@ -228,11 +227,11 @@ All analyser output is filtered before reaching the graph:
 
 ## Status
 
-**Status:** `experimental` 🧪 · **Build:** `226 tests passing` ✅ · **Go watchdog:** ✅
+**Status:** `experimental` 🧪 · **Build:** `226 tests passing` ✅
 
 ## Acknowledgements
 
-Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [daniel-lightrag-mcp](https://github.com/desimpkins/daniel-lightrag-mcp) (MIT).
+Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [daniel-lightrag-mcp](https://github.com/desimpkins/daniel-lightrag-mcp) (MIT). CodeRAG Go packages are MIT — use freely.
 
 ## License
 

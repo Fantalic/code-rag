@@ -11,11 +11,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/code-lightrag/coderag/pkg/watchdog/crud"
-	"github.com/code-lightrag/coderag/pkg/watchdog/diff"
-	"github.com/code-lightrag/coderag/pkg/watchdog/filter"
-	"github.com/code-lightrag/coderag/pkg/watchdog/parser"
-	"github.com/code-lightrag/coderag/pkg/watchdog/router"
+	"github.com/coderag/pkg/watchdog/crud"
+	"github.com/coderag/pkg/watchdog/diff"
+	"github.com/coderag/pkg/watchdog/filter"
+	"github.com/coderag/pkg/watchdog/parser"
+	"github.com/coderag/pkg/watchdog/router"
 )
 
 type dedupKey struct {

@@ -1,3 +1,3 @@
-module github.com/code-lightrag/coderag/analysers/csharp
+module github.com/coderag/analysers/csharp
 
 go 1.25

@@ -16,12 +16,12 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v2"
-	"github.com/code-lightrag/coderag/pkg/watchdog/crud"
-	"github.com/code-lightrag/coderag/pkg/watchdog/diff"
-	"github.com/code-lightrag/coderag/pkg/watchdog/filter"
-	"github.com/code-lightrag/coderag/pkg/watchdog/pipeline"
-	"github.com/code-lightrag/coderag/pkg/watchdog/parser"
-	"github.com/code-lightrag/coderag/pkg/watchdog/watcher"
+	"github.com/coderag/pkg/watchdog/crud"
+	"github.com/coderag/pkg/watchdog/diff"
+	"github.com/coderag/pkg/watchdog/filter"
+	"github.com/coderag/pkg/watchdog/pipeline"
+	"github.com/coderag/pkg/watchdog/parser"
+	"github.com/coderag/pkg/watchdog/watcher"
 )
 
 func main() {

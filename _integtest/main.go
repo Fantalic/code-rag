@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/code-lightrag/coderag/pkg/watchdog/pipeline"
-	"github.com/code-lightrag/coderag/pkg/watchdog/parser"
+	"github.com/coderag/pkg/watchdog/pipeline"
+	"github.com/coderag/pkg/watchdog/parser"
 )
 
 func main() {
