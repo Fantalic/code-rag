@@ -1,0 +1,11 @@
+- other language support
+
+- create a master layer to manage different tools over one executable and one mcp server
+  - lightrag will be a module that enables relation graph queries
+  - security-tool  offers a read tool for an ai agent, that filters all sensitive information 
+    out of the content before it is presented to the agent.
+  - for opencode: maybe it is possible to directly manipulate the existing read tool.
+
+- expanded security 
+
+- rename executable watchtdog  to lightrag

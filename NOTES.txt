@@ -1,0 +1,5 @@
+== kill task
+taskkill /IM coderag.exe /F
+
+== build coderag
+go build -o coderag.exe ./cmd/coderag
