@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -25,214 +25,121 @@ type Relation struct {
 	Weight      float64
 }
 
-type ParseResult struct {
-	Entities  []Entity
-	Relations []Relation
-}
-
-var (
-	methodPattern   = regexp.MustCompile(`METHOD:\s*([^\s->]+)\s*->\s*RETURNS\s*->\s*(.+)`)
-	propertyPattern = regexp.MustCompile(`PROPERTY:\s*(\w+)\s*->\s*RETURNS\s*->\s*(.+)`)
-	inheritsPattern = regexp.MustCompile(`INHERITS_FROM\s*->\s*(\w+)`)
-	dependsPattern  = regexp.MustCompile(`DEPENDS_ON\s*->\s*(\w+)`)
-	callsPattern    = regexp.MustCompile(`METHOD:\s*([^\s->]+)\s*->\s*CALLS\s*->\s*.+\s*\[LINK:\s*([^\]]+)\]`)
-)
-
-func cleanFilePath(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if idx := strings.Index(raw, " [LINK:"); idx >= 0 {
-		raw = raw[:idx]
+// format: ENTITY_TYPE|Name|FilePath|LineNo|Description
+func parseEntityLine(line string) (Entity, bool) {
+	parts := strings.SplitN(line, "|", 5)
+	if len(parts) < 5 {
+		return Entity{}, false
 	}
-	return strings.TrimSpace(raw)
-}
+	entityType := parts[0]
+	name := parts[1]
+	filePath := parts[2]
+	desc := parts[4]
 
-type classAccum struct {
-	name         string
-	methods      []string
-	properties   []string
-	inheritsFrom string
-	dependsOn    []string
-	filePath     string
-	sourceID     string
-}
-
-func flushClass(acc *classAccum, entities *[]Entity, relations *[]Relation) {
-	if acc == nil || acc.name == "" {
-		return
+	// Basic validation
+	if name == "" || entityType == "" {
+		return Entity{}, false
 	}
 
-	className := acc.name
-	filePath := acc.filePath
-	filename := acc.sourceID
-	methods := acc.methods
-	properties := acc.properties
-	inheritsFrom := acc.inheritsFrom
-	dependsOn := acc.dependsOn
-
-	*entities = append(*entities, Entity{
-		Name:        className,
-		EntityType:  "CLASS",
-		Description: className + " with " + itoa(len(methods)) + " method(s), " + itoa(len(properties)) + " properties",
-		SourceID:    filename,
+	return Entity{
+		Name:        name,
+		EntityType:  entityType,
+		Description: desc,
 		FilePath:    filePath,
-		Methods:     methods,
-	})
+	}, true
+}
 
-	for _, method := range methods {
-		*entities = append(*entities, Entity{
-			Name:        method,
-			EntityType:  "METHOD",
-			Description: className + "." + method + "()",
-			SourceID:    filename,
-			FilePath:    filePath,
-		})
-		*relations = append(*relations, Relation{
-			Source:      className,
-			Target:      method,
-			Description: className + "." + method + "()",
-			Keywords:    "method, defines",
-			Weight:      1.0,
-		})
+// format: RELATION|Source|Target|Description|Keywords|FilePath|Weight
+func parseRelationLine(line string) (Relation, bool) {
+	parts := strings.SplitN(line, "|", 7)
+	if len(parts) < 7 {
+		return Relation{}, false
 	}
 
-	for _, prop := range properties {
-		*entities = append(*entities, Entity{
-			Name:        prop,
-			EntityType:  "PROPERTY",
-			Description: className + "." + prop,
-			SourceID:    filename,
-			FilePath:    filePath,
-		})
-		*relations = append(*relations, Relation{
-			Source:      className,
-			Target:      prop,
-			Description: className + "." + prop,
-			Keywords:    "property, has",
-			Weight:      0.8,
-		})
+	source := parts[1]
+	target := parts[2]
+	desc := parts[3]
+	keywords := parts[4]
+	weight, err := strconv.ParseFloat(parts[6], 64)
+	if err != nil {
+		weight = 1.0
 	}
 
-	if inheritsFrom != "" {
-		*relations = append(*relations, Relation{
-			Source:      className,
-			Target:      inheritsFrom,
-			Description: className + " inherits from " + inheritsFrom,
-			Keywords:    "inherits_from, extends",
-			Weight:      1.0,
-		})
+	if source == "" || target == "" {
+		return Relation{}, false
 	}
 
-	for _, dep := range dependsOn {
-		*relations = append(*relations, Relation{
-			Source:      className,
-			Target:      dep,
-			Description: className + " implements " + dep,
-			Keywords:    "depends_on, implements",
-			Weight:      1.0,
-		})
-	}
-
-	// Clear accumulator for next class
-	acc.name = ""
-	acc.methods = nil
-	acc.properties = nil
-	acc.inheritsFrom = ""
-	acc.dependsOn = nil
+	return Relation{
+		Source:      source,
+		Target:      target,
+		Description: desc,
+		Keywords:    keywords,
+		Weight:      weight,
+	}, true
 }
 
 func ParseCSharpFile(filename string, content string) (entities []Entity, relations []Relation) {
-	entities = []Entity{}
-	relations = []Relation{}
-
-	// C# analyser output files use UTF-8 BOM (\ufeff). Strip it.
 	content = strings.TrimLeft(content, "\ufeff")
 
-	var filePath string
-	var projectRefs []string
-	inRefs := false
-	hasClass := false
-
-	var cur *classAccum
-
-	startClass := func(name string) {
-		flushClass(cur, &entities, &relations)
-		cur = &classAccum{
-			name:     name,
-			filePath: filePath,
-			sourceID: filename,
-		}
-		hasClass = true
-	}
+	// Track classes to populate Methods field
+	classMethods := make(map[string][]string)
+	seenEntities := make(map[string]bool)
 
 	scanner := bufio.NewScanner(bytes.NewReader([]byte(content)))
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
-		if strings.HasPrefix(line, "FILE:") {
-			// Starting a new file section — flush pending class
-			flushClass(cur, &entities, &relations)
-			filePath = cleanFilePath(strings.TrimPrefix(line, "FILE:"))
-			inRefs = false
-		} else if strings.HasPrefix(line, "CLASS:") {
-			name := strings.TrimSpace(strings.TrimPrefix(line, "CLASS:"))
-			startClass(name)
-			inRefs = false
-		} else if cur == nil {
-			continue
-		} else if strings.HasPrefix(line, "METHOD:") {
-			var methodName string
-			if m := methodPattern.FindStringSubmatch(line); len(m) >= 2 {
-				methodName = m[1]
-				cur.methods = append(cur.methods, methodName)
-			}
-			if c := callsPattern.FindStringSubmatch(line); len(c) >= 2 && methodName != "" {
-				callsTo := c[2]
-				relations = append(relations, Relation{
-					Source:      methodName,
-					Target:      callsTo,
-					Description: methodName + " calls method in " + callsTo,
-					Keywords:    "calls, invokes",
-					Weight:      0.9,
-				})
-			}
-		} else if strings.HasPrefix(line, "PROPERTY:") {
-			if p := propertyPattern.FindStringSubmatch(line); len(p) >= 2 {
-				cur.properties = append(cur.properties, p[1])
-			}
-		} else if strings.HasPrefix(line, "INHERITS_FROM") {
-			if m := inheritsPattern.FindStringSubmatch(line); len(m) >= 2 {
-				cur.inheritsFrom = m[1]
-			}
-		} else if strings.HasPrefix(line, "DEPENDS_ON") {
-			if m := dependsPattern.FindStringSubmatch(line); len(m) >= 2 {
-				cur.dependsOn = append(cur.dependsOn, m[1])
-			}
-		} else if strings.HasPrefix(line, "PROJECT REFERENCES:") {
-			inRefs = true
-		} else if inRefs && strings.HasPrefix(line, "-") {
-			ref := strings.TrimSpace(strings.TrimPrefix(line, "-"))
-			if ref != "" {
-				projectRefs = append(projectRefs, ref)
+		// Entity lines: CLASS|, INTERFACE|, STRUCT|, ENUM|, METHOD|, PROPERTY|
+		if trimmed[0] >= 'A' && trimmed[0] <= 'Z' {
+			colonIdx := strings.Index(trimmed, "|")
+			if colonIdx > 0 {
+				prefix := trimmed[:colonIdx]
+				switch prefix {
+				case "CLASS", "INTERFACE", "STRUCT", "ENUM", "METHOD", "PROPERTY":
+					ent, ok := parseEntityLine(trimmed)
+					if ok {
+						ent.SourceID = filename
+						// Dedup by name+type
+						key := ent.EntityType + ":" + ent.Name
+						if !seenEntities[key] {
+							seenEntities[key] = true
+							entities = append(entities, ent)
+						}
+					}
+					continue
+				case "RELATION":
+					rel, ok := parseRelationLine(trimmed)
+					if ok {
+						relations = append(relations, rel)
+						// Track methods per class for the CLASS entity's Methods field
+						if rel.Keywords == "method, defines" {
+							classMethods[rel.Source] = append(classMethods[rel.Source], rel.Target)
+						}
+					}
+					continue
+				}
 			}
 		}
 	}
 
-	// Flush the last class
-	flushClass(cur, &entities, &relations)
-
-	if !hasClass {
-		// Still return project-ref relations if no class entities
-		for _, ref := range projectRefs {
-			relations = append(relations, Relation{
-				Source:      filename,
-				Target:      ref,
-				Description: filename + " references project " + ref,
-				Keywords:    "project_reference, dependency",
-				Weight:      1.0,
-			})
+	// Populate Methods field on CLASS entities
+	for i, e := range entities {
+		if e.EntityType == "CLASS" {
+			if methods, ok := classMethods[e.Name]; ok {
+				entities[i].Methods = methods
+				// Update description with method/property count
+				propCount := 0
+				for _, rel := range relations {
+					if rel.Source == e.Name && rel.Keywords == "property, has" {
+						propCount++
+					}
+				}
+				entities[i].Description = e.Name + " with " + itoa(len(methods)) + " method(s), " + itoa(propCount) + " properties"
+			}
 		}
 	}
 
@@ -261,7 +168,6 @@ func ParseCSharpOutput(results []struct {
 	}
 
 	// Build map of canonical filePath per class
-	// A CLASS entity is "canonical" when its filePath basename matches the class name
 	canonicalClassFile := make(map[string]string)
 	for name, candidates := range entityMap {
 		if len(candidates) == 0 || candidates[0].EntityType != "CLASS" {
@@ -294,7 +200,6 @@ func ParseCSharpOutput(results []struct {
 		chosen := candidates[0]
 		if len(candidates) > 1 {
 			if candidates[0].EntityType == "CLASS" {
-				// For CLASS: prefer where filePath basename matches class name
 				for _, c := range candidates {
 					base := strings.TrimSuffix(filepath.Base(c.FilePath), ".cs")
 					if base == c.Name {
@@ -303,7 +208,6 @@ func ParseCSharpOutput(results []struct {
 					}
 				}
 			} else {
-				// For METHOD/PROPERTY: prefer filePath matching canonical parent class
 				if parent, ok := parentClass[name]; ok {
 					if fp, ok := canonicalClassFile[parent]; ok && fp != "" {
 						for _, c := range candidates {
@@ -341,3 +245,4 @@ func reverse(s string) string {
 	}
 	return string(r)
 }
+

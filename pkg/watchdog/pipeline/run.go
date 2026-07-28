@@ -240,7 +240,7 @@ func RunCSharpAnalyser(sln string) ([]AnalyserResult, error) {
 		analyserExe = findCSharpAnalyser()
 	}
 	if analyserExe == "" {
-		return nil, fmt.Errorf("CSharpAnalyzerTool.exe not found")
+		return nil, fmt.Errorf("csharp_analyser not found")
 	}
 
 	tempDir, err := os.MkdirTemp("", "csharp_analyser")
@@ -249,7 +249,7 @@ func RunCSharpAnalyser(sln string) ([]AnalyserResult, error) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	cmd := exec.Command(analyserExe, sln, tempDir)
+	cmd := exec.Command(analyserExe, "scan", "--solution", sln, "--output", tempDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -266,6 +266,10 @@ func RunCSharpAnalyser(sln string) ([]AnalyserResult, error) {
 	var results []AnalyserResult
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
+			continue
+		}
+		// Skip _index.txt — global index file, not per-file output
+		if entry.Name() == "_index.txt" {
 			continue
 		}
 		content, err := os.ReadFile(filepath.Join(tempDir, entry.Name()))
@@ -297,9 +301,12 @@ func findSolutionFile(filePath string) string {
 
 func findCSharpAnalyser() string {
 	paths := []string{
-		"analysers/c_sharp/CSharpAnalyzerTool.exe",
-		"./analysers/c_sharp/CSharpAnalyzerTool.exe",
-		"../analysers/c_sharp/CSharpAnalyzerTool.exe",
+		"analysers/csharp/csharp_analyser.exe",
+		"analysers/csharp/csharp_analyser",
+		"./analysers/csharp/csharp_analyser.exe",
+		"./analysers/csharp/csharp_analyser",
+		"../analysers/csharp/csharp_analyser.exe",
+		"../analysers/csharp/csharp_analyser",
 	}
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
