@@ -208,9 +208,12 @@ class LightRAGClient:
         data: Optional[dict[str, Any]] = None,
         params: Optional[dict[str, Any]] = None,
         files: Optional[dict[str, Any]] = None,
+        timeout: Optional[float] = None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}{endpoint}"
         self.logger.debug(f"Making {method} request to {url}")
+
+        effective_timeout = timeout if timeout is not None else self.timeout
 
         try:
             if method.upper() == "GET":
@@ -257,7 +260,7 @@ class LightRAGClient:
             query=query, mode=mode, only_need_context=only_need_context
         )
         response_data = await self._make_request(
-            "POST", "/query", request_data.model_dump()
+            "POST", "/query", request_data.model_dump(), timeout=600.0
         )
         return QueryResponse(**response_data)
 
@@ -477,7 +480,7 @@ class LightRAGClient:
     # --- Phase 22: Enhanced exploration tools ---
 
     async def query_data(
-        self, query: str, mode: str = "hybrid", only_need_context: bool = True
+        self, query: str, mode: str = "hybrid", only_need_context: bool = False
     ) -> QueryDataResponse:
         """Structured query using /query/data endpoint.
 
