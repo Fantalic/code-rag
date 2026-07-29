@@ -14,6 +14,8 @@ const EDGE_KEYWORD_COLORS: Record<string, string> = {
   implements: '#1ABC9C',
   has: '#3498DB',
   property: '#2980B9',
+  depends_on: '#F39C12',
+  references: '#1ABC9C',
 }
 
 interface LegendProps {

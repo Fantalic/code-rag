@@ -181,10 +181,12 @@ const EDGE_KEYWORD_COLORS: Record<string, string> = {
   implements: '#1ABC9C',  // teal
   has: '#3498DB',         // blue
   property: '#2980B9',    // dark blue
+  depends_on: '#F39C12',  // orange
+  references: '#1ABC9C',  // teal-light
 }
 
 // Priority order for determining edge color from composite keywords
-const EDGE_KEYWORD_PRIORITY = ['calls', 'extends', 'implements', 'inheritance', 'defines', 'method', 'has', 'property']
+const EDGE_KEYWORD_PRIORITY = ['calls', 'extends', 'implements', 'inheritance', 'defines', 'method', 'has', 'property', 'depends_on', 'references']
 
 const EXTENDED_COLORS = [
   '#84a3e1', // SkyBlue
