@@ -129,12 +129,12 @@ All fixes verified against live test-csharp-project LightRAG API:
 - No HTTP `/search` endpoint exists (only MCP tool `search_entities`)
 - MCP tools are excellent for discovery but insufficient for implementation (no file read/write)
 
-**Optimization recommendations identified:**
-1. Fix `/query` timeout handling (remove timeout or increase to 60s+)
-2. Remove `/search` from HTTP endpoint list (it's an MCP tool only)
-3. Add `read_file` and `edit_file` MCP tools so the agent can implement changes
-4. Optimize `POST /query/data` to return richer structured data
-5. Improve C# analyser relation output for denser graph connectivity
+**Optimization recommendations identified and implemented:**
+1. ✅ Fix `/query` timeout handling — increased to 600s (10 min)
+2. ✅ Remove `/search` from HTTP endpoint list (it's an MCP tool only)
+3. ✅ Optimize `POST /query/data` — changed `only_need_context=False` to return entities + relationships + chunks + references
+4. ✅ Improve C# analyser relation density — added field type/return type reference relations in walker.go
+5. ⏭️ Add `read_file`/`edit_file` MCP tools — deferred (not in scope for MCP server)
 
 ### Steps Completed
 1. ✅ Run `coderag scan dotnet-console-games` — 452 entities, 587 relations
