@@ -106,3 +106,28 @@ All fixes verified against live test-csharp-project LightRAG API:
 - `add_note_to_entity` → Returns `status: "success"` correctly (was returning error)
 - `list_entities_by_type` → 7 CLASS + 29 METHOD entities (client-side filter working)
 - `get_entities_in_file` → 8 entities in Calculator.cs (path normalization working)
+
+---
+
+## Phase 34 — Test on Larger Project (dotnet-console-games) 🔧 PLANNED
+
+**Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase (50+ console games).
+
+**Project:** `E:\_dev\_Projects\dotnet-console-games`
+- Pre-scanned: 348 files indexed in `.lightrag/`
+- Solution file: `dotnet-console-games.sln`
+- Contains: 50+ game projects (Hangman, Tetris, Snake, PacMan, etc.)
+
+**Sub-agent prompt:** `docs/subagent-prompts/dotnet-console-games-explorer.md`
+
+**Expected challenges:**
+1. Larger graph → performance testing of MCP tools
+2. Mixed namespaces (Website.Games.*, Projects.*)
+3. File paths with spaces (Console Monsters, Rock Paper Scissors)
+4. Many inter-project relationships → relation traversal
+
+**Steps:**
+1. Run `coderag scan dotnet-console-games` to populate graph
+2. Dispatch sub-agent with prompt from `docs/subagent-prompts/`
+3. Verify all MCP tools work at scale
+4. Record findings and any new bugs

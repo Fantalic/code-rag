@@ -197,10 +197,42 @@ A sub-agent was dispatched to explore the LightRAG knowledge graph for the test-
 ### MCP Tool Fixes Applied (August 2026)
 
 | Bug | Tool | Fix | Status |
-|-----|------|-----|--------|
+|---|---|---|--------|
 | `keywords.split(",")` fails when keywords is a list | `get_codebase_stats` | Added `isinstance(keywords, list)` check before splitting | ✅ Fixed |
 | `file_path` extracted from wrong location in query_data response | `get_related_files` | Extract from top-level `entity.get("file_path")` first, then `properties` fallback | ✅ Fixed |
 | `add_note_to_entity` checks `created` flag (always False for notes) | `add_note_to_entity` | Changed to check `create_resp.status == "success"` | ✅ Fixed |
+
+---
+
+## Larger Project Testing Plan
+
+### Phase 34 — Test on dotnet-console-games (348 files) 🔧 PLANNED
+
+**Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase (a collection of 50+ console games).
+
+**Project:** `E:\_dev\_Projects\dotnet-console-games`
+- Pre-scanned: 348 files indexed in `.lightrag/`
+- Solution file: `dotnet-console-games.sln`
+- Contains: 50+ game projects (Hangman, Tetris, Snake, PacMan, etc.)
+
+**Sub-agent prompt:** See `docs/subagent-prompts/dotnet-console-games-explorer.md`
+
+**Expected challenges:**
+1. Larger graph → performance testing of MCP tools
+2. Mixed namespaces (Website.Games.*, Projects.*) → namespace-qualified name handling
+3. File paths with spaces (e.g., `Console Monsters`, `Rock Paper Scissors`)
+4. Many inter-project relationships → relation traversal performance
+
+### Sub-Agent Prompt File
+
+The sub-agent prompt for exploring dotnet-console-games is at:
+`docs/subagent-prompts/dotnet-console-games-explorer.md`
+
+This prompt:
+- Instructs the sub-agent to use HTTP REST API at `http://localhost:9621` (not MCP SSE)
+- Provides the complete tool-to-API endpoint mapping
+- Guides the sub-agent through structured exploration steps
+- Includes a feature implementation task (add a small feature to one game)
 
 ---
 

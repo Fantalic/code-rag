@@ -431,36 +431,48 @@ These tools address gaps identified during the Calculator implementation plannin
 
 All 4 tools implemented and verified against test-csharp-project.
 
-### Phase 33 — MCP Tool Bug Fixes 🔧 IN PROGRESS
+### Phase 33 — MCP Tool Bug Fixes ✅ COMPLETE
 
-**Goal:** Fix all broken MCP tools so the full set of 17 tools works reliably against real codebases.
+All 6 bugs identified and fixed:
+- `get_codebase_stats` keywords list handling ✅
+- `get_related_files` file_path extraction ✅
+- `add_note_to_entity` success condition ✅
+- Tool-to-API documentation ✅
+- Sub-agent connectivity guide ✅
+- Line length compliance ✅
 
-**Root cause:** The tools were written against an older LightRAG API schema and haven't been re-verified after API changes. Ollama connectivity from Docker containers was never tested in a running environment.
+### Phase 34 — Test on Larger Project (dotnet-console-games, 348 files) 🔧 PLANNED
 
-**Issues found during testing (August 2026):**
+**Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase.
 
-| # | Bug | Affected Tool | Severity | Fix |
-|---|-----|--------------|----------|-----|
-| 1 | POST `/query` and `/query/data` time out — Ollama unreachable from Docker | `query`, `query_data`, `get_related_files`, `find_related_files` | Critical | Fix Ollama connectivity in docker-compose (use `host.docker.internal` or bridge network) |
-| 2 | `get_codebase_stats` returns HTTP 500 (`.split()` on list object) | `get_codebase_stats` | High | Fix error handling in `client.py:get_codebase_stats` |
-| 3 | `list_entities_by_type` server-side filter always returns empty | `list_entities_by_type` | High | Fix entity_type comparison in LightRAG client/server |
-| 4 | Windows backslash path mismatch in `get_entities_in_file` | `get_entities_in_file` | Medium | Normalize paths (backslash → forward slash) in client |
-| 5 | `add_note_to_entity` reports failure despite creating note | `add_note_to_entity` | Medium | Fix success status reporting in `_handle_add_note` |
-| 6 | No snippet content in `get_related_files` response | `get_related_files` | Low | Fetch snippet content from chunks or document storage |
-| 7 | Sub-agent connectivity documentation missing | All tools | Medium | Add tool-to-API endpoint mapping to docs ✅ Done |
+**Project:** `E:\_dev\_Projects\dotnet-console-games`
+- 348 files, 50+ game projects
+- Pre-scanned: `.lightrag/` has 348 indexed files
+- Solution: `dotnet-console-games.sln`
 
-**Phases 34+ (Future):**
+**Sub-agent prompt:** `docs/subagent-prompts/dotnet-console-games-explorer.md`
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 34 | Fix Ollama Docker networking for query endpoints | Planned |
-| 35 | Fix `get_codebase_stats` error handling | Planned |
-| 36 | Fix `list_entities_by_type` entity_type filter | Planned |
-| 37 | Normalize Windows paths in `get_entities_in_file` | Planned |
-| 38 | Fix `add_note_to_entity` success reporting | Planned |
-| 39 | Add snippets to `get_related_files` response | Planned |
-| 40 | Add entity search by file path pattern | Planned |
-| 41 | Add batch entity lookup support | Planned |
+**Expected challenges:**
+1. Larger graph → performance testing of MCP tools
+2. Mixed namespaces (Website.Games.*, Projects.*)
+3. File paths with spaces (Console Monsters, Rock Paper Scissors)
+4. Many inter-project relationships → relation traversal
+
+**Steps:**
+1. Run `coderag scan dotnet-console-games` to populate graph
+2. Dispatch sub-agent with prompt from `docs/subagent-prompts/`
+3. Verify all MCP tools work at scale
+4. Record findings and any new bugs
+
+### Phase 35 — MCP Tool Enhancements (FUTURE)
+
+| Enhancement | Description |
+|-------------|-------------|
+| Batch entity lookup | Fetch multiple entities in one call |
+| File path pattern search | Find entities matching a file path pattern |
+| Relation type filtering | Filter edges by relationship type |
+| Snippet retrieval | Return code snippets for matched files |
+| Auto-initialization | Run analyser on MCP startup |
 
 ---
 
