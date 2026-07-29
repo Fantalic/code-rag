@@ -397,6 +397,21 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 		Weight:      1.0,
 	})
 
+	if returnType != "" && returnType != "void" && returnType != "Void" && p.index != nil {
+		resolvedType := p.resolveType(returnType)
+		if resolvedType != returnType {
+			if _, ok := p.index.Classes[resolvedType]; ok {
+				p.addRelation(Relation{
+					Source:      qualifiedName,
+					Target:      resolvedType,
+					Description: fmt.Sprintf("%s.%s() -> RETURNS -> %s", cls, methodName, resolvedType),
+					Keywords:    "depends_on, references",
+					Weight:      0.5,
+				})
+			}
+		}
+	}
+
 	p.exports = append(p.exports, qualifiedName)
 
 	isExpressionBody := strings.Contains(p.lines[lineNo], "=>")
@@ -413,8 +428,20 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 			if len(parts) >= 2 {
 				paramType := parts[0]
 				paramName := parts[len(parts)-1]
-				p.scopeVars[len(p.scopeVars)-1][paramName] = p.resolveType(paramType)
+				resolvedType := p.resolveType(paramType)
+				p.scopeVars[len(p.scopeVars)-1][paramName] = resolvedType
 				p.imports = append(p.imports, paramType)
+				if p.index != nil && resolvedType != paramType {
+					if _, ok := p.index.Classes[resolvedType]; ok {
+						p.addRelation(Relation{
+							Source:      qualifiedName,
+							Target:      resolvedType,
+							Description: fmt.Sprintf("%s.%s() uses %s param %s", cls, methodName, resolvedType, paramName),
+							Keywords:    "depends_on",
+							Weight:      0.3,
+						})
+					}
+				}
 			}
 		}
 	}
@@ -467,6 +494,21 @@ func (p *Parser) handlePropDecl(m []string, lineNo int) {
 		Keywords:    "property, has",
 		Weight:      0.8,
 	})
+
+	if propType != "" && p.index != nil {
+		resolvedType := p.resolveType(propType)
+		if resolvedType != propType {
+			if _, ok := p.index.Classes[resolvedType]; ok {
+				p.addRelation(Relation{
+					Source:      qualifiedName,
+					Target:      resolvedType,
+					Description: fmt.Sprintf("%s.%s -> REFERENCES -> %s", cls, propName, resolvedType),
+					Keywords:    "depends_on, references",
+					Weight:      0.5,
+				})
+			}
+		}
+	}
 
 	if propType != "" {
 		p.imports = append(p.imports, propType)
