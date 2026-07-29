@@ -507,7 +507,7 @@ The security filter lives in the pipeline **after** extraction but **before** gr
 
 Based on the dotnet-console-games sub-agent evaluation, the following optimizations are planned to make MCP tools more effective for AI codebase agents.
 
-### Recommended Optimizations (excluding file read/write — separate task)
+### Recommended Optimizations
 
 | # | Optimization | Priority | Rationale |
 |---|-------------|----------|-----------|
@@ -515,22 +515,14 @@ Based on the dotnet-console-games sub-agent evaluation, the following optimizati
 | 2 | Remove `/search` from HTTP endpoint list in docs | Medium | `/search` returns 404 — it's an MCP tool only, not an HTTP route |
 | 3 | Optimize `POST /query/data` to return richer structured data | Medium | Currently returns minimal data — should return entities, relations, file paths, and contextual summaries |
 | 4 | Improve C# analyser relation output for denser graph connectivity | Medium | 587 edges for 452 nodes is sparse; more relations → better graph traversal |
-| 5 | Add `read_file` MCP tool | High | Agents need to read source files to implement features after discovery |
-| 6 | Add `edit_file` MCP tool | High | Agents need to modify source files to implement features |
 
 ### Implementation Order
 1. `/query` timeout fix (1 day) — simplest fix, highest impact
 2. `/search` endpoint cleanup (0.5 day) — remove from docs
 3. `query_data` enrichment (2 days) — requires LightRAG backend changes
 4. C# analyser relation density (3 days) — requires analyser output format changes
-5. `read_file` MCP tool (1 day) — new tool in MCP server
-6. `edit_file` MCP tool (2 days) — new tool + security considerations
 
-### Decisions Needed
-- [ ] Confirm `/search` should be removed entirely or replaced with a working HTTP equivalent
-- [ ] Decide on `read_file`/`edit_file` security model (restrict to project root?)
-- [ ] Prioritize which optimizations to implement first
-- [ ] Should `query_data` return full entity+relation context or just matched entities?
+---
 
 - ❌ PyPI publishing
 - ❌ Premature corporate docs
