@@ -40,7 +40,6 @@ func NewRelationAction(kind ActionKind, source, target, keywords string, data ma
 
 var ignoredKeys = map[string]bool{
 	"created_at": true,
-	"source_id":  true,
 	"entity_id":  true,
 	"src_id":     true,
 	"tgt_id":     true,

@@ -352,11 +352,11 @@ func TestDataChanged(t *testing.T) {
 		}
 	})
 
-	t.Run("IgnoredSourceID", func(t *testing.T) {
+	t.Run("SourceIDChangeDetected", func(t *testing.T) {
 		a := map[string]any{"color": "red", "source_id": "s1"}
 		b := map[string]any{"color": "red", "source_id": "s2"}
-		if dataChanged(a, b) {
-			t.Error("expected false when only source_id differs")
+		if !dataChanged(a, b) {
+			t.Error("expected true when only source_id differs")
 		}
 	})
 
