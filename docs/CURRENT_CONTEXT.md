@@ -204,24 +204,69 @@ A sub-agent was dispatched to explore the LightRAG knowledge graph for the test-
 
 ---
 
-## Larger Project Testing Plan
+## MCP Tool Testing — dotnet-console-games (July 29, 2026)
 
-### Phase 34 — Test on dotnet-console-games (348 files) 🔧 PLANNED
+### Sub-Agent Exploration via HTTP API
 
-**Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase (a collection of 50+ console games).
+A sub-agent was dispatched to explore the LightRAG knowledge graph for `dotnet-console-games` using direct HTTP API calls at `http://localhost:9621`. The prompt at `docs/subagent-prompts/dotnet-console-games-explorer.md` guided it through structured exploration.
 
-**Project:** `E:\_dev\_Projects\dotnet-console-games`
-- Pre-scanned: 348 files indexed in `.lightrag/`
-- Solution file: `dotnet-console-games.sln`
-- Contains: 50+ game projects (Hangman, Tetris, Snake, PacMan, etc.)
+**Sub-agent result:** Successfully explored the graph (452 entities, 587 relations), identified Hangman as a modification candidate, and proposed implementing score tracking + difficulty levels. The sub-agent did not persist code changes — its scope was exploration and proposal. It did not modify any files on disk.
 
-**Sub-agent prompt:** See `docs/subagent-prompts/dotnet-console-games-explorer.md`
+### Dotnet-Console-Games Graph Data Summary
 
-**Expected challenges:**
-1. Larger graph → performance testing of MCP tools
-2. Mixed namespaces (Website.Games.*, Projects.*) → namespace-qualified name handling
-3. File paths with spaces (e.g., `Console Monsters`, `Rock Paper Scissors`)
-4. Many inter-project relationships → relation traversal performance
+| Metric | Value |
+|--------|-------|
+| Total entities (nodes) | 452 |
+| Total relations (edges) | 587 |
+| Entity labels | CLASS, METHOD, PROPERTY, ENUM, STRUCT |
+| Relation labels | defines, depends_on, extends, has, implements, invokes, references |
+| Projects scanned | 55 |
+
+### MCP Tool Effectiveness — dotnet-console-games (July 29, 2026)
+
+| Tool | Status | Notes |
+|------|--------|-------|
+| `check_entity_exists` | ✅ Working | Fast, reliable — `GET /graph/entity/exists?name=Hangman` returns `{"exists": true}` |
+| `get_knowledge_graph` | ✅ Working | Full graph dump with all 452 nodes + 587 edges |
+| `get_graph_labels` | ✅ Working | Returns all entity/relation types |
+| `get_entity_details` | ✅ Working | Full details with relations |
+| `get_entity_neighbors` | ✅ Working | Shows inheritance, implementation, calls |
+| `get_entities_in_file` | ⚠️ Path mismatch | Windows backslash issue in path matching |
+| `search_entities` | ✅ Working | Regex pattern matching on graph |
+| `query` (POST) | ⚠️ Slow | Works but times out at default HTTP client timeout — needs no-timeout usage |
+| `query_data` (POST) | ⚠️ Minimal | Returns success but limited useful data |
+| `get_codebase_stats` | ✅ Working | After bug fix (keywords list handling) |
+| `get_related_files` | ✅ Working | After bug fix (file_path extraction) |
+| `add_note_to_entity` | ✅ Working | After bug fix (success condition) |
+| `get_relation_detail` | ✅ Added in Phase 32 | Filter edges by keywords |
+| `get_method_signature` | ✅ Added in Phase 32 | Parse description for params/return type |
+| `find_related_files` | ✅ Added in Phase 32 | Match by file_path or entity name |
+| `get_interface_methods` | ✅ Added in Phase 32 | Find interface methods + implementors |
+
+### MCP Tool Evaluation Summary
+
+The MCP tools are **excellent for codebase discovery** (understanding architecture, finding relevant classes/methods, tracing relationships). They dramatically reduce the number of files an agent needs to read for understanding. However, they are **insufficient for implementation** — the agent still needs direct file I/O to read source code and write changes.
+
+Key issues affecting the sub-agent's ability to implement features:
+1. `POST /query` times out at the HTTP client level despite working reliably
+2. No HTTP `/search` endpoint exists (only MCP tool)
+3. No `read_file` or `edit_file` MCP tools — agent cannot read/modify source code
+4. `query_data` returns minimal useful data for graph traversal
+
+---
+
+## Larger Project Testing — Completed
+
+### Phase 34 — dotnet-console-games ✅ DONE
+
+The scan (`coderag scan --clean`) completed successfully with 452 entities and 587 relations. The sub-agent explored the graph and proposed features for Hangman. See the full evaluation report above.
+
+**Optimization recommendations identified (see plan below):**
+1. Fix `/query` timeout handling — remove client timeout or increase to 60s+
+2. Remove `/search` from HTTP endpoint list — it's an MCP tool only, not an HTTP route
+3. Add `read_file` and `edit_file` MCP tools for implementation capability
+4. Optimize `POST /query/data` to return richer structured data
+5. Improve C# analyser relation output for denser graph connectivity
 
 ### Sub-Agent Prompt File
 
@@ -230,11 +275,13 @@ The sub-agent prompt for exploring dotnet-console-games is at:
 
 This prompt:
 - Instructs the sub-agent to use HTTP REST API at `http://localhost:9621` (not MCP SSE)
-- Provides the complete tool-to-API endpoint mapping
+- Provides the complete tool-to-API endpoint mapping (updated with verified working endpoints)
 - Guides the sub-agent through structured exploration steps
-- Includes a feature implementation task (add a small feature to one game)
+- Includes a feature implementation task
 
 ---
+
+## MCP Tool Testing (August 2026 - prior test-csharp-project)
 
 ## MCP Tool Verification (July 29, 2026)
 

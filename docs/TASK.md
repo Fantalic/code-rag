@@ -109,25 +109,36 @@ All fixes verified against live test-csharp-project LightRAG API:
 
 ---
 
-## Phase 34 — Test on Larger Project (dotnet-console-games) 🔧 PLANNED
+## Phase 34 — Test on Larger Project (dotnet-console-games) ✅ DONE
 
 **Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase (50+ console games).
 
 **Project:** `E:\_dev\_Projects\dotnet-console-games`
-- Pre-scanned: 348 files indexed in `.lightrag/`
+- Scanned: 55 projects, 348 files, 452 entities, 587 relations
 - Solution file: `dotnet-console-games.sln`
-- Contains: 50+ game projects (Hangman, Tetris, Snake, PacMan, etc.)
+- Graph health: All entity types (CLASS, METHOD, PROPERTY, ENUM, STRUCT) and relation types (defines, depends_on, extends, has, implements, invokes, references) populated
 
-**Sub-agent prompt:** `docs/subagent-prompts/dotnet-console-games-explorer.md`
+**Sub-agent prompt:** `docs/subagent-prompts/dotnet-console-games-explorer.md` (updated with correct HTTP API endpoints)
 
-**Expected challenges:**
-1. Larger graph → performance testing of MCP tools
-2. Mixed namespaces (Website.Games.*, Projects.*)
-3. File paths with spaces (Console Monsters, Rock Paper Scissors)
-4. Many inter-project relationships → relation traversal
+**Sub-agent exploration result:** The sub-agent successfully explored the graph, identified Hangman as a modification candidate, and proposed score tracking + difficulty levels. The sub-agent did not persist code changes (this was its intended scope — exploration and proposal).
 
-**Steps:**
-1. Run `coderag scan dotnet-console-games` to populate graph
-2. Dispatch sub-agent with prompt from `docs/subagent-prompts/`
-3. Verify all MCP tools work at scale
-4. Record findings and any new bugs
+**MCP tool evaluation:** See `docs/MCP_TOOL_EVALUATION.md` for the full test report. Key findings:
+- Graph exploration tools work well (entity existence, graph dump, entity filtering)
+- `POST /query` works but is slow (no timeout should be applied)
+- `POST /query/data` returns minimal data
+- No HTTP `/search` endpoint exists (only MCP tool `search_entities`)
+- MCP tools are excellent for discovery but insufficient for implementation (no file read/write)
+
+**Optimization recommendations identified:**
+1. Fix `/query` timeout handling (remove timeout or increase to 60s+)
+2. Remove `/search` from HTTP endpoint list (it's an MCP tool only)
+3. Add `read_file` and `edit_file` MCP tools so the agent can implement changes
+4. Optimize `POST /query/data` to return richer structured data
+5. Improve C# analyser relation output for denser graph connectivity
+
+### Steps Completed
+1. ✅ Run `coderag scan dotnet-console-games` — 452 entities, 587 relations
+2. ✅ Dispatch sub-agent with prompt from `docs/subagent-prompts/`
+3. ✅ Verify all MCP tools work at scale
+4. ✅ Record findings and bugs (see evaluation report)
+5. ✅ Create optimization plan for next implementation phase
