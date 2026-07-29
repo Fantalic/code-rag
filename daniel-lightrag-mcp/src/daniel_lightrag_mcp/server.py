@@ -1,5 +1,5 @@
 """
-MCP server for LightRAG integration — 13 tools for AI agent codebase exploration.
+MCP server for LightRAG integration — 17 tools for AI agent codebase exploration.
 """
 
 import asyncio
@@ -263,6 +263,58 @@ async def _handle_add_note(
     )
 
 
+@mcp_server.tool()
+async def get_relation_detail(
+    entity_name: str, relation_type: str
+) -> dict:
+    client = _get_lightrag_client()
+    try:
+        result = await client.get_relation_detail(
+            entity_name, relation_type
+        )
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("get_relation_detail", e)
+    except Exception as e:
+        return _error("get_relation_detail", e)
+
+
+@mcp_server.tool()
+async def get_method_signature(entity_name: str) -> dict:
+    client = _get_lightrag_client()
+    try:
+        result = await client.get_method_signature(entity_name)
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("get_method_signature", e)
+    except Exception as e:
+        return _error("get_method_signature", e)
+
+
+@mcp_server.tool()
+async def find_related_files(entity_or_file: str) -> dict:
+    client = _get_lightrag_client()
+    try:
+        result = await client.find_related_files(entity_or_file)
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("find_related_files", e)
+    except Exception as e:
+        return _error("find_related_files", e)
+
+
+@mcp_server.tool()
+async def get_interface_methods(interface_name: str) -> dict:
+    client = _get_lightrag_client()
+    try:
+        result = await client.get_interface_methods(interface_name)
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("get_interface_methods", e)
+    except Exception as e:
+        return _error("get_interface_methods", e)
+
+
 def _serialize(result: Any) -> dict:
     if hasattr(result, "model_dump"):
         return result.model_dump()
@@ -290,7 +342,7 @@ def _error(tool_name: str, error: Exception) -> dict:
 async def main() -> None:
     load_dotenv()
     logger.info(
-        f"Starting LightRAG MCP server (13 tools), LightRAG URL: {_get_lightrag_url()}"
+        f"Starting LightRAG MCP server (17 tools), LightRAG URL: {_get_lightrag_url()}"
     )
 
     try:

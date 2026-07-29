@@ -740,3 +740,56 @@ class RelatedFilesResponseV2(BaseModel):
     files: list[RelatedFileInfo] = Field(default_factory=list)
     query: str = Field(..., description="Original query")
     total_found: int = Field(0, description="Total files found")
+
+
+class RelationDetailResponse(BaseModel):
+    """Response model for get_relation_detail tool."""
+
+    entity_name: str = Field(..., description="Entity queried")
+    relation_type: str = Field(..., description="Relation type queried")
+    relations: list[RelationInfo] = Field(
+        default_factory=list, description="Matching relations"
+    )
+    total: int = Field(0, description="Total matching relations")
+
+
+class MethodSignatureResponse(BaseModel):
+    """Response model for get_method_signature tool."""
+
+    entity_name: str = Field(..., description="Method entity name")
+    return_type: str = Field("", description="Return type if extractable")
+    parameters: list[dict[str, str]] = Field(
+        default_factory=list, description="Method parameters"
+    )
+    description: str = Field("", description="Method description from graph")
+    file_path: str = Field("", description="Source file path")
+
+
+class RelatedFilesResponse(BaseModel):
+    """Response model for find_related_files tool."""
+
+    query: str = Field(..., description="Entity or file path queried")
+    files: list[str] = Field(default_factory=list, description="Related file paths")
+    entities_per_file: dict[str, list[str]] = Field(
+        default_factory=dict, description="Entities found in each file"
+    )
+    total_files: int = Field(0, description="Total related files found")
+
+
+class InterfaceMethodInfo(BaseModel):
+    """Method info for an interface."""
+
+    method_name: str = Field(..., description="Method name")
+    description: str = Field("", description="Method description")
+
+
+class InterfaceMethodsResponse(BaseModel):
+    """Response model for get_interface_methods tool."""
+
+    interface_name: str = Field(..., description="Interface queried")
+    methods: list[InterfaceMethodInfo] = Field(
+        default_factory=list, description="Methods declared by this interface"
+    )
+    implementing_classes: list[str] = Field(
+        default_factory=list, description="Classes that implement this interface"
+    )

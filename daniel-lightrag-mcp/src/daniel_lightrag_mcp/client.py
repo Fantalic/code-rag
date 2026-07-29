@@ -26,8 +26,11 @@ from .models import (
     GraphResponse,
     InsertResponse,
     InsertTextRequest,
+    InterfaceMethodInfo,
+    InterfaceMethodsResponse,
     LabelsResponse,
     ListEntitiesResponse,
+    MethodSignatureResponse,
     QueryDataResponse,
     QueryRequest,
     QueryResponse,
@@ -35,6 +38,7 @@ from .models import (
     RelatedFilesResponse,
     RelationCreateRequest,
     RelationCreateResponse,
+    RelationDetailResponse,
     RelationInfo,
     RelationUpdateRequest,
     RelationUpdateResponse,
@@ -822,4 +826,213 @@ class LightRAGClient:
             pattern=pattern,
             matches=matches,
             total=len(matches),
+        )
+
+    async def get_relation_detail(
+        self, entity_name: str, relation_type: str
+    ) -> RelationDetailResponse:
+        """Get all relations of a specific type for an entity."""
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for relation detail: {e}")
+            return RelationDetailResponse(
+                entity_name=entity_name,
+                relation_type=relation_type,
+                relations=[],
+                total=0,
+            )
+
+        relations: list[RelationInfo] = []
+        for edge in graph.edges:
+            src = edge.get("source") or edge.get("src_id") or ""
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            kw = edge.get("properties", {}).get("keywords", "")
+            if src == entity_name or tgt == entity_name:
+                if relation_type.lower() in kw.lower():
+                    rel_data = {
+                        "id": edge.get("id", f"{src}-{tgt}"),
+                        "source_entity": src,
+                        "target_entity": tgt,
+                        "type": kw,
+                        "properties": edge.get("properties", {}),
+                        "weight": edge.get("weight"),
+                    }
+                    try:
+                        relations.append(RelationInfo(**rel_data))
+                    except Exception:
+                        pass
+
+        return RelationDetailResponse(
+            entity_name=entity_name,
+            relation_type=relation_type,
+            relations=relations,
+            total=len(relations),
+        )
+
+    async def get_method_signature(self, entity_name: str) -> MethodSignatureResponse:
+        """Get method signature details for a method entity."""
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for method signature: {e}")
+            return MethodSignatureResponse(
+                entity_name=entity_name, return_type="", parameters=[], description=""
+            )
+
+        for node in graph.nodes:
+            node_id = node.get("id") or node.get("name") or ""
+            node_name = (
+                node.get("properties", {}).get("entity_name")
+                or node.get("name")
+                or node_id
+            )
+            if node_name == entity_name:
+                props = node.get("properties", {})
+                desc = props.get("description", "")
+                file_path = props.get("file_path", "")
+                params: list[dict[str, str]] = []
+
+                # Try to extract parameters from description
+                # e.g. "method_name(params) -> return_type"
+                param_match = re.search(r"\(([^)]*)\)", desc)
+                if param_match:
+                    param_str = param_match.group(1).strip()
+                    if param_str:
+                        for p in param_str.split(","):
+                            p = p.strip()
+                            if " " in p:
+                                parts = p.rsplit(" ", 1)
+                                params.append(
+                                    {"name": parts[0].strip(), "type": parts[1].strip()}
+                                )
+                            elif p:
+                                params.append({"name": p, "type": "unknown"})
+
+                # Try to extract return type
+                return_type = ""
+                ret_match = re.search(r"->\s*(\w+)", desc)
+                if ret_match:
+                    return_type = ret_match.group(1)
+
+                return MethodSignatureResponse(
+                    entity_name=entity_name,
+                    return_type=return_type,
+                    parameters=params,
+                    description=desc,
+                    file_path=file_path,
+                )
+
+        return MethodSignatureResponse(
+            entity_name=entity_name, return_type="", parameters=[], description=""
+        )
+
+    async def find_related_files(
+        self, entity_or_file: str
+    ) -> RelatedFilesResponse:
+        """Find all files related to an entity or file path."""
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for related files: {e}")
+            return RelatedFilesResponse(
+                query=entity_or_file, files=[], entities_per_file={}, total_files=0
+            )
+
+        related_files: dict[str, set[str]] = {}
+        query_lower = entity_or_file.lower().replace("\\", "/")
+
+        for node in graph.nodes:
+            props = node.get("properties") or {}
+            file_path = props.get("file_path", "")
+            if not file_path:
+                continue
+            file_lower = file_path.lower().replace("\\", "/")
+
+            match = False
+            # Match by exact file path
+            if file_lower == query_lower:
+                match = True
+            # Match by entity name
+            node_name = props.get("entity_name") or node.get("id") or ""
+            if query_lower in node_name.lower() or node_name.lower() == query_lower:
+                match = True
+
+            if match:
+                related_files.setdefault(file_path, set()).add(node_name)
+
+        # Also check edges: find entities connected to the query entity/file
+        for edge in graph.edges:
+            src = edge.get("source") or edge.get("src_id") or ""
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            props = edge.get("properties") or {}
+            src_fp = props.get("file_path", "")
+            tgt_fp = props.get("file_path", "")
+
+            for candidate in [src, tgt, src_fp, tgt_fp]:
+                cand_lower = candidate.lower().replace("\\", "/")
+                if query_lower in cand_lower or cand_lower == query_lower:
+                    for node in graph.nodes:
+                        n_props = node.get("properties") or {}
+                        n_fp = n_props.get("file_path", "")
+                        if n_fp:
+                            n_fp_lower = n_fp.lower().replace("\\", "/")
+                            if n_fp_lower not in {
+                                f.lower().replace("\\", "/")
+                                for f in related_files
+                            }:
+                                n_name = n_props.get("entity_name") or node.get("id") or ""
+                                related_files.setdefault(n_fp, set()).add(n_name)
+
+        files_list = sorted(related_files.keys())
+        entities_per_file = {
+            f: sorted(list(entities)) for f, entities in related_files.items()
+        }
+
+        return RelatedFilesResponse(
+            query=entity_or_file,
+            files=files_list,
+            entities_per_file=entities_per_file,
+            total_files=len(files_list),
+        )
+
+    async def get_interface_methods(
+        self, interface_name: str
+    ) -> InterfaceMethodsResponse:
+        """Get methods declared by an interface and classes that implement it."""
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for interface methods: {e}")
+            return InterfaceMethodsResponse(
+                interface_name=interface_name,
+                methods=[],
+                implementing_classes=[],
+            )
+
+        methods: list[InterfaceMethodInfo] = []
+        implementing_classes: list[str] = []
+
+        for edge in graph.edges:
+            src = edge.get("source") or edge.get("src_id") or ""
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            kw = edge.get("properties", {}).get("keywords", "")
+
+            # Interface declares method: interface -> method (via defines)
+            if src == interface_name and kw == "defines,method":
+                methods.append(
+                    InterfaceMethodInfo(
+                        method_name=tgt,
+                        description=edge.get("properties", {}).get("description", ""),
+                    )
+                )
+
+            # Class implements interface: class --implements--> interface
+            if tgt == interface_name and kw == "implements":
+                implementing_classes.append(src)
+
+        return InterfaceMethodsResponse(
+            interface_name=interface_name,
+            methods=methods,
+            implementing_classes=implementing_classes,
         )
