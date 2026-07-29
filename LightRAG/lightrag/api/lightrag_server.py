@@ -809,6 +809,11 @@ def create_app(args):
             logger.error(f"Failed to switch workspace: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @app.get("/workspace", dependencies=[Depends(combined_auth)])
+    async def get_workspace():
+        """Get the current active workspace name."""
+        return {"workspace": rag_proxy.workspace}
+
     @app.get("/")
     async def redirect_to_webui():
         """Redirect root path to /webui"""
@@ -914,7 +919,7 @@ def create_app(args):
                     "vector_storage": args.vector_storage,
                     "enable_llm_cache_for_extract": args.enable_llm_cache_for_extract,
                     "enable_llm_cache": args.enable_llm_cache,
-                    "workspace": args.workspace,
+                    "workspace": rag_proxy.workspace,
                     "max_graph_nodes": args.max_graph_nodes,
                     # Rerank configuration
                     "enable_rerank": rerank_model_func is not None,

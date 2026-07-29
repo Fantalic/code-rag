@@ -1032,11 +1032,9 @@ class LightRAG:
         Returns:
             KnowledgeGraph: Knowledge graph containing nodes and edges
         """
-        # Use self.max_graph_nodes as default if max_nodes is None
         if max_nodes is None:
             max_nodes = self.max_graph_nodes
-        else:
-            # Limit max_nodes to not exceed self.max_graph_nodes
+        elif self.max_graph_nodes > 0:
             max_nodes = min(max_nodes, self.max_graph_nodes)
 
         return await self.chunk_entity_relation_graph.get_knowledge_graph(

@@ -352,6 +352,14 @@ func findCSharpAnalyser() string {
 		"../analysers/csharp/csharp_analyser.exe",
 		"../analysers/csharp/csharp_analyser",
 	}
+	exePath, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exePath)
+		paths = append(paths,
+			filepath.Join(exeDir, "analysers/csharp/csharp_analyser.exe"),
+			filepath.Join(exeDir, "analysers/csharp/csharp_analyser"),
+		)
+	}
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
 			return p

@@ -5,7 +5,7 @@ import { errorMessage } from '@/lib/utils'
 import * as Constants from '@/lib/constants'
 import { useGraphStore, RawGraph, RawNodeType, RawEdgeType } from '@/stores/graph'
 import { toast } from 'sonner'
-import { queryGraphs } from '@/api/lightrag'
+import { queryGraphs, fetchCurrentWorkspace } from '@/api/lightrag'
 import { useBackendState } from '@/stores/state'
 import { useSettingsStore } from '@/stores/settings'
 
@@ -512,6 +512,22 @@ const useLightrangeGraph = () => {
       initialLoadRef.current = false
     }
   }, [queryLabel, rawGraph, sigmaGraph])
+
+  // Fix stale queryLabel on mount — if workspace exists but queryLabel was
+  // persisted as empty string, set it to '*' so the graph fetch proceeds.
+  const workspaceFixedRef = useRef(false)
+  useEffect(() => {
+    if (workspaceFixedRef.current) return
+    const fixLabel = async () => {
+      const ws = await fetchCurrentWorkspace()
+      if (ws && !useSettingsStore.getState().queryLabel) {
+        useSettingsStore.getState().setQueryLabel('*')
+        useGraphStore.getState().setGraphDataFetchAttempted(false)
+      }
+      workspaceFixedRef.current = true
+    }
+    fixLabel()
+  }, [])
 
   // Graph data fetching logic
   useEffect(() => {

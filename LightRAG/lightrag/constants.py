@@ -9,7 +9,7 @@ consistency and makes maintenance easier.
 # Default values for server settings
 DEFAULT_WORKERS = 2
 DEFAULT_WOKERS = DEFAULT_WORKERS  # Deprecated alias, use DEFAULT_WORKERS
-DEFAULT_MAX_GRAPH_NODES = 1000
+DEFAULT_MAX_GRAPH_NODES = 0
 
 # Default values for extraction settings
 DEFAULT_SUMMARY_LANGUAGE = "English"  # Default language for document processing

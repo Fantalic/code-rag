@@ -111,7 +111,7 @@ func main() {
 	}
 }
 
-func ensureMCP(ctx context.Context) error {
+func ensureMCP(ctx context.Context, workspace string) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:9622/health", nil)
 	if err != nil {
 		return err
@@ -126,7 +126,7 @@ func ensureMCP(ctx context.Context) error {
 	}
 
 	log.Print("MCP not reachable at :9622, ensuring Docker services are up...")
-	if err := ensureLightRAG(ctx); err != nil {
+	if err := ensureLightRAG(ctx, workspace); err != nil {
 		return err
 	}
 
@@ -153,34 +153,56 @@ func ensureMCP(ctx context.Context) error {
 	}
 }
 
-func ensureLightRAG(ctx context.Context) error {
+func ensureLightRAG(ctx context.Context, workspace string) error {
+	// Check if LightRAG is already running with the correct workspace
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:9621/health", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err == nil && resp.StatusCode < 400 {
-		resp.Body.Close()
-		return nil
-	}
-	if resp != nil {
-		resp.Body.Close()
+	if err == nil {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil && resp.StatusCode < 400 {
+			var health struct {
+				Configuration struct {
+					Workspace string `json:"workspace"`
+				} `json:"configuration"`
+			}
+			if json.NewDecoder(resp.Body).Decode(&health) == nil {
+				resp.Body.Close()
+				if workspace == "" || health.Configuration.Workspace == workspace {
+					log.Printf("LightRAG is healthy (workspace: '%s')", health.Configuration.Workspace)
+					return nil
+				}
+				log.Printf("Workspace mismatch: container has '%s', need '%s'", health.Configuration.Workspace, workspace)
+			} else {
+				resp.Body.Close()
+			}
+		} else if resp != nil {
+			resp.Body.Close()
+		}
 	}
 
-	log.Print("LightRAG not reachable, starting Docker services...")
+	// Need to restart with the correct workspace
+	log.Printf("Starting Docker services with workspace '%s'...", workspace)
 
 	composeFile := findComposeFile()
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "up", "-d")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+
+	// Stop existing containers first
+	downCmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
+	downCmd.Stdout = os.Stdout
+	downCmd.Stderr = os.Stderr
+	_ = downCmd.Run()
+
+	// Start with the correct workspace
+	upCmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "up", "-d")
+	upCmd.Stdout = os.Stdout
+	upCmd.Stderr = os.Stderr
+	upCmd.Env = append(os.Environ(), "WORKSPACE="+workspace)
+	if err := upCmd.Run(); err != nil {
 		return fmt.Errorf("docker compose failed: %w", err)
 	}
 
 	log.Print("Waiting for LightRAG to become healthy...")
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	timeout := time.After(60 * time.Second)
+	timeout := time.After(120 * time.Second)
 
 	for {
 		select {
@@ -218,22 +240,35 @@ func findComposeFile() string {
 	return "docker-compose.yml"
 }
 
-func startCmd(c *cli.Context) error {
+func inputDirOrDefault(c *cli.Context) string {
 	inputDir := c.Args().First()
 	if inputDir == "" {
-		return fmt.Errorf("usage: coderag start <directory>")
+		var err error
+		inputDir, err = os.Getwd()
+		if err != nil {
+			log.Fatalf("get current directory: %v", err)
+		}
 	}
+	abs, err := filepath.Abs(inputDir)
+	if err == nil {
+		inputDir = abs
+	}
+	return inputDir
+}
+
+func startCmd(c *cli.Context) error {
+	inputDir := inputDirOrDefault(c)
 	if _, err := os.Stat(inputDir); err != nil {
 		return fmt.Errorf("directory not found: %s", inputDir)
 	}
 
+	ws := projectName(inputDir)
 	ctx := context.Background()
-	if err := ensureLightRAG(ctx); err != nil {
+	if err := ensureLightRAG(ctx, ws); err != nil {
 		return fmt.Errorf("failed to start LightRAG: %w", err)
 	}
 
 	client := crud.NewConfig()
-	ws := projectName(inputDir)
 	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
 	if err := client.SetWorkspace(ws); err != nil {
 		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
@@ -244,10 +279,7 @@ func startCmd(c *cli.Context) error {
 		DebounceSecs: 0.5,
 		MaxWorkers:   4,
 		UseGit:       true,
-		LightRAGConfig: &crud.Config{
-			BaseURL: "http://localhost:9621",
-			Timeout: 30 * time.Second,
-		},
+		LightRAGConfig: crud.NewConfig(),
 	}
 
 	w, err := watcher.NewWatcher(cfg)
@@ -292,10 +324,7 @@ func openBrowser(url string) error {
 }
 
 func watchCmd(c *cli.Context) error {
-	inputDir := c.Args().First()
-	if inputDir == "" {
-		return fmt.Errorf("usage: coderag watch <directory>")
-	}
+	inputDir := inputDirOrDefault(c)
 	if _, err := os.Stat(inputDir); err != nil {
 		return fmt.Errorf("directory not found: %s", inputDir)
 	}
@@ -396,16 +425,14 @@ func queryCmd(c *cli.Context) error {
 }
 
 func mcpCmd(c *cli.Context) error {
-	inputDir := c.Args().First()
-	if inputDir == "" {
-		return fmt.Errorf("usage: coderag mcp <directory>")
-	}
+	inputDir := inputDirOrDefault(c)
 	if _, err := os.Stat(inputDir); err != nil {
 		return fmt.Errorf("directory not found: %s", inputDir)
 	}
 
+	ws := projectName(inputDir)
 	ctx := context.Background()
-	if err := ensureMCP(ctx); err != nil {
+	if err := ensureMCP(ctx, ws); err != nil {
 		return fmt.Errorf("failed to ensure MCP services: %w", err)
 	}
 
@@ -421,10 +448,7 @@ func startWatchdogBackground(inputDir string) {
 		DebounceSecs: 0.5,
 		MaxWorkers:   4,
 		UseGit:       true,
-		LightRAGConfig: &crud.Config{
-			BaseURL: "http://localhost:9621",
-			Timeout: 30 * time.Second,
-		},
+		LightRAGConfig: crud.NewConfig(),
 	}
 
 	w, err := watcher.NewWatcher(cfg)
@@ -473,18 +497,16 @@ func captureDockerLogs(logsDir string) error {
 }
 
 func scanCmd(c *cli.Context) error {
-	inputDir := c.Args().First()
-	if inputDir == "" {
-		return fmt.Errorf("usage: coderag scan <directory>")
-	}
+	inputDir := inputDirOrDefault(c)
 	if _, err := os.Stat(inputDir); err != nil {
 		return fmt.Errorf("directory not found: %s", inputDir)
 	}
 
+	ws := projectName(inputDir)
 	clean := c.Bool("clean")
 
 	ctx := context.Background()
-	if err := ensureLightRAG(ctx); err != nil {
+	if err := ensureLightRAG(ctx, ws); err != nil {
 		return fmt.Errorf("failed to start LightRAG: %w", err)
 	}
 
@@ -496,7 +518,6 @@ func scanCmd(c *cli.Context) error {
 		os.RemoveAll(analyserOut)
 
 		log.Printf("Clearing existing data from LightRAG...")
-		ws := projectName(inputDir)
 		clearClient := crud.NewConfig()
 		if err := clearClient.SetWorkspace(ws); err != nil {
 			log.Printf("Warning: failed to set workspace for clear: %v", err)
@@ -512,7 +533,6 @@ func scanCmd(c *cli.Context) error {
 
 	client := crud.NewConfig()
 
-	ws := projectName(inputDir)
 	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
 	if err := client.SetWorkspace(ws); err != nil {
 		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)

@@ -12,7 +12,7 @@ import { useTranslation } from 'react-i18next'
 import { RefreshCw } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import { SearchHistoryManager } from '@/utils/SearchHistoryManager'
-import { getPopularLabels, searchLabels } from '@/api/lightrag'
+import { getPopularLabels, searchLabels, getGraphLabels, GraphLabelsResponse } from '@/api/lightrag'
 
 const GraphLabels = () => {
   const { t } = useTranslation()
@@ -127,8 +127,19 @@ const GraphLabels = () => {
           SearchHistoryManager.clearHistory()
 
           if (popularLabels.length === 0) {
-            // If no popular labels, provide fallback defaults
-            const fallbackLabels = ['entity', 'relationship', 'document', 'concept']
+            // If no popular labels, try entity type labels as fallback
+            let fallbackLabels: string[] = []
+            try {
+              const labelsResp: GraphLabelsResponse = await getGraphLabels()
+              if (labelsResp.entity_labels && labelsResp.entity_labels.length > 0) {
+                fallbackLabels = labelsResp.entity_labels
+              }
+            } catch {
+              // ignore
+            }
+            if (fallbackLabels.length === 0) {
+              fallbackLabels = ['CLASS', 'METHOD', 'PROPERTY', 'INTERFACE']
+            }
             await SearchHistoryManager.initializeWithDefaults(fallbackLabels)
           } else {
             await SearchHistoryManager.initializeWithDefaults(popularLabels)
@@ -136,7 +147,18 @@ const GraphLabels = () => {
         } catch (error) {
           console.error('Failed to reload popular labels:', error)
           // Provide fallback even if API fails
-          const fallbackLabels = ['entity', 'relationship', 'document']
+          let fallbackLabels: string[] = []
+          try {
+            const labelsResp: GraphLabelsResponse = await getGraphLabels()
+            if (labelsResp.entity_labels && labelsResp.entity_labels.length > 0) {
+              fallbackLabels = labelsResp.entity_labels
+            }
+          } catch {
+            // ignore
+          }
+          if (fallbackLabels.length === 0) {
+            fallbackLabels = ['CLASS', 'METHOD', 'PROPERTY']
+          }
           SearchHistoryManager.clearHistory()
           await SearchHistoryManager.initializeWithDefaults(fallbackLabels)
         }

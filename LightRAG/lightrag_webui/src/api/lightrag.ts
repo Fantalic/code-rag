@@ -320,7 +320,12 @@ export const queryGraphs = async (
   return response.data
 }
 
-export const getGraphLabels = async (): Promise<string[]> => {
+export type GraphLabelsResponse = {
+  entity_labels: string[]
+  relation_labels: string[]
+}
+
+export const getGraphLabels = async (): Promise<GraphLabelsResponse> => {
   const response = await axiosInstance.get('/graph/label/list')
   return response.data
 }
@@ -346,6 +351,15 @@ export const checkHealth = async (): Promise<
       status: 'error',
       message: errorMessage(error)
     }
+  }
+}
+
+export const fetchCurrentWorkspace = async (): Promise<string> => {
+  try {
+    const res = await axiosInstance.get('/workspace')
+    return res.data?.workspace || ''
+  } catch {
+    return ''
   }
 }
 
