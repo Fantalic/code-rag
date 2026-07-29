@@ -18,9 +18,11 @@ func IsSupported(filePath string) bool {
 	if _, ok := extensionMap[ext]; !ok {
 		return false
 	}
-	path := strings.ToLower(filePath)
-	if strings.Contains(path, string(filepath.Separator)+"obj"+string(filepath.Separator)) ||
-		strings.Contains(path, string(filepath.Separator)+"bin"+string(filepath.Separator)) {
+	path := strings.ToLower(filepath.ToSlash(filePath))
+	if strings.Contains(path, "/obj/") ||
+		strings.Contains(path, "/bin/") ||
+		strings.HasPrefix(path, "obj/") ||
+		strings.HasPrefix(path, "bin/") {
 		return false
 	}
 	return true

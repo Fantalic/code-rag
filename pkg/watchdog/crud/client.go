@@ -16,10 +16,18 @@ const (
 )
 
 type Config struct {
-	BaseURL   string
-	APIKey    string
-	Timeout   time.Duration
-	Workspace string
+	BaseURL    string
+	APIKey     string
+	Timeout    time.Duration
+	Workspace  string
+	HTTPClient *http.Client // optional, for testing
+}
+
+func (c *Config) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{Timeout: c.Timeout}
 }
 
 func NewConfig() *Config {
@@ -69,8 +77,7 @@ func (c *Config) do(method, path string, payload interface{}) (map[string]any, e
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: c.Timeout}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
@@ -149,8 +156,7 @@ func (c *Config) CheckEntityExists(name string) bool {
 	for k, v := range c.Headers() {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: c.Timeout}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return false
 	}
@@ -236,8 +242,7 @@ func (c *Config) GetAllEntities() ([]map[string]any, error) {
 	for k, v := range c.Headers() {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: c.Timeout}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
@@ -272,8 +277,7 @@ func (c *Config) GetAllRelations() ([]RelationEdge, error) {
 	for k, v := range c.Headers() {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: c.Timeout}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}

@@ -15,9 +15,17 @@ import (
 const DefaultTimeout = 30 * time.Second
 
 type Client struct {
-	BaseURL string
-	APIKey  string
-	Timeout time.Duration
+	BaseURL    string
+	APIKey     string
+	Timeout    time.Duration
+	HTTPClient *http.Client // optional, for testing
+}
+
+func (c *Client) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{Timeout: c.Timeout}
 }
 
 func New() *Client {
@@ -67,8 +75,7 @@ func (c *Client) do(method, path string, payload interface{}) (map[string]any, e
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: c.Timeout}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
@@ -111,8 +118,7 @@ func (c *Client) doRaw(method, path string, payload interface{}) ([]byte, error)
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: c.Timeout}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
@@ -121,10 +127,6 @@ func (c *Client) doRaw(method, path string, payload interface{}) ([]byte, error)
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
 	}
 
 	return data, nil
@@ -138,8 +140,7 @@ func (c *Client) CheckHealth() bool {
 	for k, v := range c.Headers() {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return false
 	}

@@ -361,10 +361,8 @@ class LightRAG:
     )
     """Maximum number of parallel insert operations."""
 
-    max_graph_nodes: int = field(
-        default=get_env_value("MAX_GRAPH_NODES", DEFAULT_MAX_GRAPH_NODES, int)
-    )
-    """Maximum number of graph nodes to return in knowledge graph queries."""
+    max_graph_nodes: int = 0
+    """Maximum number of graph nodes (0 = unlimited)."""
 
     max_source_ids_per_entity: int = field(
         default=get_env_value(
@@ -1033,9 +1031,7 @@ class LightRAG:
             KnowledgeGraph: Knowledge graph containing nodes and edges
         """
         if max_nodes is None:
-            max_nodes = self.max_graph_nodes
-        elif self.max_graph_nodes > 0:
-            max_nodes = min(max_nodes, self.max_graph_nodes)
+            max_nodes = 0
 
         return await self.chunk_entity_relation_graph.get_knowledge_graph(
             node_label, max_depth, max_nodes
