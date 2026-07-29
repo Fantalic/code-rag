@@ -778,3 +778,240 @@ class TestUpdateRelations:
             await lightrag_client.update_relations("/path/to/project.sln")
 
         lightrag_client.insert_text.assert_called_once_with("content", title="MyFile")
+
+
+class TestRelationDetailMethod:
+    """Test get_relation_detail client method."""
+
+    async def test_get_relation_detail_success(self, lightrag_client, mock_response):
+        """Test successful relation detail retrieval."""
+        graph_data = {
+            "nodes": [
+                {
+                    "id": "TestLib.Calculator",
+                    "properties": {"entity_name": "TestLib.Calculator", "entity_type": "CLASS"},
+                }
+            ],
+            "edges": [
+                {
+                    "id": "rel_1",
+                    "source": "TestLib.Calculator",
+                    "target": "TestLib.Calculator.Add",
+                    "properties": {"keywords": "defines,method", "weight": 1.0, "source_id": "TestLib__Calculator.cs.txt"},
+                    "weight": 1.0,
+                },
+                {
+                    "id": "rel_2",
+                    "source": "TestLib.Calculator",
+                    "target": "TestLib.DataStore.GetAll",
+                    "properties": {"keywords": "calls", "weight": 0.5, "source_id": "TestLib__Calculator.cs.txt"},
+                    "weight": 0.5,
+                },
+            ],
+        }
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.get_relation_detail("TestLib.Calculator", "defines")
+
+        assert result.entity_name == "TestLib.Calculator"
+        assert result.relation_type == "defines"
+        assert result.total == 1
+        assert result.relations[0].source_entity == "TestLib.Calculator"
+        assert result.relations[0].target_entity == "TestLib.Calculator.Add"
+
+    async def test_get_relation_detail_no_matches(self, lightrag_client, mock_response):
+        """Test when no relations match the type filter."""
+        graph_data = {
+            "nodes": [],
+            "edges": [
+                {
+                    "id": "rel_1",
+                    "source": "A",
+                    "target": "B",
+                    "properties": {"keywords": "calls"},
+                    "weight": 0.5,
+                }
+            ],
+        }
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.get_relation_detail("A", "defines")
+
+        assert result.total == 0
+        assert result.relations == []
+
+    async def test_get_relation_detail_graph_error(self, lightrag_client):
+        """Test error handling when graph fetch fails."""
+        lightrag_client.get_knowledge_graph = AsyncMock(side_effect=Exception("Connection failed"))
+
+        result = await lightrag_client.get_relation_detail("TestLib.Calculator", "defines")
+
+        assert result.total == 0
+        assert result.relations == []
+
+
+class TestMethodSignatureMethod:
+    """Test get_method_signature client method."""
+
+    async def test_get_method_signature_success(self, lightrag_client, mock_response):
+        """Test successful method signature retrieval."""
+        graph_data = {
+            "nodes": [
+                {
+                    "id": "TestLib.Calculator.Add",
+                    "properties": {
+                        "entity_name": "TestLib.Calculator.Add",
+                        "entity_type": "METHOD",
+                        "description": "Add(int a, int b) -> int",
+                        "file_path": "/path/Calculator.cs",
+                    },
+                }
+            ],
+            "edges": [],
+        }
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.get_method_signature("TestLib.Calculator.Add")
+
+        assert result.entity_name == "TestLib.Calculator.Add"
+        assert result.return_type == "int"
+        assert len(result.parameters) == 2
+        assert result.parameters[0]["name"] == "int"
+        assert result.parameters[0]["type"] == "a"
+        assert result.parameters[1]["name"] == "int"
+        assert result.parameters[1]["type"] == "b"
+        assert result.file_path == "/path/Calculator.cs"
+
+    async def test_get_method_signature_not_found(self, lightrag_client, mock_response):
+        """Test when entity is not found in graph."""
+        graph_data = {"nodes": [], "edges": []}
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.get_method_signature("NonExistent.Method")
+
+        assert result.entity_name == "NonExistent.Method"
+        assert result.return_type == ""
+        assert result.parameters == []
+
+
+class TestFindRelatedFilesMethod:
+    """Test find_related_files client method."""
+
+    async def test_find_related_files_by_entity(self, lightrag_client, mock_response):
+        """Test finding files related to an entity name."""
+        graph_data = {
+            "nodes": [
+                {
+                    "id": "TestLib.Calculator",
+                    "properties": {
+                        "entity_name": "TestLib.Calculator",
+                        "entity_type": "CLASS",
+                        "file_path": "E:/dev/Calculator.cs",
+                    },
+                },
+                {
+                    "id": "TestLib.Calculator.Add",
+                    "properties": {
+                        "entity_name": "TestLib.Calculator.Add",
+                        "entity_type": "METHOD",
+                        "file_path": "E:/dev/Calculator.cs",
+                    },
+                },
+            ],
+            "edges": [],
+        }
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.find_related_files("TestLib.Calculator")
+
+        assert result.query == "TestLib.Calculator"
+        assert result.total_files >= 1
+        assert any("Calculator.cs" in f for f in result.files)
+
+    async def test_find_related_files_no_matches(self, lightrag_client, mock_response):
+        """Test when no related files are found."""
+        graph_data = {
+            "nodes": [
+                {
+                    "id": "TestLib.Other",
+                    "properties": {
+                        "entity_name": "TestLib.Other",
+                        "entity_type": "CLASS",
+                        "file_path": "E:/dev/Other.cs",
+                    },
+                }
+            ],
+            "edges": [],
+        }
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.find_related_files("NonExistent")
+
+        assert result.total_files == 0
+        assert result.files == []
+
+
+class TestInterfaceMethodsMethod:
+    """Test get_interface_methods client method."""
+
+    async def test_get_interface_methods_success(self, lightrag_client, mock_response):
+        """Test successful interface methods retrieval."""
+        graph_data = {
+            "nodes": [
+                {
+                    "id": "TestLib.IOperation",
+                    "properties": {
+                        "entity_name": "TestLib.IOperation",
+                        "entity_type": "INTERFACE",
+                    },
+                },
+                {
+                    "id": "TestLib.Calculator",
+                    "properties": {
+                        "entity_name": "TestLib.Calculator",
+                        "entity_type": "CLASS",
+                    },
+                },
+            ],
+            "edges": [
+                {
+                    "id": "rel_1",
+                    "source": "TestLib.IOperation",
+                    "target": "TestLib.IOperation.Execute",
+                    "properties": {"keywords": "defines,method", "description": "Execute() -> int"},
+                },
+                {
+                    "id": "rel_2",
+                    "source": "TestLib.Calculator",
+                    "target": "TestLib.IOperation",
+                    "properties": {"keywords": "implements"},
+                },
+            ],
+        }
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.get_interface_methods("TestLib.IOperation")
+
+        assert result.interface_name == "TestLib.IOperation"
+        assert len(result.methods) == 1
+        assert result.methods[0].method_name == "TestLib.IOperation.Execute"
+        assert "TestLib.Calculator" in result.implementing_classes
+
+    async def test_get_interface_methods_not_found(self, lightrag_client, mock_response):
+        """Test when interface is not found in graph."""
+        graph_data = {"nodes": [], "edges": []}
+        response = mock_response(200, graph_data)
+        lightrag_client.client.get = AsyncMock(return_value=response)
+
+        result = await lightrag_client.get_interface_methods("NonExistent.Interface")
+
+        assert result.interface_name == "NonExistent.Interface"
+        assert result.methods == []
+        assert result.implementing_classes == []

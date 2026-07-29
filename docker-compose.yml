@@ -12,7 +12,7 @@ services:
     environment:
       - LLM_BINDING_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - EMBEDDING_BINDING_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
-      - LLM_MODEL=qwen3-coder:480b-cloud
+      - LLM_MODEL=phi3.5:latest
       - EMBEDDING_MODEL=bge-m3:latest
       - EMBEDDING_DIM=1024
       - WORKSPACE=${WORKSPACE:-}

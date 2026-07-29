@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from dotenv import load_dotenv
-from mcp.server import MCPServer
+from mcp.server.fastmcp import FastMCP
 
 from .client import LightRAGAPIError, LightRAGClient, LightRAGError
 from .models import AddNoteResponse
@@ -36,7 +36,7 @@ def _get_lightrag_client() -> LightRAGClient:
     return LightRAGClient(base_url=base_url, api_key=api_key, timeout=timeout)
 
 
-mcp_server = MCPServer(
+mcp_server = FastMCP(
     name="daniel-lightrag-mcp",
     instructions="LightRAG knowledge graph MCP server for codebase exploration.",
 )
