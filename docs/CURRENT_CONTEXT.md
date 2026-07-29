@@ -136,7 +136,24 @@ coderag scan <dir>    → run C# analyser and populate knowledge graph
 
 ---
 
-## Running System (July 29, 2026)
+## MCP Tool Verification (July 29, 2026)
+
+All graph-based MCP tools verified against live LightRAG API on test-csharp-project:
+
+| Tool | Status | Notes |
+|------|--------|-------|
+| `get_graph_labels` | ✅ | Returns all entity/relation types correctly |
+| `get_entities_in_file` | ✅ | Returns entities for a given file path |
+| `get_entity_neighbors` | ✅ | Returns outgoing (defines/implements) + incoming (extends) |
+| `search_entities` | ✅ | 17 Calculator entities found correctly |
+| `get_entity_details` | ✅ | Returns CLASS entity with description + method count |
+| `query` | ⚠️ | Returns "no relevant context" — requires text chunk ingestion (not just graph CRUD) |
+
+The `query` endpoint returns "no relevant context" because `coderag scan` only populates graph entities/relations via CRUD — it does not ingest text chunks into the vector DB that powers the LLM query path. This is expected behavior.
+
+---
+
+## Running System (July 29, 2026 - Updated)
 
 ### Services (all running)
 | Service | Type | Port | Status |
