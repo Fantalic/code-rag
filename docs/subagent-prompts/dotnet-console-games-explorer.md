@@ -18,7 +18,7 @@ Navigate the dotnet-console-games codebase using LightRAG HTTP REST API, underst
 | `get_entities_by_type` | `/graphs?label=*&max_depth=3&max_nodes=10000` + filter | GET |
 | `search_entities` | `/graphs?label=*&max_depth=3&max_nodes=10000` + regex | GET |
 | `get_entities_in_file` | `/graphs?label=*&max_depth=3&max_nodes=10000` + filter | GET |
-| `query_data` | `/query/data` | POST |
+| `query_data` | `/query/data` | POST | Returns entities, relationships, chunks, and references (default: `only_need_context=False`) |
 | `add_note_to_entity` | `/graph/entity/create` | POST |
 | `add_relation` | `/graph/relation/create` | POST |
 
