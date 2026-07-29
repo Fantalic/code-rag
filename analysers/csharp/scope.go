@@ -3,14 +3,14 @@ package csharpanalyser
 import "path/filepath"
 
 type ScopeTracker struct {
-	fileIndex  map[string]*FileResult
-	globalIdx  *GlobalIndex
+	fileIndex map[string]*FileResult
+	globalIdx *GlobalIndex
 }
 
 func NewScopeTracker(idx *GlobalIndex) *ScopeTracker {
 	return &ScopeTracker{
-		fileIndex:  make(map[string]*FileResult),
-		globalIdx:  idx,
+		fileIndex: make(map[string]*FileResult),
+		globalIdx: idx,
 	}
 }
 

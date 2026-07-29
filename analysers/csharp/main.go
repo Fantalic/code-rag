@@ -9,11 +9,11 @@ import (
 )
 
 type CLIConfig struct {
-	Command    string
-	Solution   string
-	Dir        string
-	Changed    string
-	OutputDir  string
+	Command   string
+	Solution  string
+	Dir       string
+	Changed   string
+	OutputDir string
 }
 
 func ParseCLI(args []string) (*CLIConfig, error) {

@@ -15,8 +15,8 @@ func containsString(slice []string, s string) bool {
 }
 
 type IndexBuilder struct {
-	mu     sync.Mutex
-	index  *GlobalIndex
+	mu    sync.Mutex
+	index *GlobalIndex
 }
 
 func NewIndexBuilder() *IndexBuilder {
@@ -28,9 +28,9 @@ func NewIndexBuilder() *IndexBuilder {
 func (ib *IndexBuilder) BuildIndex(files []string) (*GlobalIndex, error) {
 	var wg sync.WaitGroup
 	type result struct {
-		file  string
-		fr    *FileResult
-		err   error
+		file string
+		fr   *FileResult
+		err  error
 	}
 	ch := make(chan result, len(files))
 
@@ -57,9 +57,9 @@ func (ib *IndexBuilder) BuildIndex(files []string) (*GlobalIndex, error) {
 			switch e.Type {
 			case EntityClass, EntityInterface, EntityStruct, EntityEnum:
 				ci := &ClassInfo{
-					Name:       e.Name,
-					FilePath:   e.FilePath,
-					LineNo:     e.LineNo,
+					Name:     e.Name,
+					FilePath: e.FilePath,
+					LineNo:   e.LineNo,
 				}
 				index.Classes[e.Name] = ci
 			case EntityMethod:

@@ -52,13 +52,13 @@ type PropertyInfo struct {
 }
 
 type ClassInfo struct {
-	Name         string
-	FilePath     string
-	BaseType     string
-	Interfaces   []string
-	Methods      []string
-	Properties   []string
-	LineNo       int
+	Name       string
+	FilePath   string
+	BaseType   string
+	Interfaces []string
+	Methods    []string
+	Properties []string
+	LineNo     int
 }
 
 type CallSite struct {
@@ -72,7 +72,7 @@ type CallSite struct {
 }
 
 type TypeInfo struct {
-	Kind     string   // class, interface, struct, enum
+	Kind     string // class, interface, struct, enum
 	FilePath string
 	LineNo   int
 }

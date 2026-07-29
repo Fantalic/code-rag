@@ -8,15 +8,15 @@ import (
 )
 
 type Project struct {
-	XMLName       xml.Name         `xml:"Project"`
-	ItemGroups    []ItemGroup      `xml:"ItemGroup"`
-	PropertyGroup []PropertyGroup  `xml:"PropertyGroup"`
+	XMLName       xml.Name        `xml:"Project"`
+	ItemGroups    []ItemGroup     `xml:"ItemGroup"`
+	PropertyGroup []PropertyGroup `xml:"PropertyGroup"`
 }
 
 type ItemGroup struct {
-	Compiles      []Compile       `xml:"Compile"`
-	References    []Reference     `xml:"Reference"`
-	ProjectRefs   []ProjectRef    `xml:"ProjectReference"`
+	Compiles    []Compile    `xml:"Compile"`
+	References  []Reference  `xml:"Reference"`
+	ProjectRefs []ProjectRef `xml:"ProjectReference"`
 }
 
 type Compile struct {
@@ -36,9 +36,9 @@ type PropertyGroup struct {
 }
 
 type ProjectFiles struct {
-	SourceFiles    []string
-	ProjectDir     string
-	ProjectRefs    []string
+	SourceFiles []string
+	ProjectDir  string
+	ProjectRefs []string
 }
 
 func ParseProject(csprojPath string) (*ProjectFiles, error) {
