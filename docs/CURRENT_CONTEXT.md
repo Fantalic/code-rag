@@ -7,11 +7,17 @@
 - 🔥 **Phase 32** — Knowledge Graph Refactoring ✅ COMPLETE
 - **Phase 27** — Verify All MCP Tools ✅ COMPLETE (verified 6/13; full 13-tool verification blocked by graph quality issues — see Phase 27.5)
 
-## Working Task — Phase 27.5: CRUD Pipeline Adaptation to Phase 33 Format
+**Deep analysis findings:**
 
-**Goal:** Fix the CRUD pipeline bugs that prevent correct processing of Phase 33 analyser output (namespace-qualified entity names, new relation types).
+1. **LightRAG API handles qualified names correctly** — both entity and relation creation work with namespace-qualified names
+2. **Root cause of 0 relations:** `ClearAll()` targeted the wrong workspace (Go's `default` workspace, not the project workspace). After fix, `scanCmd` now calls `ws := projectName(inputDir)` once and passes it to `clearClient.SetWorkspace(ws)` before `ClearAll()`
+3. **Error swallowing was masking all failures** — added `log.Printf` for every CRUD failure with full context (entity_type, file_path, keywords, weight)
+4. **CALL relations to framework types** (e.g., `Checkers.Board.GetPossibleMoves → List<Move>.AddRange`) silently fail because the target entity (a framework class) doesn't exist in the graph. This is expected but adds noise.
+5. **Phase 33 format changes are fully compatible** with the CRUD pipeline once the workspace targeting bug is fixed
 
-**Plan documented in `docs/PLAN.md` | Current phase: Implementation → Done**
+**Changes committed:**
+- `cmd/coderag/main.go`: (1) workspace targeting fix in `scanCmd`, (2) error logging for ALL CRUD operations in `applyScanResults`
+- `pkg/watchdog/pipeline/run.go`: error logging + counting for ALL entity/relation CRUD operations in `applyCSharpResults`
 
 | # | Fix | Where | Status |
 |---|-----|-------|--------|
