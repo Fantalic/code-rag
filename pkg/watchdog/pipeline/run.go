@@ -152,10 +152,18 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 
 	entityActions := diff.DiffEntities(oldEntityMap, newEntityMap)
 
+	createdEntities := 0
+	deletedEntities := 0
+	updatedEntities := 0
+
 	for _, action := range entityActions {
 		switch action.Kind {
 		case diff.ActionDelete:
-			client.DeleteEntity(action.EntityName)
+			if _, err := client.DeleteEntity(action.EntityName); err != nil {
+				log.Printf("ERROR deleting entity %q: %v", action.EntityName, err)
+			} else {
+				deletedEntities++
+			}
 		case diff.ActionCreate:
 			data := filter.FilterEntityData(action.Data)
 			_, err := client.CreateEntity(
@@ -166,7 +174,9 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 				getString(data, "file_path", filePath),
 			)
 			if err != nil {
-				log.Printf("Entity create error: %v", err)
+				log.Printf("ERROR creating entity %q (type=%s, file=%s): %v", action.EntityName, getString(data, "entity_type", "UNKNOWN"), getString(data, "file_path", filePath), err)
+			} else {
+				createdEntities++
 			}
 		case diff.ActionUpdate:
 			data := filter.FilterEntityData(action.Data)
@@ -175,18 +185,31 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 				delete(data, "description")
 				delete(data, "methods")
 			}
-			client.UpdateEntity(action.EntityName, data)
+			if _, err := client.UpdateEntity(action.EntityName, data); err != nil {
+				log.Printf("ERROR updating entity %q: %v", action.EntityName, err)
+			} else {
+				updatedEntities++
+			}
 		}
 	}
+
+	log.Printf("Entities (local): created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
 
 	oldRelMap := loadCurrentRelations(client)
 	newRelMap := parserRelationsToMap(relations)
 	relActions := diff.DiffRelations(oldRelMap, newRelMap)
 
+	createdRels := 0
+	deletedRels := 0
+
 	for _, action := range relActions {
 		switch action.Kind {
 		case diff.ActionDelete:
-			client.DeleteRelation(action.Source, action.Target)
+			if _, err := client.DeleteRelation(action.Source, action.Target); err != nil {
+				log.Printf("ERROR deleting relation %q → %q: %v", action.Source, action.Target, err)
+			} else {
+				deletedRels++
+			}
 		case diff.ActionCreate:
 			key := dedupKey{src: action.Source, tgt: action.Target, kw: action.Keywords}
 			if _, loaded := relationDedup.LoadOrStore(key, true); loaded {
@@ -202,7 +225,7 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 			fp := getString(data, "file_path", filePath)
 			log.Printf("RELATION CREATE: %s -> %s desc=%q kw=%q weight=%.1f",
 				action.Source, action.Target, desc, kw, w)
-			resp, err := client.CreateRelation(
+			_, err := client.CreateRelation(
 				action.Source,
 				action.Target,
 				desc,
@@ -212,15 +235,23 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 				fp,
 			)
 			if err != nil {
-				log.Printf("RELATION CREATE ERROR: %v", err)
+				log.Printf("RELATION CREATE ERROR: %s -> %s: %v", action.Source, action.Target, err)
 			} else {
-				log.Printf("RELATION CREATE OK: %v", resp)
+				log.Printf("RELATION CREATE OK: %s -> %s", action.Source, action.Target)
+				createdRels++
 			}
 		case diff.ActionUpdate:
 			data := filter.FilterRelationData(action.Data)
-			client.UpdateRelation(action.Source, action.Target, data)
+			if _, err := client.UpdateRelation(action.Source, action.Target, data); err != nil {
+				log.Printf("ERROR updating relation %q → %q: %v", action.Source, action.Target, err)
+			} else {
+				log.Printf("RELATION UPDATE OK: %s -> %s", action.Source, action.Target)
+				createdRels++
+			}
 		}
 	}
+
+	log.Printf("Relations (local): created=%d, deleted=%d", createdRels, deletedRels)
 
 	return nil
 }

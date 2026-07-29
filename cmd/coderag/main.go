@@ -496,11 +496,14 @@ func scanCmd(c *cli.Context) error {
 		os.RemoveAll(analyserOut)
 
 		log.Printf("Clearing existing data from LightRAG...")
-		client := crud.NewConfig()
-		if err := client.ClearAll(); err != nil {
+		ws := projectName(inputDir)
+		clearClient := crud.NewConfig()
+		if err := clearClient.SetWorkspace(ws); err != nil {
+			log.Printf("Warning: failed to set workspace for clear: %v", err)
+		}
+		if err := clearClient.ClearAll(); err != nil {
 			return fmt.Errorf("failed to clear LightRAG: %w", err)
 		}
-		// wait for clearing to complete
 		time.Sleep(3 * time.Second)
 	}
 
@@ -592,6 +595,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 		case diff.ActionDelete:
 			if _, err := client.DeleteEntity(action.EntityName); err == nil {
 				deletedEntities++
+			} else {
+				log.Printf("ERROR deleting entity %q: %v", action.EntityName, err)
 			}
 		case diff.ActionCreate:
 			data := filter.FilterEntityData(action.Data)
@@ -604,6 +609,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			)
 			if err == nil {
 				createdEntities++
+			} else {
+				log.Printf("ERROR creating entity %q (type=%s, file=%s): %v", action.EntityName, getString(data, "entity_type", "UNKNOWN"), getString(data, "file_path", ""), err)
 			}
 		case diff.ActionUpdate:
 			data := filter.FilterEntityData(action.Data)
@@ -614,6 +621,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			}
 			if _, err := client.UpdateEntity(action.EntityName, data); err == nil {
 				updatedEntities++
+			} else {
+				log.Printf("ERROR updating entity %q: %v", action.EntityName, err)
 			}
 		}
 	}
@@ -632,6 +641,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 		case diff.ActionDelete:
 			if _, err := client.DeleteRelation(action.Source, action.Target); err == nil {
 				deletedRels++
+			} else {
+				log.Printf("ERROR deleting relation %q → %q: %v", action.Source, action.Target, err)
 			}
 		case diff.ActionCreate:
 			data := filter.FilterRelationData(action.Data)
@@ -646,11 +657,15 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			)
 			if err == nil {
 				createdRels++
+			} else {
+				log.Printf("ERROR creating relation %q → %q (keywords=%s, weight=%.1f, file=%s): %v", action.Source, action.Target, getString(data, "keywords"), getFloat(data, "weight", 1.0), getString(data, "file_path", ""), err)
 			}
 		case diff.ActionUpdate:
 			data := filter.FilterRelationData(action.Data)
 			if _, err := client.UpdateRelation(action.Source, action.Target, data); err == nil {
 				createdRels++
+			} else {
+				log.Printf("ERROR updating relation %q → %q: %v", action.Source, action.Target, err)
 			}
 		}
 	}
