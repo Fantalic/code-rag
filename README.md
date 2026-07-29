@@ -23,7 +23,7 @@ AI agents connect via MCP tools to ask questions like:
 
 ## Key Features
 
-- **22 MCP tools** — query, insert, knowledge graph, document management, system tools
+- **17 MCP tools** — query, knowledge graph, document management, system tools
 - **Live file watching** — git-based change detection with initial full codebase scan
 - **Dual ingestion paths** — direct graph CRUD (no LLM) for structured files, LLM pipeline for complex/unstructured content
 - **Multi-language analysers** — C# (Go native binary), future: Go, Rust, Zig
@@ -39,7 +39,7 @@ AI agents connect via MCP tools to ask questions like:
 | Component | Language | Purpose |
 |-----------|----------|---------|
 | **LightRAG API** | Python (FastAPI) | RAG engine, graph storage, query endpoint on port 9621 |
-| **MCP Server** | Python | 22 MCP tools, stdio transport for AI agents |
+| **MCP Server** | Python | 17 MCP tools, stdio transport for AI agents |
 | **coderag CLI** | Go (static binary) | Orchestrator — file watcher, scan, MCP bridge, Docker management |
 | **C# Analyser** | Go (native) | Extracts classes, methods, project references from .NET projects |
 

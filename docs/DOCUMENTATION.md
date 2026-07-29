@@ -222,34 +222,78 @@ The MCP server runs in Docker (`daniel-lightrag-mcp` on port 9622, SSE transport
 opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Docker :9622) → HTTP → LightRAG API (Docker :9621)
 ```
 
-### 15 MCP Tools
+### 17 MCP Tools
 
 **Query (2 tools):**
-| Tool | Description |
-|------|-------------|
-| `query` | LLM-powered natural language query (hybrid mode) |
-| `query_data` | Structured query without LLM (entities + relationships) |
+| Tool | Description | Status |
+|------|-------------|--------|
+| `query` | LLM-powered natural language query (hybrid mode) | ⚠️ POST `/query` times out — Ollama connectivity issue |
+| `query_data` | Structured query without LLM (entities + relationships) | ⚠️ POST `/query/data` times out — Ollama connectivity issue |
 
 **Knowledge Graph & Traversal (8 tools):**
-| Tool | Description |
-|------|-------------|
-| `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) |
-| `get_graph_labels` | Get all entity/relation label types |
-| `check_entity_exists` | Check if entity exists by name |
-| `add_note_to_entity` | Attach embedded note to entity |
-| `get_related_files` | Find files related to a query (semantic search) |
-| `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) |
-| `get_incoming_relations` | Entities pointing TO this entity |
-| `get_outgoing_relations` | Entities this entity points TO |
+| Tool | Description | Status |
+|------|-------------|--------|
+| `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) | ✅ Working |
+| `get_graph_labels` | Get all entity/relation label types | ✅ Working |
+| `check_entity_exists` | Check if entity exists by name | ✅ Working |
+| `add_note_to_entity` | Attach embedded note to entity | ⚠️ Creates note but reports failure |
+| `get_related_files` | Find files related to a query (semantic search) | ⚠️ Returns file paths only — no snippets |
+| `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) | ✅ Working |
+| `get_entity_details` | Full entity info with all relations; `depth` (1=entity, 2=structural, 3=full) | ✅ Working |
+| `get_relation_detail` | Show all relations of a specific type for an entity | ✅ Added |
+| `get_method_signature` | Show method signature (parameters, return type) | ✅ Added |
+| `find_related_files` | Find all files that reference/relate to a given entity | ✅ Added |
+| `get_interface_methods` | Show interface methods + implementing classes | ✅ Added |
 
-**Exploration (5 tools):**
-| Tool | Description |
-|------|-------------|
-| `get_codebase_stats` | Entity/relation counts by type, unique files, visibility counts |
-| `list_entities_by_type` | Paginated list of entities by type (CLASS, METHOD, NAMESPACE, etc.) |
-| `get_entities_in_file` | Filter graph by source file path |
-| `search_entities` | Regex search on entity names and descriptions |
-| `get_entity_details` | Full entity info with all relations; `depth` (1=entity, 2=structural, 3=full) |
+**Exploration (7 tools):**
+| Tool | Description | Status |
+|------|-------------|--------|
+| `get_codebase_stats` | Entity/relation counts by type, unique files, visibility counts | ❌ HTTP 500 — internal split error |
+| `list_entities_by_type` | Paginated list of entities by type (CLASS, METHOD, etc.) | ❌ Server-side filter broken — always empty |
+| `get_entities_in_file` | Filter graph by source file path | ⚠️ Windows backslash path mismatch |
+| `search_entities` | Regex search on entity names and descriptions | ✅ Working |
+| `get_incoming_relations` | Entities pointing TO this entity | ✅ (via get_entity_neighbors) |
+| `get_outgoing_relations` | Entities this entity points TO | ✅ (via get_entity_neighbors) |
+
+### MCP Tool Effectiveness (Tested on test-csharp-project, July 2026)
+
+| Tool | Rating | Notes |
+|------|--------|-------|
+| `check_entity_exists` | Very Useful | Fast, reliable, boolean responses |
+| `get_knowledge_graph` | Very Useful | Returns full graph structure with nodes+edges |
+| `get_graph_labels` | Useful | Shows available entity/relation types |
+| `get_entity_details` | Very Useful | Full details with relations |
+| `get_entity_neighbors` | Very Useful | Shows inheritance, implementation, calls |
+| `search_entities` | Useful | Regex pattern matching on names/descriptions |
+| `query` (GET) | Moderately Useful | Natural language queries work; POST times out |
+| `query_data` | Moderately Useful | Structured query without LLM |
+| `get_related_files` | Limited | Returns file paths but no code snippets |
+| `get_codebase_stats` | Broken | HTTP 500 internal error |
+| `list_entities_by_type` | Broken | Server-side entity_type filter returns empty |
+| `get_entities_in_file` | Limited | Windows path backslash mismatch |
+| `add_note_to_entity` | Limited | Creates notes but reports false error |
+
+### External Agent Quick Reference — Calling MCP Tools Directly
+
+**Do NOT connect via MCP SSE protocol (port 9622) from external agents.** Use the HTTP REST API directly at `http://localhost:9621`. The MCP tools are Python wrappers around these HTTP endpoints:
+
+| MCP Tool | HTTP Endpoint | Method |
+|---|---|---|
+| `check_entity_exists` | `/graph/entity/exists?name=XYZ` | GET |
+| `get_knowledge_graph` | `/graphs?label=*&max_depth=3&max_nodes=1000` | GET |
+| `get_graph_labels` | `/graph/label/list` | GET |
+| `get_entity_details` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter | GET |
+| `get_entity_neighbors` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter | GET |
+| `query` | `/query` | POST |
+| `query_data` | `/query/data` | POST |
+| `get_codebase_stats` | `/graph/label/list` + `/graphs?label=*&max_depth=3` | GET + GET |
+| `list_entities_by_type` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter | GET |
+| `search_entities` | `/graphs?label=*&max_depth=3&max_nodes=1000` + regex filter | GET |
+| `get_entities_in_file` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter by `file_path` | GET |
+| `get_related_files` | `/query/data` | POST |
+| `get_interface_methods` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter edges | GET |
+
+### MCP Server Architecture
 
 The Go bridge (`cmd/coderag/main.go`) handles:
 1. Ensuring Docker services are up
@@ -258,8 +302,10 @@ The Go bridge (`cmd/coderag/main.go`) handles:
 
 The Python MCP server (`daniel-lightrag-mcp`) handles:
 - Tool dispatch via LightRAG HTTP client
-- 15 tool definitions and handlers
+- 17 tool definitions and handlers (was 15, now 17 with the 4 Phase 32 additions)
 - SSE transport on port 9622
+
+**Note on tool count:** The README and CLI docs still reference "15 MCP tools" and "22 MCP tools" — the actual count is **17** (13 original + 4 newly implemented Phase 32 tools). The README should be updated accordingly.
 
 ---
 

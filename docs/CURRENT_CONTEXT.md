@@ -136,6 +136,74 @@ coderag scan <dir>    → run C# analyser and populate knowledge graph
 
 ---
 
+## MCP Tool Testing (August 2026)
+
+### Sub-Agent Exploration via HTTP API
+
+A sub-agent was dispatched to explore the LightRAG knowledge graph for the test-csharp-project using direct HTTP API calls at `http://localhost:9621`. The sub-agent was given a tool-to-API mapping table so it could call each MCP tool's underlying endpoint directly, bypassing the MCP SSE protocol.
+
+**Key finding:** The sub-agent initially failed because it tried to connect via MCP SSE protocol (port 9622) without knowing how to establish the connection. The fix was to provide the HTTP REST API endpoint mapping — all MCP tools are ultimately HTTP requests to port 9621.
+
+### Graph Data Summary (test-csharp-project)
+
+| Metric | Value |
+|--------|-------|
+| Total entities | 63 (7 CLASS, 1 INTERFACE, 29 METHOD, 10 PROPERTY + others) |
+| Total edges | 45 |
+| Entity labels | CLASS, INTERFACE, METHOD, PROPERTY |
+| Relation labels | calls, defines, extends, has, implements, inheritance, method, property |
+
+### Calculator Entity Details
+
+| Entity | Type | Methods | Source File |
+|--------|------|---------|-------------|
+| TestLib.Calculator | CLASS | Add, Subtract, Divide, Multiply | AdvancedCalculator.cs |
+| TestLib.AdvancedCalculator | CLASS | Sqrt, Power, Modulo | AdvancedCalculator.cs |
+| TestLib.IOperation | INTERFACE | Execute | AdvancedCalculator.cs |
+| TestLib.DataStore | CLASS | AddItem, GetAll, Contains, Remove, FindById, Clear, ClearAll, Add | DataStore.cs + ExtendedTypes.cs |
+
+### Entity Gaps Found
+
+| Entity | Expected | Status |
+|--------|----------|--------|
+| TestLib.IRepository | Should exist (IRepository<T> in DataStore.cs) | ❌ NOT IN GRAPH |
+| TestLib.TestConsole.Program | Should exist (Program.cs) | ❌ NOT IN GRAPH |
+| TestLib.Converter | Should exist | ✅ In static index only |
+| TestLib.Class1 | Should exist | ✅ In static index only |
+
+### Updated MCP Tool Effectiveness (August 2026)
+
+| Tool | Status | Notes |
+|------|--------|-------|
+| `check_entity_exists` | ✅ Working | Fast, reliable |
+| `get_knowledge_graph` | ✅ Working | Returns full graph |
+| `get_graph_labels` | ✅ Working | Returns entity/relation types |
+| `get_entity_details` | ✅ Working | Full details with relations |
+| `get_entity_neighbors` | ✅ Working | Shows inheritance, implementation, calls |
+| `search_entities` | ✅ Working | Regex pattern matching |
+| `query` (GET) | ✅ Working | Natural language queries work |
+| `query` (POST) | ❌ Times out | Ollama not reachable from Docker |
+| `query_data` (POST) | ❌ Times out | Ollama not reachable from Docker |
+| `get_related_files` (POST) | ⚠️ Partial | Returns file paths only |
+| `get_codebase_stats` | ❌ HTTP 500 | Internal split error |
+| `list_entities_by_type` | ❌ Empty | Server-side filter broken |
+| `get_entities_in_file` | ⚠️ Path mismatch | Windows backslash issue |
+| `add_note_to_entity` | ⚠️ False error | Creates note but reports failure |
+| `get_relation_detail` | ✅ Added | New in Phase 32 |
+| `get_method_signature` | ✅ Added | New in Phase 32 |
+| `find_related_files` | ✅ Added | New in Phase 32 |
+| `get_interface_methods` | ✅ Added | New in Phase 32 |
+
+### MCP Tool Fixes Applied (August 2026)
+
+| Bug | Tool | Fix | Status |
+|-----|------|-----|--------|
+| `keywords.split(",")` fails when keywords is a list | `get_codebase_stats` | Added `isinstance(keywords, list)` check before splitting | ✅ Fixed |
+| `file_path` extracted from wrong location in query_data response | `get_related_files` | Extract from top-level `entity.get("file_path")` first, then `properties` fallback | ✅ Fixed |
+| `add_note_to_entity` checks `created` flag (always False for notes) | `add_note_to_entity` | Changed to check `create_resp.status == "success"` | ✅ Fixed |
+
+---
+
 ## MCP Tool Verification (July 29, 2026)
 
 All graph-based MCP tools verified against live LightRAG API on test-csharp-project:
@@ -179,7 +247,7 @@ The `query` endpoint returns "no relevant context" because `coderag scan` only p
 
 ### Implementation Plan
 
-Next task: implement all 4 proposed MCP tools in Python (`daniel-lightrag-mcp/`) and Go MCP server (`cmd/coderag/mcpCmd` path).
+Next task: implement all 4 proposed MCP tools in Python (`daniel-lightrag-mcp/`) and Go MCP server, with tests and docs.
 
 ---
 

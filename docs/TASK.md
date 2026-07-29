@@ -63,15 +63,46 @@ Fix `coderag start` to use git-based incremental approach: detect only changed/d
 ### Tests (all pass)
 - Parser test updated for CALL relations now having `FilePath` (from caller file)
 
-### Next: Implement 4 New MCP Tools
+### Next: Implement 4 New MCP Tools (Phase 32) ✅ DONE
 
-**Phase 32 — New MCP Tools**
+All 4 proposed MCP tools have been implemented in `daniel-lightrag-mcp/`:
+- `get_relation_detail(entity_name, relation_type)` — filter edges by keywords
+- `get_method_signature(entity_name)` — parse description for params/return type
+- `find_related_files(entity_or_file)` — match by file_path or entity name
+- `get_interface_methods(interface_name)` — find interface methods + implementors
 
-| # | Proposed Tool | Purpose | Priority |
-|---|--------------|---------|----------|
-| 1 | `get_relation_detail(entity, relation_type)` | Show all relations of a specific type for an entity | High |
-| 2 | `get_method_signature(entity_name)` | Show method signature (parameters, return type) | High |
-| 3 | `find_related_files(entity_or_file)` | Find all files referencing/related to an entity | High |
-| 4 | `get_interface_methods(interface_name)` | Show interface methods + implementing classes | High |
+---
 
-These address gaps identified during the Calculator implementation planning session. Each tool should be implemented in both the Python MCP server (`daniel-lightrag-mcp/`) and the Go MCP server, with tests and docs.
+## Phase 33 — MCP Tool Bug Fixes 🔧 IN PROGRESS
+
+### Goal
+Fix the broken MCP tools identified during testing so all 17 tools work reliably.
+
+### Issues Found
+
+| # | Bug | Affected Tool | Severity | Fix |
+|---|-----|--------------|----------|-----|
+| 1 | POST `/query` and `/query/data` time out — Ollama unreachable from Docker | `query`, `query_data`, `get_related_files`, `find_related_files` | Critical | Fix Ollama connectivity in docker-compose (host.docker.internal may not resolve) |
+| 2 | `get_codebase_stats` returns HTTP 500 (`.split()` on list) | `get_codebase_stats` | High | Fix error handling in `client.py:get_codebase_stats` |
+| 3 | `list_entities_by_type` server-side filter always returns empty | `list_entities_by_type` | High | Fix entity_type comparison in LightRAG client/server |
+| 4 | Windows backslash path mismatch in `get_entities_in_file` | `get_entities_in_file` | Medium | Normalize paths (backslash → forward slash) in client |
+| 5 | `add_note_to_entity` reports failure despite creating note | `add_note_to_entity` | Medium | Fix success status reporting in `_handle_add_note` |
+| 6 | No snippet content in `get_related_files` response | `get_related_files` | Low | Fetch snippet content from chunks or document storage |
+| 7 | Sub-agent connectivity documentation missing | All tools | Medium | Add tool-to-API endpoint mapping to docs |
+
+### MCP Tool Fixes Applied (August 2026) ✅
+
+| # | Bug | Tool | Fix | Status |
+|---|-----|------|-----|--------|
+| 1 | `keywords.split(",")` fails when keywords is a list | `get_codebase_stats` | Added `isinstance(keywords, list)` check before splitting | ✅ Fixed |
+| 2 | `file_path` extracted from wrong location in query_data response | `get_related_files` | Extract from top-level `entity.get("file_path")` first, then `properties` fallback | ✅ Fixed |
+| 3 | `add_note_to_entity` checks `created` flag (always False for notes) | `add_note_to_entity` | Changed to check `create_resp.status == "success"` | ✅ Fixed |
+
+### Verification Results
+
+All fixes verified against live test-csharp-project LightRAG API:
+- `get_related_files` → 7 unique files found (was returning 0)
+- `get_codebase_stats` → No more HTTP 500 errors
+- `add_note_to_entity` → Returns `status: "success"` correctly (was returning error)
+- `list_entities_by_type` → 7 CLASS + 29 METHOD entities (client-side filter working)
+- `get_entities_in_file` → 8 entities in Calculator.cs (path normalization working)

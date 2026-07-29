@@ -427,9 +427,42 @@ These tools address gaps identified during the Calculator implementation plannin
 
 ### Phase 31 — WebUI Integration
 
-### Phase 32 — New MCP Tools Implementation (PLANNED)
+### Phase 32 — New MCP Tools Implementation ✅ COMPLETE
 
 All 4 tools implemented and verified against test-csharp-project.
+
+### Phase 33 — MCP Tool Bug Fixes 🔧 IN PROGRESS
+
+**Goal:** Fix all broken MCP tools so the full set of 17 tools works reliably against real codebases.
+
+**Root cause:** The tools were written against an older LightRAG API schema and haven't been re-verified after API changes. Ollama connectivity from Docker containers was never tested in a running environment.
+
+**Issues found during testing (August 2026):**
+
+| # | Bug | Affected Tool | Severity | Fix |
+|---|-----|--------------|----------|-----|
+| 1 | POST `/query` and `/query/data` time out — Ollama unreachable from Docker | `query`, `query_data`, `get_related_files`, `find_related_files` | Critical | Fix Ollama connectivity in docker-compose (use `host.docker.internal` or bridge network) |
+| 2 | `get_codebase_stats` returns HTTP 500 (`.split()` on list object) | `get_codebase_stats` | High | Fix error handling in `client.py:get_codebase_stats` |
+| 3 | `list_entities_by_type` server-side filter always returns empty | `list_entities_by_type` | High | Fix entity_type comparison in LightRAG client/server |
+| 4 | Windows backslash path mismatch in `get_entities_in_file` | `get_entities_in_file` | Medium | Normalize paths (backslash → forward slash) in client |
+| 5 | `add_note_to_entity` reports failure despite creating note | `add_note_to_entity` | Medium | Fix success status reporting in `_handle_add_note` |
+| 6 | No snippet content in `get_related_files` response | `get_related_files` | Low | Fetch snippet content from chunks or document storage |
+| 7 | Sub-agent connectivity documentation missing | All tools | Medium | Add tool-to-API endpoint mapping to docs ✅ Done |
+
+**Phases 34+ (Future):**
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 34 | Fix Ollama Docker networking for query endpoints | Planned |
+| 35 | Fix `get_codebase_stats` error handling | Planned |
+| 36 | Fix `list_entities_by_type` entity_type filter | Planned |
+| 37 | Normalize Windows paths in `get_entities_in_file` | Planned |
+| 38 | Fix `add_note_to_entity` success reporting | Planned |
+| 39 | Add snippets to `get_related_files` response | Planned |
+| 40 | Add entity search by file path pattern | Planned |
+| 41 | Add batch entity lookup support | Planned |
+
+---
 
 ### Phase 29 — Git Commit Watcher
 - Extend git watcher to detect new commits (not just uncommitted changes)

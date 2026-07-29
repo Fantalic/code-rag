@@ -402,13 +402,15 @@ class LightRAGClient:
         data = result.data
         if isinstance(data, dict):
             for entity in data.get("entities", []):
-                fp = entity.get("properties", {}).get("file_path")
+                props = entity.get("properties") or {}
+                fp = entity.get("file_path") or props.get("file_path")
+                desc = entity.get("description") or props.get("description", "")
                 if fp and fp not in seen_paths:
                     seen_paths.add(fp)
                     files.append(
                         RelatedFileInfo(
                             file_path=fp,
-                            snippet=entity.get("properties", {}).get("description", ""),
+                            snippet=desc,
                         )
                     )
                     if len(files) >= limit:
@@ -520,11 +522,17 @@ class LightRAGClient:
             for edge in graph.edges:
                 keywords = edge.get("properties", {}).get("keywords", "")
                 if keywords:
-                    for kw in keywords.split(","):
-                        kw = kw.strip()
-                        if kw:
+                    if isinstance(keywords, list):
+                        kw_list = [k.strip() for k in keywords if k.strip()]
+                        for kw in kw_list:
                             discovered_relation_types.add(kw)
                             relation_counts[kw] = relation_counts.get(kw, 0) + 1
+                    elif isinstance(keywords, str):
+                        for kw in keywords.split(","):
+                            kw = kw.strip()
+                            if kw:
+                                discovered_relation_types.add(kw)
+                                relation_counts[kw] = relation_counts.get(kw, 0) + 1
         except Exception as e:
             self.logger.error(f"Error getting codebase stats: {e}")
 

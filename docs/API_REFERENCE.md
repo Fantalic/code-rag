@@ -513,25 +513,39 @@ Fuzzy label search.
 
 ---
 
-## 8. Go CRUD Client — Relation Queries
+## 10. MCP Tool-to-API Endpoint Mapping
 
-The Go package `pkg/watchdog/crud/client.go` provides methods for reading relations from LightRAG's graph.
+> External agents should call these HTTP endpoints directly at `http://localhost:9621`.
+> The MCP SSE protocol (port 9622) is for opencode/stdio clients only.
 
-### `GetAllRelations()` — `./graphs` endpoint
+| MCP Tool | HTTP Method | Endpoint | Parameters |
+|----------|-------------|----------|------------|
+| `check_entity_exists` | GET | `/graph/entity/exists?name=NAME` | `name` (query param) |
+| `get_knowledge_graph` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` | `label`, `max_depth`, `max_nodes` |
+| `get_graph_labels` | GET | `/graph/label/list` | None |
+| `get_entity_details` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (filter client-side) | Filter by `entity_name` in response |
+| `get_entity_neighbors` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (filter client-side) | Filter by `entity_name` in response |
+| `query` | POST | `/query` | `{"query": "...", "mode": "hybrid", "only_need_context": false}` |
+| `query_data` | POST | `/query/data` | `{"query": "...", "mode": "hybrid", "only_need_context": true}` |
+| `get_codebase_stats` | GET | `/graph/label/list` + `/graphs?label=*&max_depth=3` (aggregate client-side) | None |
+| `list_entities_by_type` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (filter client-side) | Filter by `entity_type` in response |
+| `search_entities` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (regex filter client-side) | Filter by `pattern` in response |
+| `get_entities_in_file` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (filter by `file_path`) | Filter by `file_path` in response |
+| `get_related_files` | POST | `/query/data` | `{"query": "...", "mode": "hybrid", "only_need_context": true}` |
+| `get_relation_detail` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (filter by `keywords`) | Filter by `entity_name` and `relation_type` in response |
+| `get_method_signature` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (search by name, parse description) | Find node matching `entity_name`, extract params from description |
+| `find_related_files` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (match by `file_path` or entity name) | Filter by `entity_or_file` in response |
+| `get_interface_methods` | GET | `/graphs?label=*&max_depth=3&max_nodes=1000` (find interface→method edges, class→implements edges) | Filter by `interface_name` in response |
+| `add_note_to_entity` | POST | `/graph/entity/create` + `/graph/relation/create` | Creates note entity and HAS_NOTE relation |
 
-```go
-type RelationEdge struct {
-    Source   string  // Source entity name
-    Target   string  // Target entity name
-    Keywords string  // e.g., "calls", "defines,method"
-    SourceID string  // Source file that defined the relation (analyser output filename)
-    FilePath string  // Actual source file path
-}
+### Known API Issues
 
-func (c *Config) GetAllRelations() ([]RelationEdge, error)
-```
-
-Returns all edges from the graph DB with their properties including `source_id` and `file_path`.
+| Issue | Affected Endpoints | Workaround |
+|-------|-------------------|------------|
+| POST `/query` and `/query/data` time out | `query`, `query_data`, `get_related_files`, `find_related_files` | Ollama not reachable from Docker container (`host.docker.internal` may not resolve) |
+| GET `/graphs` returns all nodes — no server-side filtering | `list_entities_by_type`, `search_entities`, `get_entities_in_file` | Filter client-side from response |
+| Windows path backslash vs forward slash | `get_entities_in_file` | Normalize paths: replace `\` with `/` before comparing |
+| `get_codebase_stats` HTTP 500 | `get_codebase_stats` | Call `get_graph_labels` + `get_knowledge_graph` separately and aggregate manually |
 
 ---
 
