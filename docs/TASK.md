@@ -14,7 +14,7 @@ Fix `coderag start` to use git-based incremental approach: detect only changed/d
 | `findComposeFile()` fails outside repo | Only searched cwd and `../` — not relative to binary | ✅ Fixed (adds binary dir) |
 | `Relation` parser missing `SourceID`/`FilePath` | Struct has no fields — relations get wrong `source_id` in LightRAG | ✅ Fixed |
 | `findAffectedFiles` uses broken `rel.SourceID` | All relations have `source_id` = trigger file — cascade targets wrong files | ✅ Fixed (entity-based fallback) |
-| Vector DB consistency after cascade | Need to verify entity/relation embeddings are cleaned up on delete | 📋 Pending |
+| Vector DB consistency after cascade | Entity deletion removes graph nodes, edges, and VDB embeddings | ✅ Verified (integration test) |
 
 ## Completed
 
@@ -44,9 +44,4 @@ Fix `coderag start` to use git-based incremental approach: detect only changed/d
 - **Parser (6 tests):** `TestParseCSharpFile` (SourceID/FilePath/fields), `TestParseCSharpFileEmpty`, `TestParseRelationLineEdgeCases` (5 subtests: missing/invalid/empty/CALL), `TestParseCSharpOutputDedup` (entity dedup), `TestParseCSharpOutputDedupRelations` (relation dedup)
 - **Pipeline (3 tests):** `TestParserRelationsToMap` (source_id/file_path output + backward compat), `TestLoadCurrentRelationsParsing` (edge JSON parsing, skip-empty, keyword extraction), `TestRunCSharpAnalyser` (integration: real analyser on test-csharp-project → 42 entities, 40 relations, all 38 non-CALL relations have SourceID/FilePath ✅)
 - **Cascade (1 test, 5 subtests):** `TestFindAffectedFilesFromData` — cascade detection, no-cascade, wrong-source_id fallback, exclude-path, additive paths
-
-## Pending
-
-### Step 3: Verify vector DB consistency
-1. Query LightRAG `/query/text` before and after deletion to confirm embeddings are removed
-2. Verify no stale embeddings remain for deleted entities/relations
+- **Vector DB integration (1 test):** `tests/test_integration_cascade.py` — creates 3 entities + 2 relations, verifies `/graph/entity/exists`, deletes one entity via `DELETE /documents/delete_entity`, verifies entity removed and others remain, runs query — passes against live Docker LightRAG at `localhost:9621`
