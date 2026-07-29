@@ -341,13 +341,17 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 - `coderag scan` populated graph: 43 entities, 46 relations
 - All 6 previously broken/partial tools now work
 
-**Critical issues found during Phase 33 verification testing (July 29, 2026):**
+**Critical issues found during end-to-end testing on test-csharp-project (July 29, 2026):**
 
 | # | Issue | Root Cause | Fix |
 |---|-------|-----------|-----|
-| 1 | **0 relations created** despite 1743 extracted | `ClearAll()` only calls `DELETE /documents`, which doesn't clear graph entities/relations stored in `rag_data` volume. `loadCurrentRelations()` reads stale pre-clear relations, so `DiffRelations` sees nothing new to create. | Purge `rag_data` volume + rebuild Docker image |
-| 2 | **Stale short-name entities** in graph (e.g. `Marsupial` not `Console_Monsters.Monsters.Marsupial`) | Old pre-Phase 33 entities persisted in Docker volume alongside new namespace-qualified ones | Full volume purge + clean rescan |
-| 3 | **Docker image not rebuilt** since Phase 33 analyser changes | `coderag scan` finds and runs the local `csharp_analyser.exe` correctly, but MCP server in Docker has stale state | Docker rebuild for clean slate |
+| 1 | All 43 relations missing `source_id`/`file_path` in LightRAG | `parserRelationsToMapScan` in `main.go` dropped these fields from the data map — `applyScanResults` sent empty values to LightRAG | Rebuild `parserRelationsToMapScan` to include `source_id`/`file_path` when non-empty ✅ |
+| 2 | `loadCurrentRelationsScan`/`loadCurrentRelations` don't read `source_id`/`file_path` | Only reads `keywords` from graph edge properties — diff engine can't detect changes to these fields | Updated both functions to read `source_id`/`file_path` from properties ✅ |
+| 3 | CALL relations (`calls` keyword) missing `source_id`/`file_path` | `parseCallLine` didn't read caller file path; `ParseCSharpFile` didn't set `SourceID` for CALL lines | `parseCallLine` now reads `CallerFile` from `parts[1]`; `ParseCSharpFile` sets `rel.SourceID = filename` for CALL lines ✅ |
+| 4 | Stale analyser output `.txt` files persist between scans | `RunCSharpAnalyser` reads ALL `.txt` files from output dir, including from deleted sources | Added cleanup of stale `.txt` files before running analyser ✅ |
+
+---
+### Phase 27.5 — Graph Quality Fix & MCP Verification (PLANNED)
 
 ---
 

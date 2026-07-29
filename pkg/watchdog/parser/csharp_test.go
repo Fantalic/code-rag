@@ -124,12 +124,13 @@ func TestParseRelationLineEdgeCases(t *testing.T) {
 		if rel.Weight != 0.5 {
 			t.Errorf("expected Weight=0.5, got %f", rel.Weight)
 		}
-		// CALL lines do NOT set SourceID/FilePath (format has no file path field)
+		// CALL lines have FilePath from the caller file (parts[1])
+		if rel.FilePath != "/path/Caller.cs" {
+			t.Errorf("expected FilePath=/path/Caller.cs for CALL, got %q", rel.FilePath)
+		}
+		// SourceID is set by ParseCSharpFile, not parseCallLine
 		if rel.SourceID != "" {
 			t.Errorf("expected empty SourceID for CALL, got %q", rel.SourceID)
-		}
-		if rel.FilePath != "" {
-			t.Errorf("expected empty FilePath for CALL, got %q", rel.FilePath)
 		}
 	})
 }

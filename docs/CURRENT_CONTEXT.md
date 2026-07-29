@@ -24,6 +24,10 @@
 | 12 | **NEW:** `findAffectedFiles` reads `rel.SourceID` from relations (broken) — must use entity `file_path` lookup instead | ✅ Fixed (entity-based fallback) |
 | 13 | **NEW:** `checkGitChanges` queues `'deleted'` but doesn't cascade to affected files | ✅ Fixed via `queueDeletionWithCascade` |
 | 14 | **NEW:** `findComposeFile()` only looks in cwd and `../` — fails when run from outside the repo | ✅ Fixed (also checks binary dir) |
+| 15 | **NEW:** `parserRelationsToMapScan` drops `source_id`/`file_path` from relation data map — all `coderag scan` relations lose these fields in LightRAG | ✅ Fixed |
+| 16 | **NEW:** `loadCurrentRelationsScan` and `loadCurrentRelations` don't read `source_id`/`file_path` from graph — diff engine can't detect changes to these fields | ✅ Fixed |
+| 17 | **NEW:** CALL relations (`calls` keyword) have empty `source_id`/`file_path` — `parseCallLine` doesn't read caller file path, `ParseCSharpFile` doesn't set `SourceID` for CALL lines | ✅ Fixed |
+| 18 | **NEW:** Stale analyser output `.txt` files persist between scans — `RunCSharpAnalyser` reads ALL `.txt` files including from deleted sources | ✅ Fixed (cleanup before run) |
 
 ### Changes this session (July 29, 2026)
 
@@ -43,8 +47,10 @@
 | 12 | ✅ Fix `Relation` parser to include `SourceID`/`FilePath` | `pkg/watchdog/parser/csharp.go` | ✅ Done |
 | 13 | ✅ Fix `parserRelationsToMap` to include `source_id`/`file_path` | `pkg/watchdog/pipeline/run.go` | ✅ Done |
 | 14 | ✅ Fix `findAffectedFiles` to use entity-based lookup + pure-logic extraction | `pkg/watchdog/watcher/observer.go` | ✅ Done |
-| 15 | ⬜ Fix `loadCurrentRelations` fallback — **not needed:** diff engine only uses key (src+tgt+kw), not `source_id`. Old wrong `source_id` auto-heals via `dataChanged` on next file event | — | ❌ Cancelled |
-| 16 | 📋 Verify vector DB consistency after delete cascade | — | 📋 Pending |
+| 15 | ⬜ Fix `parserRelationsToMapScan` — drop `source_id`/`file_path` from relation data map — all `coderag scan` relations lose these fields in LightRAG | ✅ Fixed |
+| 16 | ⬜ Fix `loadCurrentRelationsScan`/`loadCurrentRelations` — read `source_id`/`file_path` from graph edges | ✅ Fixed |
+| 17 | ⬜ Fix CALL relations — `parseCallLine` reads file path from parts[1], `ParseCSharpFile` sets `rel.SourceID = filename` for CALL lines | ✅ Fixed |
+| 18 | ⬜ Fix stale analyser output files — `RunCSharpAnalyser` cleans `.txt` files before run | ✅ Fixed |
 
 ### Root cause chain: `initialSync()` full rebuild on every start
 

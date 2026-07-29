@@ -740,11 +740,18 @@ func parserRelationsToMapScan(relations []parser.Relation) map[string]map[string
 	result := make(map[string]map[string]any)
 	for _, r := range relations {
 		key := diff.RelationKey(r.Source, r.Target, r.Keywords)
-		result[key] = map[string]any{
+		m := map[string]any{
 			"description": r.Description,
 			"keywords":    r.Keywords,
 			"weight":      r.Weight,
 		}
+		if r.SourceID != "" {
+			m["source_id"] = r.SourceID
+		}
+		if r.FilePath != "" {
+			m["file_path"] = r.FilePath
+		}
+		result[key] = m
 	}
 	return result
 }
@@ -777,6 +784,8 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 		src := ""
 		tgt := ""
 		kw := ""
+		sid := ""
+		fp := ""
 
 		if s, ok := edge["source"].(string); ok && s != "" {
 			src = s
@@ -788,6 +797,12 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 			if k, ok := props["keywords"].(string); ok {
 				kw = k
 			}
+			if s, ok := props["source_id"].(string); ok && s != "" {
+				sid = s
+			}
+			if f, ok := props["file_path"].(string); ok && f != "" {
+				fp = f
+			}
 		}
 
 		if src == "" || tgt == "" {
@@ -796,6 +811,12 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 
 		key := diff.RelationKey(src, tgt, kw)
 		result[key] = edge
+		if sid != "" {
+			result[key]["source_id"] = sid
+		}
+		if fp != "" {
+			result[key]["file_path"] = fp
+		}
 	}
 	return result
 }

@@ -57,6 +57,7 @@ func parseCallLine(line string) (Relation, bool) {
 	if len(parts) < 6 {
 		return Relation{}, false
 	}
+	callerFile := parts[1]
 	callerMethod := parts[2]
 	calleeName := parts[3]
 
@@ -70,6 +71,7 @@ func parseCallLine(line string) (Relation, bool) {
 		Description: callerMethod + " calls " + calleeName,
 		Keywords:    "calls",
 		Weight:      0.5,
+		FilePath:    callerFile,
 	}, true
 }
 
@@ -140,6 +142,7 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 				case "CALL":
 					rel, ok := parseCallLine(trimmed)
 					if ok {
+						rel.SourceID = filename
 						relations = append(relations, rel)
 					}
 					continue

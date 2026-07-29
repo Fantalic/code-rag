@@ -15,6 +15,10 @@ Fix `coderag start` to use git-based incremental approach: detect only changed/d
 | `Relation` parser missing `SourceID`/`FilePath` | Struct has no fields — relations get wrong `source_id` in LightRAG | ✅ Fixed |
 | `findAffectedFiles` uses broken `rel.SourceID` | All relations have `source_id` = trigger file — cascade targets wrong files | ✅ Fixed (entity-based fallback) |
 | Vector DB consistency after cascade | Entity deletion removes graph nodes, edges, and VDB embeddings | ✅ Verified (integration test) |
+| `parserRelationsToMapScan` drops `source_id`/`file_path` | `coderag scan` relations lose `source_id`/`file_path` in LightRAG — all 43 relations stored with empty values | ✅ Fixed |
+| `loadCurrentRelations`/`loadCurrentRelationsScan` don't read `source_id`/`file_path` | Diff engine can't detect changes to these fields on existing relations | ✅ Fixed |
+| CALL relations missing `source_id`/`file_path` | `parseCallLine` doesn't read caller file path, `ParseCSharpFile` doesn't set `SourceID` for CALL lines | ✅ Fixed |
+| Stale analyser output files persist between scans | `RunCSharpAnalyser` reads ALL `.txt` files including from deleted sources | ✅ Fixed (cleanup before run) |
 
 ## Completed
 
@@ -36,9 +40,28 @@ Fix `coderag start` to use git-based incremental approach: detect only changed/d
 
 ### Relation parser + pipeline (`pkg/watchdog/parser/csharp.go`, `pkg/watchdog/pipeline/run.go`)
 - Added `SourceID` and `FilePath` to `Relation` struct (matching `Entity` struct)
-- `parseRelationLine` reads `parts[5]` (the file path from `RELATION|...|FilePath|Weight`)
-- `ParseCSharpFile` sets `rel.SourceID = filename` for relations (like entities)
+- `parseRelationLine` reads `parts[5]` (the file path from analyser output)
+- `ParseCSharpFile` sets `rel.SourceID = filename` for both RELATION and CALL lines
+- `parseCallLine` now reads caller file path from `parts[1]` (CallerFile field)
 - `parserRelationsToMap` includes `"source_id"` and `"file_path"` in the data map
+
+### `parserRelationsToMapScan` in `cmd/coderag/main.go` (NEW FIX)
+- Was missing `source_id`/`file_path` fields — all relations created via `coderag scan` lost these fields in LightRAG
+- Now mirrors `parserRelationsToMap`: includes `source_id`/`file_path` when non-empty
+
+### `loadCurrentRelationsScan` in `cmd/coderag/main.go` (NEW FIX)
+- Was only reading `keywords` from graph edge properties
+- Now also reads `source_id` and `file_path` — diff engine can detect changes to these fields
+
+### `loadCurrentRelations` in `pkg/watchdog/pipeline/run.go` (NEW FIX)
+- Same fix as `loadCurrentRelationsScan` — reads `source_id`/`file_path` from graph edges
+
+### `RunCSharpAnalyser` in `pkg/watchdog/pipeline/run.go` (NEW FIX)
+- When `outputDir` is provided, cleans stale `.txt` files before running analyser
+- Prevents deleted source files' output from being re-processed in subsequent scans
+
+### Tests (all pass)
+- Parser test updated for CALL relations now having `FilePath` (from caller file)
 
 ### Tests (12 test cases, all pass)
 - **Parser (6 tests):** `TestParseCSharpFile` (SourceID/FilePath/fields), `TestParseCSharpFileEmpty`, `TestParseRelationLineEdgeCases` (5 subtests: missing/invalid/empty/CALL), `TestParseCSharpOutputDedup` (entity dedup), `TestParseCSharpOutputDedupRelations` (relation dedup)
