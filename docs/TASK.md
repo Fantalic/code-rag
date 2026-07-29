@@ -142,3 +142,34 @@ All fixes verified against live test-csharp-project LightRAG API:
 3. ✅ Verify all MCP tools work at scale
 4. ✅ Record findings and bugs (see evaluation report)
 5. ✅ Create optimization plan for next implementation phase
+6. ✅ Implement MCP tool optimizations 1-4 (timeout, query_data, /search removal, analyser relations)
+7. ✅ Add WebUI color mappings for `depends_on` (orange) and `references` (teal) in useLightragGraph.tsx + Legend.tsx
+
+---
+
+## Phase 35 — New Relation Types: Full Pipeline Integration 🔧 NEXT
+
+**Goal:** Ensure the new `depends_on, references` relation types (field type + return type references from C# analyser) flow correctly through the entire pipeline and are visible in the WebUI.
+
+### What's new in walker.go (added in Phase 34)
+- Field type references: `ClassName → fieldType` when a property has a type that resolves to a known class
+- Return type references: `MethodName → returnType` when a method returns a known class type
+- Parameter type references: `MethodName → paramType` when a method parameter uses a known class type
+
+### Pipeline segments to verify for Phase 35
+1. **Analyser output** — `csharp_analyser.exe` emits RELATION lines with `depends_on, references` keywords (already done)
+2. **Parser** — `pkg/watchdog/parser/csharp.go` parses RELATION lines and creates `parser.Relation` structs (already works — keywords stored as raw string)
+3. **Diff engine** — detects new/changed relations and queues CRUD operations (already works)
+4. **CRUD pipeline** — sends relations to LightRAG HTTP API for graph insertion (already works)
+5. **LightRAG graph storage** — relations stored in graph DB with full edge properties (already works)
+6. **LightRAG vector DB** — relation content stored for embedding generation; `keywords` stored in content text but NOT as searchable metadata
+7. **Docker rebuild** — WebUI needs `docker compose build lightrag` to include new color mappings
+8. **WebUI renders** — new edge types should appear with orange/teal colors
+
+### Phase 35 Steps
+1. Run `docker compose build lightrag` to rebuild WebUI image
+2. Run `coderag scan dotnet-console-games --clean` to verify new relation types appear
+3. Check graph for `depends_on` and `references` edge types
+4. Verify vector DB contains relation content with keywords in embedding text
+5. Verify WebUI renders edges with correct colors (orange for depends_on, teal for references)
+6. Rebuild MCP Docker container if needed (`docker compose up -d lightrag-mcp`)

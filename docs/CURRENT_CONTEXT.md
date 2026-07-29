@@ -431,3 +431,22 @@ The CRUD pipeline (`applyScanResults`) silently swallows all entity and relation
 14. **`_auto_initialize()` removed** — MCP server no longer auto-runs analyser on startup. Watchdog handles initialization via background goroutine.
 15. **Go native parser (no tree-sitter)** — C# analyser uses Go regex/state-machine, not CGo/tree-sitter, for a fully static binary
 16. **Analysers output .txt files** — Pipeline parses these files directly via `parser.ParseCSharpOutput()`, then sends entities/relations to LightRAG HTTP API for CRUD operations
+
+### Phase 35 — New Relation Types in Walker.go (August 2026)
+
+The C# analyser (`walker.go`) now emits `depends_on, references` relation keywords when:
+- A class property has a type that resolves to a known class in the GlobalIndex
+- A method has a return type that resolves to a known class in the GlobalIndex
+- A method has a parameter type that resolves to a known class in the GlobalIndex
+
+These relations connect entity nodes to the types they reference, improving graph connectivity.
+
+### WebUI Color Mappings (August 2026)
+
+Added `depends_on` (orange `#F39C12`) and `references` (teal `#1ABC9C`) to `EDGE_KEYWORD_COLORS` in:
+- `LightRAG/lightrag_webui/src/hooks/useLightragGraph.tsx` (line 175)
+- `LightRAG/lightrag_webui/src/components/graph/Legend.tsx` (line 8)
+
+Also added both to `EDGE_KEYWORD_PRIORITY` in `useLightragGraph.tsx` (line 187).
+
+**Note:** Docker rebuild (`docker compose build lightrag`) is required for WebUI changes to take effect in containers.
