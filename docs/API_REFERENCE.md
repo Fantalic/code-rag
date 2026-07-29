@@ -513,7 +513,33 @@ Fuzzy label search.
 
 ---
 
-## 8. Graph DB Lock
+## 8. Go CRUD Client — Relation Queries
+
+The Go package `pkg/watchdog/crud/client.go` provides methods for reading relations from LightRAG's graph.
+
+### `GetAllRelations()` — `./graphs` endpoint
+
+```go
+type RelationEdge struct {
+    Source    string  // Source entity name
+    Target    string  // Target entity name
+    Keywords  string  // e.g., "calls", "defines,method"
+    SourceID  string  // Source file path (⚠️ currently broken — see below)
+    FilePath  string  // Source file path (⚠️ currently broken — see below)
+}
+
+func (c *Config) GetAllRelations() ([]RelationEdge, error)
+```
+
+Returns all edges from the graph DB with their properties.
+
+**⚠️ Known bug:** The `parser.Relation` struct in `pkg/watchdog/parser/csharp.go` has no `SourceID` or `FilePath` fields. The analyser emits `RELATION|...|FilePath|Weight` where `parts[5]` is the source file path, but `parseRelationLine()` discards it. Consequently, `parserRelationsToMap()` in `pipeline/run.go` never includes `source_id` or `file_path` in the data map, and `applyCSharpResults()` falls back to the caller's `filePath` parameter — meaning every relation stored in LightRAG gets `source_id` = whatever file triggered the last scan, not the actual file that defined the relationship.
+
+**Workaround in cascade:** `findAffectedFiles()` in `observer.go` uses entity-based fallback: it queries `GetAllRelations()` to find which entities are related, then looks up the correct `file_path` from `GetAllEntities()`. Fix is in progress (add fields to `parser.Relation` + update `parserRelationsToMap`).
+
+---
+
+## 9. Graph DB Lock
 
 Every CRUD operation uses `graph_db_lock` from `lightrag.kg.shared_storage`:
 

@@ -302,13 +302,48 @@ File event -> debounce -> hash check ->
 
 ### Change Detection
 
-- **Initial sync:** On startup, full scan of input directory, groups files by solution, runs analyser once per solution, queues all files
-- **Git watcher:** Polls `git diff --name-only HEAD` every 30 seconds for uncommitted changes (debounce mechanism)
-- **File hash tracking:** MD5 hash comparison skips unchanged content between poll cycles
+Three complementary mechanisms:
+
+**1. Initial sync (startup)** — git-based incremental:
+- Walk filesystem, build MD5 hash map for all supported files
+- `getGitChangedFiles()` — files that exist on disk AND differ from git HEAD (modified + created)
+- `getGitDeletedFiles()` — files in git HEAD but removed from disk (deleted)
+- Only changed files grouped by solution → analyser runs ONCE per affected solution → enqueued as "modified"
+- Deleted files → `queueDeletionWithCascade()` (see below)
+- If git unavailable → falls back to full scan (process everything)
+
+**2. Git watcher (30s poll):** `git diff --name-only HEAD` + `git diff --cached --name-only`. Handles modified, created, and deleted files. Deleted files trigger cascade cleanup.
+
+**3. FSNotify watcher (real-time, non-git mode):** Watches filesystem events directly. Create/Write → debounce + hash check → process. Remove/Rename → cascade cleanup.
+
+### Cascade-Aware Deletion
+
+When a file is deleted, simply removing its entities is insufficient — other files in the project may reference those entities. The cascade system handles this:
+
+```
+queueDeletionWithCascade(delPath):
+  1. Remove file from hash map (future detection)
+  2. Query LightRAG: GetEntitiesByFilePath(delPath)
+  3. For each entity in the deleted file:
+     a. Query Graph: GetAllRelations() → find relations where source or target matches
+     b. From matching relations, find OTHER files (source_id) that reference those entities
+  4. Queue "modified" events for affected files → triggers analyser + diff engine
+  5. Queue "deleted" event → removes entities + relations from graph + vector DB
+```
+
+**Fallback when `relation.source_id` is broken:** Currently `Relation` parser lacks `SourceID`/`FilePath` fields, so all relations in LightRAG get `source_id` set to whatever file triggered the last scan. The cascade must use entity-based lookup as fallback: query `GetAllEntities()` for the related entity's `file_path` instead of reading it from the relation's properties.
 
 ### Analyser Scope
 
 The C# analyser operates at **solution level** (requires `.sln` file). When any file in a solution changes, the entire solution is re-analysed. The diff engine then determines which entities/relations to create, update, or delete. This ensures cross-file relations (inheritance, interface implementations) are always consistent.
+
+### Known Bugs
+
+| Bug | Impact | Fix |
+|-----|--------|-----|
+| `parser.Relation` missing `SourceID`/`FilePath` | All relations stored with `source_id` = trigger file, not the actual source file | Add fields to struct + populate in `parserRelationsToMap` |
+| `parserRelationsToMap` omits `source_id`/`file_path` from data map | `applyCSharpResults` falls back to caller's `filePath` for every relation | Include parsed fields in the data map |
+| Cascade `findAffectedFiles` reads `rel.SourceID` | Gets wrong file paths since `source_id` is broken | Use entity-based lookup instead (query `GetAllEntities()` for related entity's `file_path`) |
 
 ### C# Entity Types Extracted
 

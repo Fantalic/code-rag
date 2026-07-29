@@ -300,6 +300,12 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
         const newData = { ...data, hidden: false, labelColor, color: edgeColor }
 
+        // Use per-edge color from sigmaGraph attributes, fallback to theme edgeColor
+        const edgeOwnColor = graph.getEdgeAttribute(edge, 'color')
+        if (edgeOwnColor) {
+          newData.color = edgeOwnColor
+        }
+
         if (!disableHoverEffect) {
           const _focusedNode = focusedNode || selectedNode
           // Choose edge highlight color based on theme

@@ -113,6 +113,35 @@ File event
 
 Both paths remain available permanently.
 
+### Change Detection Modes
+
+| Mode | Mechanism | Frequency |
+|------|-----------|-----------|
+| **Initial sync** | Git-based: `getGitChangedFiles` + `getGitDeletedFiles` diff against HEAD | On `coderag start` |
+| **Git poll** | `git diff --name-only HEAD` + `--cached` | Every 30 seconds |
+| **FSNotify** | Real-time filesystem events (Create, Write, Remove, Rename) | Immediate (non-git mode) |
+| **Git unavailable** | Falls back to full scan (all files processed) | On `coderag start` |
+
+### Cascade-Aware Deletion Flow
+
+When a file is deleted (detected via git or fsnotify), the cascade system ensures other files referencing the deleted entities are re-scanned:
+
+```
+queueDeletionWithCascade(delPath):
+  1. Remove file from hash map (future change detection)
+  2. Query LightRAG: GetEntitiesByFilePath(delPath) → entity names
+  3. For each entity in the deleted file:
+     a. Query all relations from LightRAG: GetAllRelations()
+     b. Find where source or target matches the entity
+     c. Find OTHER files (source_id property) that reference them
+  4. Queue "modified" events for affected files
+     → C# analyser runs on their solution → diff engine updates stale relations
+  5. Queue "deleted" event for the deleted file
+     → LightRAG removes entities + relations from graph DB and vector DB
+```
+
+**⚠️ Known bug:** `parser.Relation` has no `SourceID`/`FilePath` fields, so ALL relations in LightRAG get `source_id` = the file that triggered the last scan. The cascade must use entity-based fallback: query `GetAllEntities()` for related entity's `file_path` instead of reading it from the relation's properties. Fix in progress — see TASK.md.
+
 ---
 
 ## 5. Analyser Design

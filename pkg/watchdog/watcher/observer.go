@@ -140,8 +140,42 @@ func (w *Watcher) initialSync() error {
 
 	log.Printf("Initial sync: found %d supported files", len(files))
 
-	solutions := w.groupFilesBySolution(files)
-	log.Printf("Initial sync: found %d solution(s)", len(solutions))
+	// Build hash map for all files (needed for future change detection)
+	for _, filePath := range files {
+		hash, err := fileHash(filePath)
+		if err != nil {
+			continue
+		}
+		w.hashLock.Lock()
+		w.fileHashes[filePath] = hash
+		w.hashLock.Unlock()
+	}
+
+	changedFiles, err := w.getGitChangedFiles(files)
+	if err != nil {
+		log.Printf("Initial sync: git diff unavailable, processing all files: %v", err)
+		changedFiles = files
+	}
+
+	deletedFiles := w.getGitDeletedFiles()
+
+	// Handle deleted files: clean up + cascade to affected files
+	if len(deletedFiles) > 0 {
+		log.Printf("Initial sync: %d file(s) deleted since last commit", len(deletedFiles))
+		for _, delPath := range deletedFiles {
+			w.queueDeletionWithCascade(delPath)
+		}
+	}
+
+	if len(changedFiles) == 0 {
+		log.Printf("Initial sync: no changed files detected, skipping processing")
+		return nil
+	}
+
+	log.Printf("Initial sync: %d file(s) changed since last commit", len(changedFiles))
+
+	solutions := w.groupFilesBySolution(changedFiles)
+	log.Printf("Initial sync: found %d solution(s) with changes", len(solutions))
 
 	for sln, slnFiles := range solutions {
 		results, err := w.analyseSolution(sln)
@@ -151,24 +185,202 @@ func (w *Watcher) initialSync() error {
 		}
 
 		for _, filePath := range slnFiles {
-			hash, err := fileHash(filePath)
-			if err != nil {
-				continue
-			}
-			w.hashLock.Lock()
-			w.fileHashes[filePath] = hash
-			w.hashLock.Unlock()
-
 			w.workQueue <- Event{
 				Path:       filePath,
-				ChangeType: "initial",
+				ChangeType: "modified",
 				Results:    results,
 			}
 		}
 	}
 
-	log.Printf("Initial sync: enqueued all files for processing")
+	log.Printf("Initial sync: enqueued %d changed file(s) for processing", len(changedFiles))
 	return nil
+}
+
+func (w *Watcher) getGitChangedFiles(files []string) ([]string, error) {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = w.config.InputDir
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("no git history")
+	}
+
+	cmd = exec.Command("git", "diff", "--name-only", "HEAD")
+	cmd.Dir = w.config.InputDir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff: %w", err)
+	}
+
+	diffSet := make(map[string]bool)
+	rawLines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fullPath := filepath.Join(w.config.InputDir, line)
+		diffSet[filepath.Clean(fullPath)] = true
+	}
+
+	// Also check staged changes
+	cmd = exec.Command("git", "diff", "--cached", "--name-only")
+	cmd.Dir = w.config.InputDir
+	output, err = cmd.Output()
+	if err == nil {
+		stagedLines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range stagedLines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fullPath := filepath.Join(w.config.InputDir, line)
+			diffSet[filepath.Clean(fullPath)] = true
+		}
+	}
+
+	var result []string
+	for _, filePath := range files {
+		cleanPath := filepath.Clean(filePath)
+		if diffSet[cleanPath] {
+			result = append(result, cleanPath)
+		}
+	}
+	return result, nil
+}
+
+func (w *Watcher) getGitDeletedFiles() []string {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = w.config.InputDir
+	if err := cmd.Run(); err != nil {
+		return nil
+	}
+
+	cmd = exec.Command("git", "diff", "--name-only", "HEAD")
+	cmd.Dir = w.config.InputDir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var deleted []string
+	rawLines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fullPath := filepath.Join(w.config.InputDir, line)
+		cleanPath := filepath.Clean(fullPath)
+		if _, statErr := os.Stat(cleanPath); os.IsNotExist(statErr) {
+			if router.IsSupported(cleanPath) {
+				deleted = append(deleted, cleanPath)
+			}
+		}
+	}
+	return deleted
+}
+
+func (w *Watcher) queueDeletionWithCascade(delPath string) {
+	w.hashLock.Lock()
+	delete(w.fileHashes, delPath)
+	w.hashLock.Unlock()
+
+	// Find entities that belonged to the deleted file
+	names, err := w.config.LightRAGConfig.GetEntitiesByFilePath(delPath)
+	if err != nil {
+		log.Printf("Cascade: failed to get entities for %s: %v", delPath, err)
+	} else if len(names) > 0 {
+		log.Printf("Cascade: %s defined %d entities, checking for affected files", delPath, len(names))
+		affected, affErr := w.findAffectedFiles(names, delPath)
+		if affErr == nil && len(affected) > 0 {
+			log.Printf("Cascade: %d file(s) reference deleted entities, queuing for re-scan", len(affected))
+			for _, affPath := range affected {
+				// Schedule re-scan of affected file — will trigger analyser for its solution
+				sln := findSolution(affPath)
+				if sln != "" {
+					results, resErr := w.analyseSolution(sln)
+					if resErr != nil {
+						log.Printf("Cascade: analyser failed for %s: %v", affPath, resErr)
+						continue
+					}
+					w.workQueue <- Event{
+						Path:       affPath,
+						ChangeType: "modified",
+						Results:    results,
+					}
+				}
+			}
+		}
+	}
+
+	// Queue the deletion itself
+	w.workQueue <- Event{Path: delPath, ChangeType: "deleted"}
+}
+
+func (w *Watcher) findAffectedFiles(entityNames []string, excludePath string) ([]string, error) {
+	relations, err := w.config.LightRAGConfig.GetAllRelations()
+	if err != nil {
+		return nil, fmt.Errorf("get all relations: %w", err)
+	}
+
+	// Build entity_name -> file_path map from all entities (fallback when relation's
+	// source_id/file_path is wrong or empty — e.g. relations stored before the parser fix)
+	entityMap := make(map[string]string)
+	if nodes, err := w.config.LightRAGConfig.GetAllEntities(); err == nil {
+		for _, node := range nodes {
+			if props, ok := node["properties"].(map[string]any); ok {
+				name, _ := props["entity_name"].(string)
+				fp, _ := props["file_path"].(string)
+				if name != "" && fp != "" {
+					entityMap[name] = fp
+				}
+			}
+		}
+	}
+
+	return findAffectedFilesFromData(relations, entityMap, entityNames, excludePath), nil
+}
+
+// findAffectedFilesFromData is the pure-logic core of cascade detection.
+// It processes relation edges and entity map to find files (other than excludePath)
+// that reference deleted entity names.
+func findAffectedFilesFromData(relations []crud.RelationEdge, entityMap map[string]string, entityNames []string, excludePath string) []string {
+	entitySet := make(map[string]bool, len(entityNames))
+	for _, name := range entityNames {
+		entitySet[name] = true
+	}
+
+	affectedSet := make(map[string]bool)
+	for _, rel := range relations {
+		if !entitySet[rel.Source] && !entitySet[rel.Target] {
+			continue
+		}
+
+		// Try relation's own source_id/file_path first (correct since parser fix)
+		if rel.SourceID != "" && rel.SourceID != excludePath {
+			affectedSet[rel.SourceID] = true
+		}
+		if rel.FilePath != "" && rel.FilePath != excludePath {
+			affectedSet[rel.FilePath] = true
+		}
+
+		// Entity-based fallback: find the surviving entity's file_path
+		survivor := ""
+		if entitySet[rel.Source] {
+			survivor = rel.Target
+		} else {
+			survivor = rel.Source
+		}
+		if fp, ok := entityMap[survivor]; ok && fp != excludePath {
+			affectedSet[fp] = true
+		}
+	}
+
+	var result []string
+	for fp := range affectedSet {
+		result = append(result, fp)
+	}
+	return result
 }
 
 func (w *Watcher) groupFilesBySolution(files []string) map[string][]string {
@@ -281,7 +493,7 @@ func (w *Watcher) checkGitChanges() {
 			continue
 		}
 		if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
-			w.workQueue <- Event{Path: cleanPath, ChangeType: "deleted"}
+			w.queueDeletionWithCascade(cleanPath)
 			continue
 		}
 		if !router.IsSupported(cleanPath) {
@@ -368,10 +580,7 @@ func (w *Watcher) readEvents() {
 func (w *Watcher) handleEvent(event fsnotify.Event) {
 	path := filepath.Clean(event.Name)
 	if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-		w.hashLock.Lock()
-		delete(w.fileHashes, path)
-		w.hashLock.Unlock()
-		w.workQueue <- Event{Path: path, ChangeType: "deleted"}
+		w.queueDeletionWithCascade(path)
 		return
 	}
 	if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {

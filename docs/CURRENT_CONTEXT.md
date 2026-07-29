@@ -4,7 +4,7 @@
 - 🔥 **Phase 33** — Graph Entity Model Redesign ✅ COMPLETE
 - 🔥 **Phase 32** — Knowledge Graph Refactoring ✅ COMPLETE
 - 🔥 **Phase 27** — Verify All MCP Tools ✅ COMPLETE (verified 6/13; full 13-tool verification blocked by graph quality issues)
-- **Current session (July 29, 2026)** — Fix parallel worker race in `coderag start` initial sync
+- **Current session (July 29, 2026)** — Cascade-aware deletion + incremental initial sync + relation `source_id` fix
 
 ### Deep analysis findings
 
@@ -15,30 +15,67 @@
 | 3 | Error swallowing masked all failures | ✅ Fixed (added logging) |
 | 4 | CALL relations to framework entities fail silently (expected) | ✅ Documented |
 | 5 | Phase 33 format is compatible with CRUD pipeline | ✅ |
-| 6 | **NEW:** `coderag start` 4 workers each process ALL 348 analyser results → duplicate entity creates + timeouts | 🔧 Fixed |
-| 7 | **NEW:** CRUD client `DefaultTimeout=30s` too short under load → "context deadline exceeded" | 🔧 Fixed → 300s |
-| 8 | **NEW:** LightRAG storage lives in Docker volume `rag_data`, not in project `.coderag` | 📋 Pending |
+| 6 | `coderag start` 4 workers each process ALL 348 analyser results → duplicate entity creates + timeouts | ✅ Fixed (mutex) |
+| 7 | CRUD client `DefaultTimeout=30s` too short under load → "context deadline exceeded" | ✅ Fixed → 300s |
+| 8 | LightRAG storage lives in Docker volume `rag_data`, not in project `.coderag` | 📋 Pending |
+| 9 | **NEW:** `initialSync()` ran full analyser on ALL solutions, queued ALL files → full rebuild every `coderag start` | ✅ Fixed (git diff filtering) |
+| 10 | **NEW:** Deleted files silently dropped from `getGitChangedFiles` — never cleaned up from LightRAG | ✅ Fixed (`getGitDeletedFiles`) |
+| 11 | **NEW:** `Relation` parser struct has no `SourceID`/`FilePath` — all relations get `source_id` = caller's `filePath` | ✅ Fixed |
+| 12 | **NEW:** `findAffectedFiles` reads `rel.SourceID` from relations (broken) — must use entity `file_path` lookup instead | ✅ Fixed (entity-based fallback) |
+| 13 | **NEW:** `checkGitChanges` queues `'deleted'` but doesn't cascade to affected files | ✅ Fixed via `queueDeletionWithCascade` |
+| 14 | **NEW:** `findComposeFile()` only looks in cwd and `../` — fails when run from outside the repo | ✅ Fixed (also checks binary dir) |
 
 ### Changes this session (July 29, 2026)
 
 | # | Fix | Where | Status |
 |---|-----|-------|--------|
-| 1 | ✅ Add global mutex to `applyCSharpResults` — serializes 4 workers so only one processes analyser results at a time | `pkg/watchdog/pipeline/run.go` | ✅ Done |
-| 2 | ✅ Increase CRUD client `DefaultTimeout` from 30s → 300s | `pkg/watchdog/crud/client.go` | ✅ Done |
-| 3 | ✅ Increase `httpClient.Timeout` from 30 → 300 | `pkg/watchdog/pipeline/run.go` | ✅ Done |
-| 4 | Rebuild `coderag.exe` | — | ✅ Done |
-| 5 | Fix LightRAG storage to map into project's `.coderag` directory instead of Docker volume | `docker-compose.yml` | 📋 Pending |
+| 1 | ✅ Add global mutex to `applyCSharpResults` — serializes 4 workers | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 2 | ✅ Increase CRUD client `DefaultTimeout` 30s → 300s | `pkg/watchdog/crud/client.go` | ✅ Done |
+| 3 | ✅ Increase `httpClient.Timeout` 30 → 300 | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 4 | ✅ Add `filepath.Abs` to `inputDirOrDefault` — `.` resolves correctly | `cmd/coderag/main.go` | ✅ Done |
+| 5 | ✅ Add `findComposeFile()` search relative to binary dir | `cmd/coderag/main.go` | ✅ Done |
+| 6 | ✅ Rewrite `initialSync()` to use git diff — only processes changed files | `pkg/watchdog/watcher/observer.go` | ✅ Done |
+| 7 | ✅ Add `getGitDeletedFiles()` — detects file deletions from git HEAD | `pkg/watchdog/watcher/observer.go` | ✅ Done |
+| 8 | ✅ Add `queueDeletionWithCascade()` — cleanup + affected file re-scan | `pkg/watchdog/watcher/observer.go` | ✅ Done |
+| 9 | ✅ Add `findAffectedFiles()` — discovers files referencing deleted entities | `pkg/watchdog/watcher/observer.go` | ✅ Done |
+| 10 | ✅ Update `checkGitChanges()` + `handleEvent()` to use cascade | `pkg/watchdog/watcher/observer.go` | ✅ Done |
+| 11 | ✅ Add `GetAllRelations()` to CRUD client | `pkg/watchdog/crud/client.go` | ✅ Done |
+| 12 | ✅ Fix `Relation` parser to include `SourceID`/`FilePath` | `pkg/watchdog/parser/csharp.go` | ✅ Done |
+| 13 | ✅ Fix `parserRelationsToMap` to include `source_id`/`file_path` | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 14 | ✅ Fix `findAffectedFiles` to use entity-based lookup + pure-logic extraction | `pkg/watchdog/watcher/observer.go` | ✅ Done |
+| 15 | ⬜ Fix `loadCurrentRelations` fallback — **not needed:** diff engine only uses key (src+tgt+kw), not `source_id`. Old wrong `source_id` auto-heals via `dataChanged` on next file event | — | ❌ Cancelled |
+| 16 | 📋 Verify vector DB consistency after delete cascade | — | 📋 Pending |
 
-### Root cause chain: `coderag start` initial sync failure
+### Root cause chain: `initialSync()` full rebuild on every start
 
-1. `observer.go:initialSync()` runs analyser ONCE per solution (correct)
-2. Then enqueues EACH of 348 files with FULL results attached (line 162-166)
-3. 4 workers each call `processEvent()` → `applyCSharpResults()` with ALL 348 results
-4. All 4 workers simultaneously try to create the same 1701 entities → "Entity already exists" HTTP 400
-5. Individual entity creates hit `DefaultTimeout=30s` under the load → "context deadline exceeded"
-6. All 1743 relation creations fail because their source/target entities weren't fully created
+1. `observer.go:initialSync()` called `analyseSolution()` for EVERY solution (no git check)
+2. All files enqueued as "initial" events with full analyser results
+3. `applyCSharpResults` re-processed everything via diff engine (wasteful but not harmful)
+4. Git-based `checkGitChanges()` only ran every 30s after startup — never used on initial sync
+5. Deleted files never detected (filtered against filesystem walk) → stale data persisted
 
-**Fix:** Mutex serializes `applyCSharpResults`. Worker 1 creates all 1701 entities (~5 min), workers 2-4 see empty diff (fast). Total initial sync time ≈ one batch processing time.
+**Fix:** `initialSync()` now:
+1. Builds hash map for ALL files (future change detection)
+2. Calls `getGitChangedFiles()` → only files that exist + differ from git HEAD
+3. Calls `getGitDeletedFiles()` → files in HEAD but gone from disk
+4. For deletions: `queueDeletionWithCascade()` → cleanup + find affected files + re-scan
+5. For changes: group by solution, run analyser ONCE per solution, queue as "modified"
+6. If git fails → fallback to full scan (original behavior)
+
+### Fixed: Relation `source_id` always wrong (July 29, 2026)
+
+`parser.Relation` had NO `SourceID` or `FilePath` fields (unlike `parser.Entity` which has both).
+`parserRelationsToMap()` built data map without `source_id`/`file_path`. `applyCSharpResults` fell back to
+the caller's `filePath` parameter for every relation — meaning ALL relations in LightRAG had
+`source_id` pointing to whatever file triggered the last scan/modification, NOT the file that
+actually defined the relationship. This broke `findAffectedFiles` which reads `rel.SourceID`.
+
+**Fix:**
+1. Added `SourceID`/`FilePath` to `parser.Relation` struct; `parseRelationLine` reads `parts[5]` (file path from analyser output); `ParseCSharpFile` sets `rel.SourceID = filename`
+2. `parserRelationsToMap` now includes `"source_id"` and `"file_path"` in the data map
+3. `findAffectedFiles` uses dual-path: relation's own `SourceID`/`FilePath` + entity-map fallback via `GetAllEntities()`
+4. Pure logic extracted as `findAffectedFilesFromData()` — tested with 5 subtests
+5. Old wrong relations auto-heal on next file change via `dataChanged` in diff engine
 
 ## Phase 21 — coderag Restructuring ✅ COMPLETE
 

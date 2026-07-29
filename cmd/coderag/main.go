@@ -231,6 +231,9 @@ func findComposeFile() string {
 		"../docker-compose.yml",
 		"./docker-compose.yml",
 	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "docker-compose.yml"))
+	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			abs, _ := filepath.Abs(c)

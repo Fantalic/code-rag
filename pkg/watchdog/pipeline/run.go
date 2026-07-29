@@ -410,11 +410,18 @@ func parserRelationsToMap(relations []parser.Relation) map[string]map[string]any
 	result := make(map[string]map[string]any)
 	for _, r := range relations {
 		key := diff.RelationKey(r.Source, r.Target, r.Keywords)
-		result[key] = map[string]any{
+		m := map[string]any{
 			"description": r.Description,
 			"keywords":    r.Keywords,
 			"weight":      r.Weight,
 		}
+		if r.SourceID != "" {
+			m["source_id"] = r.SourceID
+		}
+		if r.FilePath != "" {
+			m["file_path"] = r.FilePath
+		}
+		result[key] = m
 	}
 	return result
 }

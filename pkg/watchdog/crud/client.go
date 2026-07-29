@@ -249,7 +249,61 @@ func (c *Config) GetAllEntities() ([]map[string]any, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
+	if len(result.Nodes) == 0 {
+		log.Printf("No entities found in workspace '%s'", c.Workspace)
+	}
 	return result.Nodes, nil
+}
+
+type RelationEdge struct {
+	Source   string
+	Target   string
+	Keywords string
+	SourceID string
+	FilePath string
+}
+
+func (c *Config) GetAllRelations() ([]RelationEdge, error) {
+	url := c.BaseURL + "/graphs?label=*&max_depth=2&max_nodes=10000"
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	for k, v := range c.Headers() {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: c.Timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var data struct {
+		Edges []map[string]any `json:"edges"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	var edges []RelationEdge
+	for _, raw := range data.Edges {
+		src, _ := raw["source"].(string)
+		tgt, _ := raw["target"].(string)
+		if src == "" || tgt == "" {
+			continue
+		}
+		e := RelationEdge{Source: src, Target: tgt}
+		if props, ok := raw["properties"].(map[string]any); ok {
+			e.Keywords, _ = props["keywords"].(string)
+			e.SourceID, _ = props["source_id"].(string)
+			e.FilePath, _ = props["file_path"].(string)
+		}
+		edges = append(edges, e)
+	}
+	return edges, nil
 }
 
 func (c *Config) SetWorkspace(workspace string) error {

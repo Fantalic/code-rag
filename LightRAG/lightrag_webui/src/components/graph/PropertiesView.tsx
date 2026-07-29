@@ -117,8 +117,13 @@ const refineNodeProperties = (node: RawNodeType): NodeType => {
 
           const neighbour = state.rawGraph.getNode(neighbourId)
           if (neighbour) {
+            // Extract actual edge keywords from sigmaGraph edge attribute
+            const edgeKeywords = state.sigmaGraph.getEdgeAttribute(edgeId, 'edgeKeywords') as string[] | undefined
+            const edgeLabel = state.sigmaGraph.getEdgeAttribute(edgeId, 'label') as string | undefined
+            const typeLabel = edgeKeywords?.join(', ') || edgeLabel || 'Neighbour'
+
             relationships.push({
-              type: 'Neighbour',
+              type: typeLabel,
               id: neighbourId,
               label: neighbour.properties['entity_id'] ? neighbour.properties['entity_id'] : neighbour.labels.join(', ')
             })

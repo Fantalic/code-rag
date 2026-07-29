@@ -18,11 +18,13 @@ type Entity struct {
 }
 
 type Relation struct {
-	Source     string
-	Target     string
+	Source      string
+	Target      string
 	Description string
 	Keywords    string
 	Weight      float64
+	SourceID    string
+	FilePath    string
 }
 
 // format: ENTITY_TYPE|Name|FilePath|LineNo|Description
@@ -82,6 +84,7 @@ func parseRelationLine(line string) (Relation, bool) {
 	target := parts[2]
 	desc := parts[3]
 	keywords := parts[4]
+	filePath := parts[5]
 	weight, err := strconv.ParseFloat(parts[6], 64)
 	if err != nil {
 		weight = 1.0
@@ -97,6 +100,7 @@ func parseRelationLine(line string) (Relation, bool) {
 		Description: desc,
 		Keywords:    keywords,
 		Weight:      weight,
+		FilePath:    filePath,
 	}, true
 }
 
@@ -139,11 +143,12 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 						relations = append(relations, rel)
 					}
 					continue
-				case "RELATION":
-					rel, ok := parseRelationLine(trimmed)
-					if ok {
-						relations = append(relations, rel)
-						// Track methods per class for the CLASS entity's Methods field
+			case "RELATION":
+				rel, ok := parseRelationLine(trimmed)
+				if ok {
+					rel.SourceID = filename
+					relations = append(relations, rel)
+					// Track methods per class for the CLASS entity's Methods field
 						if rel.Keywords == "method, defines" {
 							classMethods[rel.Source] = append(classMethods[rel.Source], rel.Target)
 						}

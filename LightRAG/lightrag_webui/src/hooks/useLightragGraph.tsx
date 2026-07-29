@@ -1,4 +1,4 @@
-import Graph, { UndirectedGraph } from 'graphology'
+import Graph, { UndirectedGraph, MultiUndirectedGraph } from 'graphology'
 import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { errorMessage } from '@/lib/utils'
@@ -171,6 +171,21 @@ const NODE_TYPE_COLORS: Record<string, string> = {
 };
 
 // Extended colors pool - Used for unknown node types
+// Edge keyword to color mapping
+const EDGE_KEYWORD_COLORS: Record<string, string> = {
+  calls: '#E74C3C',       // red
+  defines: '#2ECC71',     // green
+  method: '#27AE60',      // dark green
+  extends: '#9B59B6',     // purple
+  inheritance: '#8E44AD', // dark purple
+  implements: '#1ABC9C',  // teal
+  has: '#3498DB',         // blue
+  property: '#2980B9',    // dark blue
+}
+
+// Priority order for determining edge color from composite keywords
+const EDGE_KEYWORD_PRIORITY = ['calls', 'extends', 'implements', 'inheritance', 'defines', 'method', 'has', 'property']
+
 const EXTENDED_COLORS = [
   '#84a3e1', // SkyBlue
   '#5a2c6d', // DeepViolet
@@ -295,6 +310,7 @@ export type EdgeType = {
   size?: number
   color?: string
   hidden?: boolean
+  edgeKeywords?: string[]
 }
 
 const fetchGraph = async (label: string, maxDepth: number, maxNodes: number) => {
@@ -400,8 +416,8 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
     return null;
   }
 
-  // Create new graph instance
-  const graph = new UndirectedGraph()
+  // Create new graph instance — MultiUndirectedGraph for parallel edges
+  const graph = new MultiUndirectedGraph()
 
   // Add nodes from raw graph data
   for (const rawNode of rawGraph?.nodes ?? []) {
@@ -422,17 +438,37 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
     })
   }
 
-  // Add edges from raw graph data
+  // Add edges from raw graph data — split composite keywords into parallel edges
   for (const rawEdge of rawGraph?.edges ?? []) {
     // Get weight from edge properties or default to 1
     const weight = rawEdge.properties?.weight !== undefined ? Number(rawEdge.properties.weight) : 1
+    const keywordsStr: string = rawEdge.properties?.keywords || ''
+    const keywords = keywordsStr.split(',').map(k => k.trim()).filter(Boolean)
 
-    rawEdge.dynamicId = graph.addEdge(rawEdge.source, rawEdge.target, {
-      label: rawEdge.properties?.keywords || undefined,
-      size: weight, // Set initial size based on weight
-      originalWeight: weight, // Store original weight for recalculation
-      type: 'curvedNoArrow' // Explicitly set edge type to no arrow
-    })
+    if (keywords.length === 0) {
+      // No keywords — add a single unnamed edge
+      rawEdge.dynamicId = graph.addEdge(rawEdge.source, rawEdge.target, {
+        label: '',
+        size: weight,
+        originalWeight: weight,
+        color: '#888888',
+        edgeKeywords: [],
+        type: 'curvedNoArrow'
+      })
+    } else {
+      // Add one parallel edge per keyword
+      for (const kw of keywords) {
+        const edgeColor = EDGE_KEYWORD_COLORS[kw] || '#888888'
+        rawEdge.dynamicId = graph.addEdge(rawEdge.source, rawEdge.target, {
+          label: kw,
+          size: weight,
+          originalWeight: weight,
+          color: edgeColor,
+          edgeKeywords: keywords,
+          type: 'curvedNoArrow'
+        })
+      }
+    }
   }
 
   // Calculate edge size based on weight range, similar to node size calculation
