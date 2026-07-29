@@ -356,22 +356,33 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 **Goal:** Ensure the knowledge graph contains correct Phase 33 entities with namespace-qualified names, inheritance relations, and no stale data. Verify all 13 MCP tools produce accurate results against actual codebase reality.
 
 **Root causes identified:**
-1. `ClearAll()` (`DELETE /documents`) does not purge the `rag_data` volume's graph storage — old entities and relations survive
+1. `ClearAll()` (`DELETE /documents`) does not purge graph entities/relations stored in `rag_data` volume — old entities and relations survive
 2. `loadCurrentRelations()` fetches stale edges from the graph that were never cleared, causing `DiffRelations` to see no new relations to create
 3. Docker volume `rag_data` persists across rebuilds, mixing pre-Phase 33 state with post-Phase 33 state
+4. **Silent error swallowing** in `applyScanResults` and `applyCSharpResults` — all CRUD failures are invisible (no logging, no counting)
+5. **Namespace-qualified entity names** (Phase 33) may collide with stale pre-Phase 33 entities if graph isn't properly purged
+6. All 1743 relation creations fail when their source/target entities aren't successfully created
 
-**Fix steps:**
+**Fixes implemented (Phase 27.5):**
+
+| # | What | Where | Status |
+|---|------|-------|--------|
+| 1 | Add error logging + counting to `applyCSharpResults` in `run.go` | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 2 | Add error logging to `applyScanResults` in `main.go` | `cmd/coderag/main.go` | ✅ Done |
+| 3 | Fix workspace targeting — projectName() computed once, set on clearClient before ClearAll() | `cmd/coderag/main.go` | ✅ Done |
+| 4 | Verify `ClearAll()` actually purges graph (confirmed — `DELETE /documents` drops ALL storage including graph) | LightRAG verified | ✅ Confirmed |
+
+**Root cause discovered and fixed:**
+`ClearAll()` in `scanCmd` was called on a fresh client WITHOUT a workspace set → targeted LightRAG's default workspace instead of the project workspace → stale pre-Phase 33 entities persisted in project workspace → new qualified-name entities collided with stale entries → 906/1701 entity creations failed → all 1743 relation creations failed (dependent entities missing) → all errors silently swallowed → zero visibility
+
+**Phase 27.5 — Implementation Plan:**
 
 | # | Step | What | Status |
 |---|------|------|--------|
-| 1 | Purge `rag_data` volume | `docker compose down -v` to remove volume (destroys all stored graph data) | Planned |
-| 2 | Rebuild Docker image | `docker compose build --no-cache` to pick up any Python MCP changes | Planned |
-| 3 | Start services | `docker compose up -d` | Planned |
-| 4 | Clean rescan | `coderag scan E:\_dev\_Projects\dotnet-console-games --clean` | Planned |
-| 5 | Verify entity count in graph | Query LightRAG `/graphs` API to confirm correct entity count and namespace-qualified names | Planned |
-| 6 | Verify relations exist | Query `/graphs` edges; confirm 154+ extends + 4 implements relations present | Planned |
-| 7 | Test all 13 MCP tools | Run each tool systematically and validate results against actual codebase | Planned |
-| 8 | Fix any bugs found | Address discrepancies between MCP results and actual codebase | Planned |
+| 1 | Add error + success logging to `applyCSharpResults` (run.go) | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 2 | Add error logging to `applyScanResults` (main.go) | `cmd/coderag/main.go` | ✅ Done |
+| 3 | Fix workspace ordering — `projectName` computed before `ClearAll()` | `cmd/coderag/main.go` | ✅ Done |
+| 4 | Verify `ClearAll()` actually purges graph (confirmed) | LightRAG verified | ✅ Confirmed |
 
 ### Phase 28 — Git Commit Watcher
 - Replaced old .NET CSharpAnalyzerTool.exe with Go native analyser (`analysers/csharp/`)

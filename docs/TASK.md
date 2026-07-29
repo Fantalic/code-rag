@@ -1,332 +1,50 @@
-# Phase 33 — Graph Entity Model Redesign ✅ COMPLETE
+# CRUD Pipeline Adaptation — Phase 33 Format Changes
 
-**All steps implemented and verified** (see `docs/PHASE33_REDESIGN.md`):
+## Current Task
 
-| What | Status |
-|------|--------|
-| Namespace-qualified entity names (`Console_Monsters.Bases.CharacterBase`) | ✅ |
-| NAMESPACE entities + `contains, namespace` edges removed | ✅ |
-| Inheritance relations (`inheritance, extends`) emitted via GlobalIndex | ✅ |
-| Interface relations (`implements`) emitted via GlobalIndex | ✅ |
-| Framework calls (empty calleeClass) filtered from call graph | ✅ |
-| Scope variable types resolved through GlobalIndex | ✅ |
+The C# analyser output format changed in Phase 33 (namespace-qualified entity names like `Console_Monsters.Bases.CharacterBase`, new relation types `extends, inherits` and `implements`, framework call filtering). The downstream CRUD pipeline that reads these files and creates entities/relations in LightRAG has bugs preventing correct processing.
 
-**Bugs fixed during verification:**
-- **Multi-modifier class regex** — `classRegex` matched only one modifier, so `public abstract class X : Y` was never parsed (pre-existing). Now `(?:mod\s+)*` like method/prop regexes.
-- **Global usings ignored** — `usingRegex` didn't match `global using X;`, and `resolveType` ignored usings entirely. Cross-namespace base types (e.g. `CharacterBase` via `global using Console_Monsters.Bases;`) now resolve: current ns → file usings → global usings → unique simple-name fallback (`SimpleNames` index map).
-- **UTF-8 BOM** — files with BOM failed `nsRegex`; stripped in `ParseFile`.
-- **`return`-type property leak** — `return result;` inside methods created spurious PROPERTY entities; fixed with `isKeyword(v[1])` guard.
+## What's Broken
 
-**Verified on `dotnet-console-games` (348 files):** 154 `extends` + 4 `implements` relations, 0 NAMESPACE entities, 0 `return`-type leaks. `go test ./...` + `go vet` clean.
+| Issue | Description | Evidence |
+|-------|-------------|----------|
+| Silent error swallowing | `applyScanResults` (main.go:596-649) swallows all entity/relation creation errors — no logging | 906 entities fail, 0 relations created, zero error output |
+| 906/1701 entities fail creation | ~53% of entities silently fail during creation in LightRAG | Analyser extracts 1701, only 795 created in graph |
+| 0/1743 relations created | ALL relation creations fail silently | 1743 extracted, 0 created |
+| `ClearAll()` incomplete | `DELETE /documents` doesn't purge graph storage from `rag_data` volume | Stale pre-Phase 33 entities survive across rebuilds |
 
----
+## Plan
 
-# Phase 32 — Knowledge Graph Refactoring ✅ COMPLETE
+### Step 1: Fix silent error swallowing in `applyScanResults` (main.go)
+- Add `log.Printf` for failed entity creation with error details
+- Add `log.Printf` for failed relation creation with error details
+- This will expose the actual root causes of failures
 
-**All 5 sub-phases (32.1–32.5) implemented and verified:**
+### Step 2: Fix `applyCSharpResults` in `run.go` to match patterns
+- Apply same error visibility improvements as `applyScanResults`
+- Ensure consistent diff/create/update handling
 
-| Phase | What | Status |
-|-------|------|--------|
-| **32.1** | **Qualified Entity Names** — `Snake.Run`, `Pong.Ball.X` instead of `Run`, `Ball` | ✅ |
-| **32.2** | **Call Graph Insertion** — `CALL\|` lines emitted from analyser, parsed as `calls` relations | ✅ |
-| **32.3** | **Multi-Type Edges & Directed Relations** — `RelationKey(src, tgt, kw)` directed 3-field key; `acreate_relation` merges keywords | ✅ |
-| **32.4** | **Namespace Entities** — `EntityNamespace` type, `postProcess()` in walker emits NAMESPACE + `contains, namespace` relations | ✅ |
-| **32.5** | **Graph Density Optimization** — visibility tags (`[public]`/`[private]`), `depth`/`max_depth` params on MCP tools, `visibility_counts` in stats | ✅ |
+### Step 3: Fix `ClearAll()` to purge graph storage
+- `DELETE /documents` only clears document metadata, not graph nodes/edges
+- Need to also purge `rag_data` volume or call LightRAG's graph-clear endpoint
+- Alternative: delete the `rag_data` volume directly in the `coderag scan --clean` flow
 
-**Verified:** csharp_analyser.exe rebuilt (3.5MB), coderag.exe rebuilt, test scan of 348 files produced NAMESPACE entities, call graph edges, visibility tags. Current work: updating all documentation files.
+### Step 4: Verify clean rescan works correctly
+- Purge `rag_data` volume (`docker compose down -v`)
+- Rebuild Docker image
+- Run `coderag scan --clean` on `dotnet-console-games`
+- Check entity count (should be 1701 or close)
+- Check relation count (should be 1743 or close)
+- Verify namespace-qualified names are stored correctly
+- Verify extends/implements relations exist (154+4)
 
----
+### Step 5: Update documentation
+- Update CURRENT_CONTEXT.md with findings
+- Update PLAN.md with Phase 27.5 status
+- Clean up outdated historical sections
 
-# Phase 24 — MCP Tool Return Empty Results Bug Fix ✅ COMPLETE
+## Phase 33 — Graph Entity Model Redesign ✅ COMPLETE
 
-**Completed previously.** Fixed `get_all_labels()` returning node IDs instead of entity types, added `get_all_entity_types()` and `get_all_relation_types()`, fixed `/graph/label/list` to return structured response.
+All steps implemented and verified (see `docs/PHASE33_REDESIGN.md`).
 
----
-
-# Phase 25 — Architecture Cleanup & MCP Fixes ✅ COMPLETE
-
-**Completed:**
-- C# analyser moved to `analysers/c_sharp/`
-- `coderag scan` command added
-- Watchdog starts in background on `coderag mcp`
-- Old Python watchdog deleted
-- `update_relations` deprecated
-
----
-
-
-
-# Phase 21 — coderag Restructuring ✅ COMPLETE
-
-## Goal
-
-Restructure the monorepo so `coderag` is the central CLI tool. File watcher + analyser pipeline stays as a host-side Go binary. The Python MCP server (`daniel-lightrag-mcp`) is **kept** and runs inside Docker alongside LightRAG, exposing SSE transport on port 9622.
-
-## What Was Done
-
-### Done ✅
-- Root `go.mod` with module `github.com/coderag`
-- `watchdog/internal/*` moved to `pkg/watchdog/*`
-- `pkg/lightrag/` HTTP client created
-- `cmd/coderag/main.go` CLI with `start`, `watch`, `status`, `stop`, `query`, `webui`
-- Python MCP SSE server at `daniel-lightrag-mcp/src/daniel_lightrag_mcp/sse_server.py`
-- Updated `pyproject.toml` with `starlette` + `uvicorn` deps
-- Updated `docker-compose.yml`: removed Ollama, added `mcp` service on :9622
-- Updated `Dockerfile`: multi-stage (WebUI + LightRAG + MCP)
-- Created `.opencode/opencode.json`: remote MCP at `http://localhost:9622/sse`
-- Removed stale `pkg/mcp/` directory
-- Updated all docs: `DOCUMENTATION.md`, `PLAN.md`, `CURRENT_CONTEXT.md`, `AGENTS.md`
-- **Built and verified both Docker images** — `lightrag` and `mcp` both compile and start
-- **Fixed Starlette ASGI detection bug** — `_ASGIApp` wrapper class for raw ASGI handlers in `sse_server.py`
-- **Verified MCP SSE handshake** — `/sse` returns `event: endpoint` with session ID
-- **Verified health endpoint** — `GET /health` returns `{"status":"ok"}`
-- **Verified LightRAG API** — health check returns full config (version 1.4.9.4)
-- **Verified WebUI** — serves at `http://localhost:9621/`, returns 200
-- **Added `coderag mcp <dir>` subcommand** — stdio↔SSE bridge for opencode integration
-- **cppencode bridge verified** — `initialize` + `tools/list` return all 22 tools via stdio
-- **opencode config updated** — `coderag-mcp` uses `type: "local"` with `command: ["coderag", "mcp", "."]`
-- **Backup saved** — `~/.config/opencode/opencode.json.backup.*`
-
-### Tool Reduction (June 2026) ✅
-- **Reduced MCP tool set from 22 to 6 focused tools** for AI agent codebase exploration
-- **6 tools kept:** `query`, `get_related_files`, `check_entity_exists`, `get_knowledge_graph`, `get_graph_labels`, `add_note_to_entity`
-- **Removed:** all document management tools (insert_text, insert_texts, upload_document, scan_documents, get_documents, delete_document, etc.)
-- **`add_note_to_entity` implemented** — creates embedded NOTE entity linked via HAS_NOTE relationship
-  - Takes `entity_name` and `note_text` parameters
-  - Checks entity exists, creates NOTE entity with description=note_text (LightRAG embeds it), creates HAS_NOTE relation
-  - Returns `AddNoteResponse` with status, entity_name, note_entity_name, relationship_created
-
-## Architecture
-
-```
-opencode ──stdio──► coderag mcp . (host Go binary)
-                        │
-                   SSE bridge ──HTTP──► mcp (Docker :9622)
-                                            │
-                                       talks to lightrag (Docker :9621)
-```
-
-| Layer | Component | Location | Transport |
-|-------|-----------|----------|-----------|
-| 1 | opencode | Host (terminal) | stdio ↔ coderag |
-| 2 | `coderag mcp .` | Host (Go binary) | stdio↔SSE bridge |
-| 3 | Python MCP server | Docker (:9622) | SSE |
-| 4 | LightRAG API | Docker (:9621) | HTTP |
-
-- `coderag mcp <dir>` ensures Docker is running, connects to SSE, bridges stdio↔SSE
-- MCP and watchdog are **independent** — both talk to LightRAG API only
-- No Ollama in Docker — assumed reachable on host at `http://localhost:11434`
-- `--workers 1` required for LightRAG server
-
-## Verification Steps
-
-1. `docker compose build` — builds image with WebUI + LightRAG + MCP
-2. `docker compose up -d` — starts both services
-3. `coderag mcp <dir>` — starts stdio↔SSE bridge (test with `tools/list`)
-4. `coderag start <dir>` — starts Docker + file watcher
-5. `coderag query "what classes?"` — returns entities
-6. `coderag webui` — opens browser
-7. `coderag status` — shows healthy
-8. `coderag stop` — shuts down containers
-
----
-
-# Phase 22 — MCP Tool Improvements for Large Codebases ✅ COMPLETE
-
-## Goal
-
-Make the MCP tool set genuinely useful for large, unfamiliar codebases. Fix broken tools, add graph traversal and entity browsing capabilities.
-
-## Root Cause
-
-`get_related_files` calls `POST /query` (LLM summarization endpoint) which returns `response` (LLM text) + `references` (file paths). The method expects `query_result.results` which is always `None` — so it always returns empty.
-
-**Fix:** Use `POST /query/data` which returns structured `{entities, relationships, chunks, references}`.
-
-## Gap Analysis
-
-| Need | Current Tool | Status |
-|------|-------------|--------|
-| Orientation — "What's in this codebase?" | `get_graph_labels` | ✅ Works |
-| Finding things — "Find authentication code" | `get_related_files` | ❌ Broken |
-| Navigation — "Show me class X's methods" | (missing) | ❌ No tool |
-| Relationships — "What calls this method?" | (missing) | ❌ No tool |
-| Overview — full graph dump | `get_knowledge_graph` | ⚠️ Too large |
-| Filtering by type/file | (missing) | ❌ No tool |
-| Pattern search | (missing) | ❌ No tool |
-
-## Tool Changes
-
-### Fix Existing
-1. **`get_related_files`** — Fix to use `/query/data` endpoint, return structured results with file paths and snippets
-
-### New Exploration Tools
-2. **`query_data`** — Structured query using `/query/data`. Returns entities + relationships + references (no LLM text).
-3. **`list_entities_by_type`** — Paginated list of CLASS/METHOD/PROPERTY entities. Uses `/graphs?label=TYPE`.
-4. **`get_entities_in_file`** — Filter graph by file_path. Parse graph nodes, filter by `properties.file_path`.
-5. **`search_entities`** — Regex search on entity names/descriptions. Uses `/query/data` with pattern in query text.
-
-### New Graph Traversal
-6. **`get_entity_neighbors`** — 1-hop neighbors of an entity (all directly connected entities via any relation type).
-7. **`get_incoming_relations`** — Entities that point TO this entity (relation.source → this entity).
-8. **`get_outgoing_relations`** — Entities this entity points TO (this entity → relation.target).
-9. **`get_entity_details`** — Full entity info with all its relations (node + adjacent edges).
-
-### New Overview
-10. **`get_codebase_stats`** — Summary: entity counts by type, relation counts by type, total files, total chunks.
-
-## Implementation Details
-
-### `/query/data` response structure
-```json
-{
-  "status": "success",
-  "data": {
-    "entities": [{"entity_name": "...", "entity_type": "CLASS", "description": "...", "file_path": "...", ...}],
-    "relationships": [{"src_id": "...", "tgt_id": "...", "relation_type": "...", ...}],
-    "chunks": [...],
-    "references": [{"file_path": "...", "chunk_id": "..."}]
-  }
-}
-```
-
-### Graph traversal approach
-For neighbor/relation queries, fetch `/graphs` (full graph) once, then filter locally:
-- `get_entity_neighbors`: find all edges where src_id or tgt_id = entity_name, collect the other side
-- `get_incoming_relations`: find edges where tgt_id = entity_name
-- `get_outgoing_relations`: find edges where src_id = entity_name
-
-### Entity type filtering
-Use `/graphs?label=CLASS` to get only CLASS entities. Valid labels from `get_graph_labels`.
-
-### File path filtering
-Graph nodes have `properties.file_path`. When filtering, compare normalized paths (handle Windows/Unix differences).
-
-## Steps
-
-| # | Step | Status |
-|---|------|--------|
-| 1 | Fix `get_related_files` to use `/query/data` | ✅ Done |
-| 2 | Add `query_data` tool | ✅ Done |
-| 3 | Add `list_entities_by_type` tool | ✅ Done |
-| 4 | Add `get_entities_in_file` tool | ✅ Done |
-| 5 | Add `search_entities` tool | ✅ Done |
-| 6 | Add `get_entity_neighbors` tool | ✅ Done |
-| 7 | Add `get_incoming_relations` / `get_outgoing_relations` | ✅ Done |
-| 8 | Add `get_entity_details` tool | ✅ Done |
-| 9 | Add `get_codebase_stats` tool | ✅ Done |
-| 10 | Update models.py with new request/response types | ✅ Done |
-| 11 | Rebuild Docker image | ✅ Done |
-| 12 | Verify all tools work with real codebase | ✅ Done |
-| 13 | Update documentation | ✅ Done |
-
-## Final Tool Set (13 tools)
-
-| Tool | Purpose |
-|------|---------|
-| `query` | LLM-powered natural language query |
-| `query_data` | Structured query without LLM (entities + references) |
-| `get_related_files` | Find files by semantic search (FIXED) |
-| `get_knowledge_graph` | Full graph (with pagination consideration) |
-| `get_graph_labels` | List entity/relation types |
-| `add_note_to_entity` | Attach embedded note to entity |
-| `list_entities_by_type` | Browse entities by type |
-| `get_entities_in_file` | Filter by file path |
-| `search_entities` | Pattern search on entity names |
-
----
-
-# Phase 23 — MCP Bug Fixes & Auto-Initialization ✅ COMPLETE
-
-## Bug Report (from agent test)
-
-Agent tested the MCP tools against `E:\_dev\_Projects\test-csharp-project` and found:
-
-| Tool | Status | Issue |
-|------|--------|-------|
-| `get_codebase_stats` | Works | Shows 0 entities — graph empty |
-| `get_graph_labels` | Works | Shows empty labels |
-| `query` | Works | Falls back to LLM training data when graph empty → unreliable |
-| `search_entities` | Broken | "Internal validation error" |
-| `get_entities_in_file` | Broken | Rejects valid file paths |
-| `get_related_files` | Fixed | Now uses `/query/data` correctly |
-
-**Root causes identified:**
-
-1. **`get_entities_in_file` bug:** LightRAG stores `file_path` at node level (`node["file_path"]`), not inside `node["properties"]["file_path"]`. Client code looked in wrong place.
-
-2. **`search_entities` bug:** Uses `label="*"` when calling `/graphs`. The `*` is not a valid entity type label — `/graphs` expects a real label like "CLASS".
-
-3. **Empty graph:** MCP server starts without running the C# analyser. Nothing gets indexed automatically.
-
-## Fixes
-
-### Fix 1: `get_entities_in_file` — Correct property location
-```python
-# WRONG (looks in properties)
-node.get("properties", {}).get("file_path", "")
-# CORRECT (looks at node level)
-node.get("file_path", "")
-```
-Also add null-check: if `properties` is `None`, treat as empty dict.
-
-### Fix 2: `search_entities` — Valid label for `/graphs`
-Instead of `label=entity_type or "*"`, use a valid label. Options:
-- Call `get_graph_labels()` first to get the first real label, then use it
-- Or fetch without label parameter (but `/graphs` requires `label` query param)
-- Best: iterate through available labels from `get_graph_labels()` until one returns entities
-
-### Fix 3: Auto-initialization on MCP startup
-- On startup, check current working directory for `*.sln` or `*.csproj` files
-- If found, run the C# analyser via `update_relations(path)`
-- This populates the graph before any queries arrive
-- Project directory = where opencode was started from (cwd)
-
-### Fix 4: Better empty-graph messages
-When `get_codebase_stats` returns 0 entities, add a message:
-"Knowledge graph is empty. No source files have been indexed yet. Ensure the watchdog is running and watching your project directory."
-
-## Steps
-
-| # | Step | Status |
-|---|------|--------|
-| 1 | Fix `get_entities_in_file` property lookup | ✅ Done |
-| 2 | Add null-check for `properties=None` | ✅ Done |
-| 3 | Fix `search_entities` label parameter | ✅ Done (but deeper issue fixed in Phase 24) |
-| 4 | Add auto-initialization on startup | ✅ Done |
-| 5 | Add better empty-graph messages | ⚠️ Not implemented |
-| 6 | Rebuild Docker, verify with real codebase | ✅ Done |
-| 7 | Update documentation | ✅ Done |
-
-Note: `search_entities` had a deeper issue — it used `get_knowledge_graph(label=entity_type)` which does BFS from a node named "CLASS", not filtering by type. Fixed in Phase 24.
-
----
-
-# Phase 26 — Fix Broken MCP Tools ✅ COMPLETE
-
-**All fixes committed to `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` and `server.py`.**
-
-**Fixes applied:**
-- Added `_safe_entity_data()` and `_extract_entity_name()` helper functions with fallback chain
-- All 4 broken tools now use safe name extraction
-- `list_entities_by_type` uses case-insensitive entity_type comparison
-- `get_entity_neighbors` uses safe node ID resolution
-- `add_note_to_entity` checks both `created` flag AND message content
-
-**Files changed:**
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/client.py` - helper functions + all affected methods
-- `daniel-lightrag-mcp/src/daniel_lightrag_mcp/server.py` - add_note_to_entity success check
-
----
-
-# Phase 27 — Verify All MCP Tools ✅ COMPLETE
-
-**All 13 MCP tools verified working (June 21, 2026):**
-- Docker image rebuilt successfully
-- Services healthy: LightRAG (:9621) and MCP (:9622)
-- Graph: 43 entities, 46 relations after `coderag scan`
-- All broken/partial tools fixed and verified
-
----
-
-# Phase 28 — Python Analyser 🔧 PENDING
+**Verified on `dotnet-console-games` (348 files):** 154 `extends` + 4 `implements` relations, 0 NAMESPACE entities, 0 `return`-type leaks. Commit: `1330e381`.
