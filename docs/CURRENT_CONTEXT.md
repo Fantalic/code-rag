@@ -2,39 +2,43 @@
 
 ## Status
 - 🔥 **Phase 33** — Graph Entity Model Redesign ✅ COMPLETE
-  - Namespace-qualified entity names (`Console_Monsters.Bases.CharacterBase`), `extends`/`implements` relations, framework call filtering, multi-modifier classRegex fix, BOM stripping, `return`-type property leak fix
-  - Commit: `1330e381`
 - 🔥 **Phase 32** — Knowledge Graph Refactoring ✅ COMPLETE
-- **Phase 27** — Verify All MCP Tools ✅ COMPLETE (verified 6/13; full 13-tool verification blocked by graph quality issues — see Phase 27.5)
+- 🔥 **Phase 27** — Verify All MCP Tools ✅ COMPLETE (verified 6/13; full 13-tool verification blocked by graph quality issues)
+- **Current session (July 29, 2026)** — Fix parallel worker race in `coderag start` initial sync
 
-**Deep analysis findings:**
+### Deep analysis findings
 
-1. **LightRAG API handles qualified names correctly** — both entity and relation creation work with namespace-qualified names
-2. **Root cause of 0 relations:** `ClearAll()` targeted the wrong workspace (Go's `default` workspace, not the project workspace). After fix, `scanCmd` now calls `ws := projectName(inputDir)` once and passes it to `clearClient.SetWorkspace(ws)` before `ClearAll()`
-3. **Error swallowing was masking all failures** — added `log.Printf` for every CRUD failure with full context (entity_type, file_path, keywords, weight)
-4. **CALL relations to framework types** (e.g., `Checkers.Board.GetPossibleMoves → List<Move>.AddRange`) silently fail because the target entity (a framework class) doesn't exist in the graph. This is expected but adds noise.
-5. **Phase 33 format changes are fully compatible** with the CRUD pipeline once the workspace targeting bug is fixed
+| # | Finding | Status |
+|---|---------|--------|
+| 1 | LightRAG API handles qualified names correctly | ✅ |
+| 2 | `ClearAll()` targeted DEFAULT workspace, not project workspace | ✅ Fixed |
+| 3 | Error swallowing masked all failures | ✅ Fixed (added logging) |
+| 4 | CALL relations to framework entities fail silently (expected) | ✅ Documented |
+| 5 | Phase 33 format is compatible with CRUD pipeline | ✅ |
+| 6 | **NEW:** `coderag start` 4 workers each process ALL 348 analyser results → duplicate entity creates + timeouts | 🔧 Fixed |
+| 7 | **NEW:** CRUD client `DefaultTimeout=30s` too short under load → "context deadline exceeded" | 🔧 Fixed → 300s |
+| 8 | **NEW:** LightRAG storage lives in Docker volume `rag_data`, not in project `.coderag` | 📋 Pending |
 
-**Changes committed:**
-- `cmd/coderag/main.go`: (1) workspace targeting fix in `scanCmd`, (2) error logging for ALL CRUD operations in `applyScanResults`
-- `pkg/watchdog/pipeline/run.go`: error logging + counting for ALL entity/relation CRUD operations in `applyCSharpResults`
+### Changes this session (July 29, 2026)
 
 | # | Fix | Where | Status |
 |---|-----|-------|--------|
-| 1 | ✅ Add error logging + counting to `applyCSharpResults` | `pkg/watchdog/pipeline/run.go` | ✅ Done |
-| 2 | ✅ Add error logging to `applyScanResults` (entity+relation) | `cmd/coderag/main.go` | ✅ Done |
-| 3 | ✅ Fix workspace targeting in `scanCmd` — `ClearAll()` was clearing DEFAULT workspace not project workspace | `cmd/coderag/main.go` | ✅ Done |
-| 4 | Fix `ClearAll()` to properly purge graph storage — `DELETE /documents` DOES clear graph (drops NetworkX graph + VDBs) | N/A (was a misconception) | ✅ N/A |
-| 5 | Verify complete pipeline with clean rescan | `docker compose` | Pending verification |
+| 1 | ✅ Add global mutex to `applyCSharpResults` — serializes 4 workers so only one processes analyser results at a time | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 2 | ✅ Increase CRUD client `DefaultTimeout` from 30s → 300s | `pkg/watchdog/crud/client.go` | ✅ Done |
+| 3 | ✅ Increase `httpClient.Timeout` from 30 → 300 | `pkg/watchdog/pipeline/run.go` | ✅ Done |
+| 4 | Rebuild `coderag.exe` | — | ✅ Done |
+| 5 | Fix LightRAG storage to map into project's `.coderag` directory instead of Docker volume | `docker-compose.yml` | 📋 Pending |
 
-**Root cause found:**
-- `ClearAll()` in `scanCmd` targeted the DEFAULT workspace, not the project workspace
-- Stale pre-Phase 33 entities (short names like `Calculator`) persisted in project workspace
-- New Phase 33 entities (qualified names like `TestLib.Calculator`) collided with stale ones → 906 failures
-- All 1743 relation creations failed silently (dependent entities not created)
-- All CRUD errors were silently swallowed → zero visibility
+### Root cause chain: `coderag start` initial sync failure
 
-**Fix:** `scanCmd` now computes `ws := projectName(inputDir)` before `ClearAll()` and sets it on a dedicated `clearClient`.
+1. `observer.go:initialSync()` runs analyser ONCE per solution (correct)
+2. Then enqueues EACH of 348 files with FULL results attached (line 162-166)
+3. 4 workers each call `processEvent()` → `applyCSharpResults()` with ALL 348 results
+4. All 4 workers simultaneously try to create the same 1701 entities → "Entity already exists" HTTP 400
+5. Individual entity creates hit `DefaultTimeout=30s` under the load → "context deadline exceeded"
+6. All 1743 relation creations fail because their source/target entities weren't fully created
+
+**Fix:** Mutex serializes `applyCSharpResults`. Worker 1 creates all 1701 entities (~5 min), workers 2-4 see empty diff (fast). Total initial sync time ≈ one batch processing time.
 
 ## Phase 21 — coderag Restructuring ✅ COMPLETE
 

@@ -25,11 +25,13 @@ type dedupKey struct {
 }
 
 var (
+	applyCSharpResultsMu sync.Mutex
+
 	relationDedup   sync.Map
 	dedupLastClean  int64
 )
 
-var httpClient = &http.Client{Timeout: 30}
+var httpClient = &http.Client{Timeout: 300}
 
 type AnalyserResult struct {
 	Filename string
@@ -131,6 +133,9 @@ func runCSharpPipelineModified(filePath string, client *crud.Config, results []A
 }
 
 func applyCSharpResults(filePath string, client *crud.Config, results []AnalyserResult) error {
+	applyCSharpResultsMu.Lock()
+	defer applyCSharpResultsMu.Unlock()
+
 	log.Printf("APPLY CSHARP RESULTS: processing %d results for %s", len(results), filePath)
 	parserResults := make([]struct{ Filename string; Content string }, len(results))
 	for i, r := range results {

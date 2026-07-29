@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultTimeout = 30 * time.Second
+	DefaultTimeout = 300 * time.Second
 )
 
 type Config struct {
