@@ -28,6 +28,7 @@
 | 16 | **NEW:** `loadCurrentRelationsScan` and `loadCurrentRelations` don't read `source_id`/`file_path` from graph — diff engine can't detect changes to these fields | ✅ Fixed |
 | 17 | **NEW:** CALL relations (`calls` keyword) have empty `source_id`/`file_path` — `parseCallLine` doesn't read caller file path, `ParseCSharpFile` doesn't set `SourceID` for CALL lines | ✅ Fixed |
 | 18 | **NEW:** Stale analyser output `.txt` files persist between scans — `RunCSharpAnalyser` reads ALL `.txt` files including from deleted sources | ✅ Fixed (cleanup before run) |
+| 19 | `source_id` in diff engine `ignoredKeys` prevented real-time change path from auto-healing wrong `source_id` on existing relations | ✅ Fixed (removed from ignoredKeys) |
 
 ### Changes this session (July 29, 2026)
 
