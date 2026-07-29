@@ -151,6 +151,36 @@ All graph-based MCP tools verified against live LightRAG API on test-csharp-proj
 
 The `query` endpoint returns "no relevant context" because `coderag scan` only populates graph entities/relations via CRUD — it does not ingest text chunks into the vector DB that powers the LLM query path. This is expected behavior.
 
+**Note**: The `query` endpoint now works with local Ollama model (`phi3.5:latest`), set in `docker-compose.yml`.
+
+---
+
+## MCP Tool Evaluation (July 29, 2026)
+
+### Assessment using test-csharp-project
+
+| MCP Tool | Usefulness | Rating |
+|----------|-----------|--------|
+| `get_graph_labels` | Shows available entity/relation types | Useful |
+| `get_entities_in_file` | Reveals exactly which methods exist in a file | Very Useful |
+| `get_entity_neighbors` | Shows interface implementations, inheritance, calling patterns | Very Useful |
+| `search_entities` | Finds related classes (IOperation, AdvancedCalculator, DataStore) | Useful |
+| `get_entity_details` | Shows method counts, descriptions | Useful |
+| `query` (hybrid) | Natural-language summary of patterns | Moderately Useful |
+
+### Missing / Proposed New MCP Tools
+
+| # | Proposed Tool | Purpose | Why It's Needed |
+|---|--------------|---------|-----------------|
+| 1 | `get_relation_detail(entity, relation_type)` | Show all relations of a specific type for an entity (e.g., all `calls` from Calculator) | Currently must dump all 43 edges and filter manually |
+| 2 | `get_method_signature(entity_name)` | Show method signature (parameters, return type) for a specific method | Descriptions lack actual parameter/return type info |
+| 3 | `find_related_files(entity_or_file)` | Find all files that reference/relate to a given entity | Critical for understanding impact when modifying Calculator |
+| 4 | `get_interface_methods(interface_name)` | Show all methods an interface declares + which classes implement them | Had to manually trace that IOperation→Execute because no tool queries this |
+
+### Implementation Plan
+
+Next task: implement all 4 proposed MCP tools in Python (`daniel-lightrag-mcp/`) and Go MCP server (`cmd/coderag/mcpCmd` path).
+
 ---
 
 ## Running System (July 29, 2026 - Updated)

@@ -407,6 +407,30 @@ coderag scan <project-dir>   → find .sln, run C# analyser, ingest results
 
 Key files: `analysers/csharp/walker.go` (visibility, postProcess, qualified names, calls), `analysers/csharp/types.go` (NAMESPACE), `analysers/csharp/output.go` (CALL emission), `pkg/watchdog/parser/csharp.go` (CALL parsing, NAMESPACE type), `pkg/watchdog/diff/engine.go` (3-field RelationKey), `pkg/watchdog/pipeline/run.go` (keyword-aware dedup), `cmd/coderag/main.go` (scan --clean), `pkg/watchdog/crud/client.go` (ClearAll), `LightRAG/lightrag/utils_graph.py` (keyword merge), MCP server/client/models (`depth`/`max_depth` params, `visibility_counts`).
 
+### New MCP Tools — To Be Implemented
+
+**Goal:** Add 4 proposed tools to make MCP genuinely useful for codebase exploration and implementation planning.
+
+| # | Proposed Tool | Purpose | Priority |
+|---|--------------|---------|----------|
+| 1 | `get_relation_detail(entity, relation_type)` | Show all relations of a specific type for an entity | High |
+| 2 | `get_method_signature(entity_name)` | Show method signature (parameters, return type) | High |
+| 3 | `find_related_files(entity_or_file)` | Find all files referencing/related to an entity | High |
+| 4 | `get_interface_methods(interface_name)` | Show interface methods + implementing classes | High |
+
+These tools address gaps identified during the Calculator implementation planning session:
+- Without `get_relation_detail`, finding callers of a method requires dumping all graph edges and filtering manually
+- Without `get_interface_methods`, tracing interface implementations is opaque
+- Without `find_related_files`, impact analysis (what breaks when Calculator changes?) is impossible
+
+---
+
+### Phase 31 — WebUI Integration
+
+### Phase 32 — New MCP Tools Implementation (PLANNED)
+
+All 4 tools implemented and verified against test-csharp-project.
+
 ### Phase 29 — Git Commit Watcher
 - Extend git watcher to detect new commits (not just uncommitted changes)
 - Support `git pull` → re-scan changed files

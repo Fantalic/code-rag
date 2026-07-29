@@ -63,8 +63,15 @@ Fix `coderag start` to use git-based incremental approach: detect only changed/d
 ### Tests (all pass)
 - Parser test updated for CALL relations now having `FilePath` (from caller file)
 
-### Tests (12 test cases, all pass)
-- **Parser (6 tests):** `TestParseCSharpFile` (SourceID/FilePath/fields), `TestParseCSharpFileEmpty`, `TestParseRelationLineEdgeCases` (5 subtests: missing/invalid/empty/CALL), `TestParseCSharpOutputDedup` (entity dedup), `TestParseCSharpOutputDedupRelations` (relation dedup)
-- **Pipeline (3 tests):** `TestParserRelationsToMap` (source_id/file_path output + backward compat), `TestLoadCurrentRelationsParsing` (edge JSON parsing, skip-empty, keyword extraction), `TestRunCSharpAnalyser` (integration: real analyser on test-csharp-project → 42 entities, 40 relations, all 38 non-CALL relations have SourceID/FilePath ✅)
-- **Cascade (1 test, 5 subtests):** `TestFindAffectedFilesFromData` — cascade detection, no-cascade, wrong-source_id fallback, exclude-path, additive paths
-- **Vector DB integration (1 test):** `tests/test_integration_cascade.py` — creates 3 entities + 2 relations, verifies `/graph/entity/exists`, deletes one entity via `DELETE /documents/delete_entity`, verifies entity removed and others remain, runs query — passes against live Docker LightRAG at `localhost:9621`
+### Next: Implement 4 New MCP Tools
+
+**Phase 32 — New MCP Tools**
+
+| # | Proposed Tool | Purpose | Priority |
+|---|--------------|---------|----------|
+| 1 | `get_relation_detail(entity, relation_type)` | Show all relations of a specific type for an entity | High |
+| 2 | `get_method_signature(entity_name)` | Show method signature (parameters, return type) | High |
+| 3 | `find_related_files(entity_or_file)` | Find all files referencing/related to an entity | High |
+| 4 | `get_interface_methods(interface_name)` | Show interface methods + implementing classes | High |
+
+These address gaps identified during the Calculator implementation planning session. Each tool should be implemented in both the Python MCP server (`daniel-lightrag-mcp/`) and the Go MCP server, with tests and docs.
