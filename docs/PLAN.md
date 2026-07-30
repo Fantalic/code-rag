@@ -441,38 +441,48 @@ All 6 bugs identified and fixed:
 - Sub-agent connectivity guide ✅
 - Line length compliance ✅
 
-### Phase 34 — Test on Larger Project (dotnet-console-games, 348 files) 🔧 PLANNED
+### Phase 34 — Test on Larger Project (dotnet-console-games, 348 files) ✅ COMPLETE
 
-**Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase.
+**Goal:** Validate coderag MCP tools on a larger, more diverse C# codebase (452 entities, 587 relations).
+See `docs/TASK.md` Phase 34 section for details.
 
-**Project:** `E:\_dev\_Projects\dotnet-console-games`
-- 348 files, 50+ game projects
-- Pre-scanned: `.lightrag/` has 348 indexed files
-- Solution: `dotnet-console-games.sln`
+### Phase 35 — Batch Import Performance Fix ✅ COMPLETE
 
-**Sub-agent prompt:** `docs/subagent-prompts/dotnet-console-games-explorer.md`
+**Goal:** Replace per-entity/per-relation HTTP calls with a single atomic batch import for 1000+ item scans.
 
-**Expected challenges:**
-1. Larger graph → performance testing of MCP tools
-2. Mixed namespaces (Website.Games.*, Projects.*)
-3. File paths with spaces (Console Monsters, Rock Paper Scissors)
-4. Many inter-project relationships → relation traversal
+**Achievement:** 1701 entities + 1875 relations imported in **59.25s** (~30x speedup over per-entity API).
 
-**Steps:**
-1. Run `coderag scan dotnet-console-games` to populate graph
-2. Dispatch sub-agent with prompt from `docs/subagent-prompts/`
-3. Verify all MCP tools work at scale
-4. Record findings and any new bugs
+| Change | Where | Status |
+|--------|-------|--------|
+| `abatch_import()` with single lock, batch VDB upsert (`asyncio.gather`), single save, timing logs | `utils_graph.py` | ✅ Done |
+| `POST /graph/batch-import` endpoint + `BatchImportRequest` models | `graph_routes.py` | ✅ Done |
+| Go `BatchImportPayload` + `BatchImport()` client method | `crud/client.go` | ✅ Done |
+| `applyCSharpResults` uses `BatchImport` (file watcher path) | `pipeline/run.go` | ✅ Done |
+| `applyScanResults` uses `BatchImport` (scan path) | `main.go` | ✅ Done |
+| `createdEntities` counter fix (never incremented on `ActionCreate`) | `pipeline/run.go` | ✅ Done |
 
-### Phase 35 — MCP Tool Enhancements (FUTURE)
+### Phase 36 — Deploy-Ready CLI 🔧 NEXT
 
-| Enhancement | Description |
-|-------------|-------------|
-| Batch entity lookup | Fetch multiple entities in one call |
-| File path pattern search | Find entities matching a file path pattern |
-| Relation type filtering | Filter edges by relationship type |
-| Snippet retrieval | Return code snippets for matched files |
-| Auto-initialization | Run analyser on MCP startup |
+**Goal:** Make `coderag` a polished, production-grade CLI for Linux and Windows. One-command install, clean UX with progress bars, minimized noise, cross-platform readiness.
+
+**Sub-phases:**
+
+| # | Sub-phase | What | Priority |
+|---|-----------|------|----------|
+| **36.1** | **CLI Polish & UX** | Signal handling (`signal.Notify`), `--version`, `--quiet`/`--verbose` flags, spinner for Docker waits, progress bar for scans, clean `status` output table | High |
+| **36.2** | **Installation & Distribution** | `coderag init` to scaffold projects, one-command `curl ... install.sh \| sh`, GitHub Actions release CI for linux/windows/darwin, bundled `csharp_analyser` via `embed` | High |
+| **36.3** | **Logging Overhaul** | Replace `log.Printf` with `slog` (Go 1.21+ stdlib), quiet/normal/verbose levels, noise reduction in normal operation, consistent error format | Medium |
+| **36.4** | **Cross-Platform Readiness** | `openBrowser` for Linux (`xdg-open`) / macOS (`open`), Windows `cmd /c start`, shell completions (`coderag completion bash/zsh/fish/pwsh`) | Medium |
+| **36.5** | **Configuration** | `coderag config show/set/init`, XDG config support on Linux (`~/.config/coderag/config.env`), `.env` management in `.coderag/` | Medium |
+| **36.6** | **General Polish** | Colorized terminal output, summary line at end of scan/start/stop, `coderag upgrade` for self-update | Low |
+
+**Dependencies to add:**
+- `github.com/schollz/progressbar/v3` — progress bars for long operations
+- `github.com/briandowns/spinner` — indeterminate spinners for polling waits
+- `github.com/fatih/color` — terminal colors (or direct ANSI)
+- `golang.org/x/term` — terminal size detection
+- Embedded analyser binary (Go 1.25 stdlib `embed`)
+- Shell completion scripts (`urfave/cli/v2` built-in support)
 
 ---
 

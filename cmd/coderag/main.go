@@ -10,11 +10,15 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/urfave/cli/v2"
 	"github.com/coderag/pkg/watchdog/crud"
 	"github.com/coderag/pkg/watchdog/diff"
@@ -24,10 +28,24 @@ import (
 	"github.com/coderag/pkg/watchdog/watcher"
 )
 
+var Version = "dev"
+var quietMode = false
+
 func main() {
 	app := &cli.App{
-		Name:  "coderag",
-		Usage: "codeRAG — knowledge graph for codebases",
+		Name:    "coderag",
+		Usage:   "codeRAG — knowledge graph for codebases",
+		Version: Version,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "quiet",
+				Usage: "Suppress informational output, show only errors and results",
+			},
+		},
+		Before: func(c *cli.Context) error {
+			quietMode = c.Bool("quiet")
+			return nil
+		},
 		Commands: []*cli.Command{
 			{
 				Name:   "start",
@@ -125,19 +143,30 @@ func ensureMCP(ctx context.Context, workspace string) error {
 		resp.Body.Close()
 	}
 
-	log.Print("MCP not reachable at :9622, ensuring Docker services are up...")
+	if !quietMode {
+		log.Print("MCP not reachable at :9622, ensuring Docker services are up...")
+	}
 	if err := ensureLightRAG(ctx, workspace); err != nil {
 		return err
 	}
 
-	log.Print("Waiting for MCP SSE to become healthy...")
-	ticker := time.NewTicker(2 * time.Second)
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Suffix = " Waiting for MCP SSE to become healthy..."
+	s.Writer = os.Stderr
+	if !quietMode {
+		s.Start()
+	}
+
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	timeout := time.After(60 * time.Second)
 
 	for {
 		select {
 		case <-timeout:
+			if !quietMode {
+				s.Stop()
+			}
 			return fmt.Errorf("timeout waiting for MCP at http://localhost:9622/health")
 		case <-ticker.C:
 			req, _ := http.NewRequestWithContext(ctx, "GET", "http://localhost:9622/health", nil)
@@ -145,7 +174,10 @@ func ensureMCP(ctx context.Context, workspace string) error {
 			if err == nil {
 				resp.Body.Close()
 				if resp.StatusCode < 400 {
-					log.Print("MCP SSE is healthy")
+					if !quietMode {
+						s.Stop()
+						log.Print("MCP SSE is healthy")
+					}
 					return nil
 				}
 			}
@@ -167,10 +199,14 @@ func ensureLightRAG(ctx context.Context, workspace string) error {
 			if json.NewDecoder(resp.Body).Decode(&health) == nil {
 				resp.Body.Close()
 				if workspace == "" || health.Configuration.Workspace == workspace {
-					log.Printf("LightRAG is healthy (workspace: '%s')", health.Configuration.Workspace)
+					if !quietMode {
+						log.Printf("LightRAG is healthy (workspace: '%s')", health.Configuration.Workspace)
+					}
 					return nil
 				}
-				log.Printf("Workspace mismatch: container has '%s', need '%s'", health.Configuration.Workspace, workspace)
+				if !quietMode {
+					log.Printf("Workspace mismatch: container has '%s', need '%s'", health.Configuration.Workspace, workspace)
+				}
 			} else {
 				resp.Body.Close()
 			}
@@ -180,33 +216,45 @@ func ensureLightRAG(ctx context.Context, workspace string) error {
 	}
 
 	// Need to restart with the correct workspace
-	log.Printf("Starting Docker services with workspace '%s'...", workspace)
-
 	composeFile := findComposeFile()
 
-	// Stop existing containers first
+	if !quietMode {
+		log.Printf("Starting Docker services with workspace '%s'...", workspace)
+	}
+
+	// Stop existing containers first (silently)
 	downCmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
-	downCmd.Stdout = os.Stdout
-	downCmd.Stderr = os.Stderr
+	downCmd.Stdout = nil
+	downCmd.Stderr = nil
 	_ = downCmd.Run()
 
-	// Start with the correct workspace
+	// Start with the correct workspace (silently)
 	upCmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "up", "-d")
-	upCmd.Stdout = os.Stdout
-	upCmd.Stderr = os.Stderr
+	upCmd.Stdout = nil
+	upCmd.Stderr = nil
 	upCmd.Env = append(os.Environ(), "WORKSPACE="+workspace)
 	if err := upCmd.Run(); err != nil {
 		return fmt.Errorf("docker compose failed: %w", err)
 	}
 
-	log.Print("Waiting for LightRAG to become healthy...")
-	ticker := time.NewTicker(2 * time.Second)
+	// Spinner while waiting for health
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Suffix = " Waiting for LightRAG to become healthy..."
+	s.Writer = os.Stderr
+	if !quietMode {
+		s.Start()
+	}
+
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	timeout := time.After(120 * time.Second)
 
 	for {
 		select {
 		case <-timeout:
+			if !quietMode {
+				s.Stop()
+			}
 			return fmt.Errorf("timeout waiting for LightRAG at http://localhost:9621/health")
 		case <-ticker.C:
 			req, _ := http.NewRequestWithContext(ctx, "GET", "http://localhost:9621/health", nil)
@@ -214,7 +262,10 @@ func ensureLightRAG(ctx context.Context, workspace string) error {
 			if err == nil {
 				resp.Body.Close()
 				if resp.StatusCode < 400 {
-					log.Print("LightRAG is healthy")
+					if !quietMode {
+						s.Stop()
+						log.Print("LightRAG is healthy")
+					}
 					// Save Docker logs after successful start
 					coderagDir := filepath.Join(filepath.Dir(composeFile), ".coderag")
 					_ = captureDockerLogs(filepath.Join(coderagDir, "docker-logs"))
@@ -272,7 +323,9 @@ func startCmd(c *cli.Context) error {
 	}
 
 	client := crud.NewConfig()
-	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
+	if !quietMode {
+		log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
+	}
 	if err := client.SetWorkspace(ws); err != nil {
 		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
 	}
@@ -293,11 +346,17 @@ func startCmd(c *cli.Context) error {
 		return fmt.Errorf("start watcher: %w", err)
 	}
 
-	log.Printf("Watching %s (press Ctrl+C to stop)", inputDir)
-	log.Printf("WebUI: http://localhost:9621")
+	if !quietMode {
+		log.Printf("Watching %s (press Ctrl+C to stop)", inputDir)
+		log.Printf("WebUI: http://localhost:9621")
+	}
 
 	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
+	if !quietMode {
+		log.Print("Shutting down...")
+	}
 
 	w.Stop()
 	return nil
@@ -318,11 +377,15 @@ func webuiCmd(c *cli.Context) error {
 }
 
 func openBrowser(url string) error {
-	switch {
-	case len(os.Getenv("WSL_DISTRO_NAME")) > 0:
-		return exec.Command("wslview", url).Start()
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("cmd", "/c", "start", url).Start()
 	default:
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
 }
 
@@ -363,10 +426,16 @@ func watchCmd(c *cli.Context) error {
 		return fmt.Errorf("start watcher: %w", err)
 	}
 
-	log.Printf("Watching %s (press Ctrl+C to stop)", inputDir)
+	if !quietMode {
+		log.Printf("Watching %s (press Ctrl+C to stop)", inputDir)
+	}
 
 	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
+	if !quietMode {
+		log.Print("Shutting down...")
+	}
 
 	w.Stop()
 	return nil
@@ -374,40 +443,62 @@ func watchCmd(c *cli.Context) error {
 
 func statusCmd(c *cli.Context) error {
 	client := crud.NewConfig()
+	lightragStatus := "not running"
+	workspace := "-"
 
 	req, err := http.NewRequest("GET", client.BaseURL+"/health", nil)
-	if err != nil {
-		return err
-	}
-	for k, v := range client.Headers() {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Printf("LightRAG: not reachable at %s", client.BaseURL)
-	} else {
-		defer resp.Body.Close()
-		if resp.StatusCode < 400 {
-			log.Printf("LightRAG: healthy")
-		} else {
-			log.Printf("LightRAG: HTTP %d", resp.StatusCode)
+	if err == nil {
+		for k, v := range client.Headers() {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode < 400 {
+				var health struct {
+					Configuration struct {
+						Workspace string `json:"workspace"`
+					} `json:"configuration"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&health) == nil {
+					workspace = health.Configuration.Workspace
+				}
+				lightragStatus = "running"
+			} else {
+				lightragStatus = fmt.Sprintf("error (HTTP %d)", resp.StatusCode)
+			}
 		}
 	}
 
-	log.Printf("coderag: running (pid %d)", os.Getpid())
+	mcpStatus := "not running"
+	mcpResp, err := http.Get("http://localhost:9622/health")
+	if err == nil {
+		mcpResp.Body.Close()
+		if mcpResp.StatusCode < 400 {
+			mcpStatus = "running"
+		}
+	}
+
+	fmt.Printf("\n  codeRAG v%s\n\n", Version)
+	fmt.Printf("  %-20s %s\n", "LightRAG API:", lightragStatus)
+	fmt.Printf("  %-20s %s\n", "MCP SSE:", mcpStatus)
+	fmt.Printf("  %-20s %s\n", "Workspace:", workspace)
+	fmt.Printf("  %-20s http://localhost:9621\n", "WebUI:")
+
 	return nil
 }
 
 func stopCmd(c *cli.Context) error {
 	composeFile := findComposeFile()
 	cmd := exec.Command("docker", "compose", "-f", composeFile, "down")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker compose down failed: %w", err)
 	}
-	log.Print("All services stopped")
+	if !quietMode {
+		log.Print("All services stopped")
+	}
 	return nil
 }
 
