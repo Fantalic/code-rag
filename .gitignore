@@ -118,6 +118,8 @@ download_models_hf.py
 lightrag-dev/
 gui/
 
+_dev_docs/
+.opencode/
 
 *.exe
 mcp_err.txt

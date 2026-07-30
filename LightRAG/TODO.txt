@@ -1,1 +1,0 @@
-implement data storage for each used folder. 
