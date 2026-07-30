@@ -649,19 +649,6 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 		}
 	}
 
-	if len(entityBatch) > 0 {
-		result, err := client.BatchCreateEntities(entityBatch)
-		if err == nil {
-			if data, ok := result["data"].(map[string]any); ok {
-				if c, ok := data["created"].(float64); ok {
-					createdEntities = int(c)
-				}
-			}
-		} else {
-			log.Printf("ERROR batch creating entities: %v", err)
-		}
-	}
-
 	log.Printf("Entities: created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
 
 	oldRelMap := loadCurrentRelationsScan(client)
@@ -679,7 +666,7 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			if _, err := client.DeleteRelation(action.Source, action.Target); err == nil {
 				deletedRels++
 			} else {
-				log.Printf("ERROR deleting relation %q → %q: %v", action.Source, action.Target, err)
+				log.Printf("ERROR deleting relation %q -> %q: %v", action.Source, action.Target, err)
 			}
 		case diff.ActionCreate:
 			data := filter.FilterRelationData(action.Data)
@@ -699,21 +686,24 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			if _, err := client.UpdateRelation(action.Source, action.Target, data); err == nil {
 				createdRels++
 			} else {
-				log.Printf("ERROR updating relation %q → %q: %v", action.Source, action.Target, err)
+				log.Printf("ERROR updating relation %q -> %q: %v", action.Source, action.Target, err)
 			}
 		}
 	}
 
-	if len(relBatch) > 0 {
-		result, err := client.BatchCreateRelations(relBatch)
+	if len(entityBatch) > 0 || len(relBatch) > 0 {
+		result, err := client.BatchImport(entityBatch, relBatch)
 		if err == nil {
 			if data, ok := result["data"].(map[string]any); ok {
-				if c, ok := data["created"].(float64); ok {
-					createdRels = int(c)
+				if c, ok := data["entities_created"].(float64); ok {
+					createdEntities += int(c)
+				}
+				if c, ok := data["relations_created"].(float64); ok {
+					createdRels += int(c)
 				}
 			}
 		} else {
-			log.Printf("ERROR batch creating relations: %v", err)
+			log.Printf("ERROR batch import: %v", err)
 		}
 	}
 

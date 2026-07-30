@@ -1138,3 +1138,101 @@ async def get_relation_info(
         result["vector_data"] = vector_data
 
     return result
+
+
+async def abatch_import(
+    chunk_entity_relation_graph,
+    entities_vdb,
+    relationships_vdb,
+    entities: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Batch import entities and relations with a single lock + batch VDB upserts.
+
+    Acquires the graph DB lock once, processes all entities and relations,
+    then does ONE VDB upsert per store (which internally batch-embeds via
+    asyncio.gather). Saves once at the end.
+
+    Args:
+        chunk_entity_relation_graph: Graph storage instance
+        entities_vdb: Vector database for entities
+        relationships_vdb: Vector database for relations
+        entities: List of dicts with keys 'entity_name' and 'entity_data'
+        relations: List of dicts with keys 'source_entity', 'target_entity', 'relation_data'
+
+    Returns:
+        dict with 'entities_created' and 'relations_created' counts
+    """
+    t0 = time.time()
+    logger.info(
+        f"BATCH IMPORT START: {len(entities)} entities, {len(relations)} relations"
+    )
+    graph_db_lock = get_graph_db_lock(enable_logging=False)
+    async with graph_db_lock:
+        entity_vdb_data = {}
+        for item in entities:
+            name = item["entity_name"]
+            data = item["entity_data"]
+            node_data = {
+                "entity_id": name,
+                "entity_type": data.get("entity_type", "UNKNOWN"),
+                "description": data.get("description", ""),
+                "source_id": data.get("source_id", "manual_creation"),
+                "file_path": data.get("file_path", "manual_creation"),
+                "created_at": int(time.time()),
+            }
+            await chunk_entity_relation_graph.upsert_node(name, node_data)
+            entity_id = compute_mdhash_id(name, prefix="ent-")
+            entity_vdb_data[entity_id] = {
+                "content": name + "\n" + data.get("description", ""),
+                "entity_name": name,
+                "source_id": node_data["source_id"],
+                "description": data.get("description", ""),
+                "entity_type": node_data["entity_type"],
+                "file_path": node_data["file_path"],
+            }
+
+        relation_vdb_data = {}
+        for item in relations:
+            src = item["source_entity"]
+            tgt = item["target_entity"]
+            data = item["relation_data"]
+            edge_data = {
+                "description": data.get("description", ""),
+                "keywords": data.get("keywords", ""),
+                "source_id": data.get("source_id", "manual_creation"),
+                "weight": float(data.get("weight", 1.0)),
+            }
+            await chunk_entity_relation_graph.upsert_edge(src, tgt, edge_data)
+            content = f"{src}\t{tgt}\n{edge_data['keywords']}\n{edge_data['description']}"
+            relation_id = compute_mdhash_id(src + tgt, prefix="rel-")
+            relation_vdb_data[relation_id] = {
+                "content": content,
+                "src_id": src,
+                "tgt_id": tgt,
+                "source_id": edge_data["source_id"],
+                "description": edge_data["description"],
+                "keywords": edge_data["keywords"],
+                "weight": edge_data["weight"],
+            }
+
+        tasks = []
+        if entity_vdb_data:
+            tasks.append(entities_vdb.upsert(entity_vdb_data))
+        if relation_vdb_data:
+            tasks.append(relationships_vdb.upsert(relation_vdb_data))
+        if tasks:
+            await asyncio.gather(*tasks)
+
+        await _edit_entity_done(
+            entities_vdb, relationships_vdb, chunk_entity_relation_graph
+        )
+
+    elapsed = time.time() - t0
+    logger.info(
+        f"BATCH IMPORT DONE: {len(entities)} entities, {len(relations)} relations in {elapsed:.2f}s"
+    )
+    return {
+        "entities_created": len(entities),
+        "relations_created": len(relations),
+    }

@@ -3576,11 +3576,6 @@ class LightRAG:
         )
 
     async def aclear_graph(self) -> dict[str, str]:
-        """Clear all graph data (entities, relations, vector indexes).
-
-        Drops all data from graph storage, entity VDB, and relationship VDB.
-        The storages will be re-initialized empty on next access.
-        """
         results = await asyncio.gather(
             self.chunk_entity_relation_graph.drop(),
             self.entities_vdb.drop(),
@@ -3591,6 +3586,30 @@ class LightRAG:
             "entities_vdb": results[1],
             "relationships_vdb": results[2],
         }
+
+    async def abatch_import(
+        self,
+        entities: list[dict[str, Any]],
+        relations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Batch import entities and relations with single lock + batch VDB upsert.
+
+        Args:
+            entities: list of {"entity_name": str, "entity_data": dict}
+            relations: list of {"source_entity": str, "target_entity": str, "relation_data": dict}
+
+        Returns:
+            {"entities_created": int, "relations_created": int}
+        """
+        from lightrag.utils_graph import abatch_import as _abatch_import
+
+        return await _abatch_import(
+            self.chunk_entity_relation_graph,
+            self.entities_vdb,
+            self.relationships_vdb,
+            entities,
+            relations,
+        )
 
     def create_relation(
         self, source_entity: str, target_entity: str, relation_data: dict[str, Any]

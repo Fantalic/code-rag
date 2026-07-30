@@ -130,6 +130,26 @@ class BatchRelationCreateRequest(BaseModel):
     )
 
 
+class BatchImportEntityItem(BaseModel):
+    entity_name: str = Field(..., min_length=1)
+    entity_data: dict[str, Any] = Field(...)
+
+
+class BatchImportRelationItem(BaseModel):
+    source_entity: str = Field(..., min_length=1)
+    target_entity: str = Field(..., min_length=1)
+    relation_data: dict[str, Any] = Field(...)
+
+
+class BatchImportRequest(BaseModel):
+    entities: list[BatchImportEntityItem] = Field(
+        default_factory=list, description="List of entities to create"
+    )
+    relations: list[BatchImportRelationItem] = Field(
+        default_factory=list, description="List of relations to create"
+    )
+
+
 def create_graph_routes(rag, api_key: Optional[str] = None):
     combined_auth = get_combined_auth_dependency(api_key)
 
@@ -576,6 +596,40 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
                 "errors": errors,
             },
         }
+
+    @router.post("/graph/batch-import", dependencies=[Depends(combined_auth)])
+    async def batch_import(request: BatchImportRequest):
+        """
+        Batch import entities and relations with maximum performance.
+
+        Uses a single graph DB lock and batch VDB upserts (which internally
+        parallelize embedding computation via asyncio.gather). Saves once
+        at the end. Significantly faster than separate batch endpoints for
+        large imports (1000+ items).
+
+        Request Body:
+            entities (list, optional): List of {entity_name, entity_data}
+            relations (list, optional): List of {source_entity, target_entity, relation_data}
+
+        Returns:
+            {"status": "success", "entities_created": int, "relations_created": int}
+        """
+        try:
+            result = await rag.abatch_import(
+                [e.model_dump() for e in request.entities],
+                [r.model_dump() for r in request.relations],
+            )
+            return {
+                "status": "success",
+                "message": f"Batch imported {result['entities_created']} entities and {result['relations_created']} relations",
+                "data": result,
+            }
+        except Exception as e:
+            logger.error(f"Error in batch import: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"Error in batch import: {str(e)}"
+            )
 
     @router.post("/graph/entities/merge", dependencies=[Depends(combined_auth)])
     async def merge_entities(request: EntityMergeRequest):

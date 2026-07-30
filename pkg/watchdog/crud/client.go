@@ -234,6 +234,16 @@ func (c *Config) BatchCreateRelations(relations []BatchRelationItem) (map[string
 	return c.do(http.MethodPost, "/graph/relations/batch-create", payload)
 }
 
+type BatchImportPayload struct {
+	Entities  []BatchEntityItem   `json:"entities"`
+	Relations []BatchRelationItem `json:"relations"`
+}
+
+func (c *Config) BatchImport(entities []BatchEntityItem, relations []BatchRelationItem) (map[string]any, error) {
+	payload := BatchImportPayload{Entities: entities, Relations: relations}
+	return c.do(http.MethodPost, "/graph/batch-import", payload)
+}
+
 func (c *Config) UpdateRelation(source, target string, updatedData map[string]any) (map[string]any, error) {
 	payload := UpdateRelationPayload{
 		SourceID:    source,
