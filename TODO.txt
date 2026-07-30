@@ -7,5 +7,3 @@
   - for opencode: maybe it is possible to directly manipulate the existing read tool.
 
 - expanded security 
-
-- rename executable watchtdog  to lightrag
