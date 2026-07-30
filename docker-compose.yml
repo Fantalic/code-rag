@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: lightrag-mcp
+    container_name: coderag-mcp
     ports:
       - "9622:9622"
     depends_on:
@@ -35,7 +35,7 @@ services:
       - LIGHTRAG_URL=http://lightrag:9621
       - MCP_HOST=0.0.0.0
       - MCP_PORT=9622
-    command: ["python", "-m", "daniel_lightrag_mcp.sse_server"]
+    command: ["python", "-m", "coderag_mcp.sse_server"]
     restart: unless-stopped
 
 volumes:
