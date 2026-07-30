@@ -356,7 +356,7 @@ class _OllamaOptionsMixin:
 
     # Core context and generation parameters
     num_ctx: int = 32768  # Context window size (number of tokens)
-    num_predict: int = 128  # Maximum number of tokens to predict
+    num_predict: int = 2048  # Maximum number of tokens to predict (increased for query responses)
     num_keep: int = 0  # Number of tokens to keep from the initial prompt
     seed: int = -1  # Random seed for generation (-1 for random)
 

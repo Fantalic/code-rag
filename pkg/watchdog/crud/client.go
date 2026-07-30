@@ -391,8 +391,8 @@ func (c *Config) DeleteDocument(fileSource string) error {
 }
 
 func (c *Config) Query(text string) (map[string]any, error) {
-	payload := map[string]any{"text": text}
-	return c.do(http.MethodPost, "/query/text", payload)
+	payload := map[string]any{"query": text}
+	return c.do(http.MethodPost, "/query", payload)
 }
 
 func (c *Config) GetEntitiesByFilePath(filePath string) ([]string, error) {

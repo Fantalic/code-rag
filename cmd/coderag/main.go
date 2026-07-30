@@ -51,7 +51,7 @@ func main() {
 				Name:   "start",
 				Usage:  "Start Docker services + file watcher",
 				Action: startCmd,
-				Args:   true,
+				Args:   false,
 			},
 			{
 				Name:   "mcp",

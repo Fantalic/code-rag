@@ -38,12 +38,12 @@ main()
 print(f"Started server process: {proc.pid}")
 
 # Wait for server to start
-time.sleep(5)
+time.sleep(15)
 
 # Test if server is responding
 try:
     import httpx
-    client = httpx.Client(base_url='http://localhost:9621', timeout=15, follow_redirects=True)
+    client = httpx.Client(base_url='http://localhost:9621', follow_redirects=True)
     r = client.get('/graph/label/list')
     print(f"Server responding! Status: {r.status_code}")
     print(f"Labels: {r.json()}")

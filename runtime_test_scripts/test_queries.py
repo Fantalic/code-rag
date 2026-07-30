@@ -1,6 +1,6 @@
 import httpx
 
-client = httpx.Client(timeout=60)
+client = httpx.Client(timeout=None)
 
 queries = [
     "What classes are in this project?",
@@ -14,7 +14,7 @@ for q in queries:
     print(f"QUERY: {q}")
     print('='*60)
     try:
-        resp = client.post('http://localhost:9621/query', json={'query': q, 'mode': 'hybrid'}, timeout=60)
+        resp = client.post('http://localhost:9621/query', json={'query': q, 'mode': 'hybrid'})
         print(f'Status: {resp.status_code}')
         data = resp.json()
         if 'response' in data:

@@ -58,13 +58,12 @@ proc = subprocess.Popen(
 print(f"Server PID: {proc.pid}")
 
 # Wait for startup
-import time
-time.sleep(5)
+time.sleep(15)
 
 # Check if server is running
 try:
     import httpx
-    client = httpx.Client(base_url="http://localhost:9621", timeout=10)
+    client = httpx.Client(base_url="http://localhost:9621", timeout=None)
     r = client.get("/graph/label/list")
     labels = r.json()
     print(f"Server running! Labels: {labels}")

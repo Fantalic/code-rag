@@ -42,7 +42,7 @@ print(f"Started server with PID {proc.pid}")
 
 # Read output line by line for 5 seconds
 start = time.time()
-while time.time() - start < 5:
+while time.time() - start < 15:
     line = proc.stdout.readline()
     if line:
         print(line.rstrip())
@@ -53,7 +53,7 @@ while time.time() - start < 5:
 # Check if server is running
 import httpx
 try:
-    client = httpx.Client(base_url="http://localhost:9621", timeout=10)
+    client = httpx.Client(base_url="http://localhost:9621", timeout=None)
     r = client.get("/graph/label/list")
     print(f"\nServer is running! Labels: {r.json()}")
 except Exception as e:

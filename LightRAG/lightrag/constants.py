@@ -107,6 +107,15 @@ DEFAULT_TIMEOUT = 300
 DEFAULT_LLM_TIMEOUT = 180
 DEFAULT_EMBEDDING_TIMEOUT = 30
 
+# Default query timeout (used when no explicit timeout is passed to query endpoints)
+DEFAULT_QUERY_TIMEOUT = 180
+
+# Default maximum timeout for query endpoints (hard cap)
+DEFAULT_QUERY_TIMEOUT_MAX = 600
+
+# Dev logging configuration
+DEFAULT_DEV_LOGS = False
+
 # Logging configuration defaults
 DEFAULT_LOG_MAX_BYTES = 10485760  # Default 10MB
 DEFAULT_LOG_BACKUP_COUNT = 5  # Default 5 backups

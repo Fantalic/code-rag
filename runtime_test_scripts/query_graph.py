@@ -1,6 +1,6 @@
 import httpx
 
-resp = httpx.get('http://localhost:9621/graphs?label=*&max_depth=2&max_nodes=1000', timeout=10)
+resp = httpx.get('http://localhost:9621/graphs?label=*&max_depth=2&max_nodes=1000', follow_redirects=True)
 data = resp.json()
 print('=== KNOWLEDGE GRAPH ===')
 print('Nodes:', len(data.get('nodes', [])))

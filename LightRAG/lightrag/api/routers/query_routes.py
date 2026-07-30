@@ -2,18 +2,43 @@
 This module contains all query-related routes for the LightRAG API.
 """
 
+import asyncio
 import json
 import logging
+import os
+import time
+import uuid
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from lightrag.base import QueryParam
 from lightrag.api.utils_api import get_combined_auth_dependency
+from lightrag.constants import DEFAULT_LLM_TIMEOUT, DEFAULT_QUERY_TIMEOUT_MAX
 from pydantic import BaseModel, Field, field_validator
 
 from ascii_colors import trace_exception
 
 router = APIRouter(tags=["query"])
+
+logger = logging.getLogger(__name__)
+
+
+def _get_timeout(request_timeout: Optional[int]) -> int:
+    if request_timeout is not None and request_timeout > 0:
+        return min(request_timeout, DEFAULT_QUERY_TIMEOUT_MAX)
+    return int(os.getenv("LLM_TIMEOUT", str(DEFAULT_LLM_TIMEOUT)))
+
+
+def _log_request(request_id: str, request: Any, stage: str):
+    logger.info(
+        f"[{request_id}] {stage}: mode={request.mode}, "
+        f"query_len={len(request.query)}, "
+        f"top_k={request.top_k}, "
+        f"chunk_top_k={request.chunk_top_k}, "
+        f"response_type={request.response_type}, "
+        f"stream={request.stream}, "
+        f"dev_logs={request.dev_logs}"
+    )
 
 
 class QueryRequest(BaseModel):
@@ -98,6 +123,18 @@ class QueryRequest(BaseModel):
         description="If True, enables streaming output for real-time responses. Only affects /query/stream endpoint.",
     )
 
+    dev_logs: Optional[bool] = Field(
+        default=False,
+        description="If True, enables detailed development logging including full prompt content, retrieval stats, and token counts.",
+    )
+
+    timeout: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=600,
+        description="Query timeout in seconds. Defaults to LLM_TIMEOUT env var (default 180s). Maximum is 600s.",
+    )
+
     @field_validator("query", mode="after")
     @classmethod
     def query_strip_after(cls, query: str) -> str:
@@ -120,7 +157,7 @@ class QueryRequest(BaseModel):
     def to_query_params(self, is_stream: bool) -> "QueryParam":
         """Converts a QueryRequest instance into a QueryParam instance."""
         # Use Pydantic's `.model_dump(exclude_none=True)` to remove None values automatically
-        request_data = self.model_dump(exclude_none=True, exclude={"query"})
+        request_data = self.model_dump(exclude_none=True, exclude={"query", "dev_logs", "timeout"})
 
         # Ensure `mode` and `stream` are set explicitly
         param = QueryParam(**request_data)
@@ -337,14 +374,44 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                 - 500: Internal processing error (e.g., LLM service unavailable)
         """
         try:
+            request_id = str(uuid.uuid4())[:8]
+            effective_timeout = _get_timeout(request.timeout)
+
+            if request.dev_logs:
+                _log_request(request_id, request, "QUERY_START")
+                start_time = time.monotonic()
+
             param = request.to_query_params(
                 False
             )  # Ensure stream=False for non-streaming endpoint
             # Force stream=False for /query endpoint regardless of include_references setting
             param.stream = False
 
-            # Unified approach: always use aquery_llm for both cases
-            result = await rag.aquery_llm(request.query, param=param)
+            # Apply timeout to the LLM call
+            try:
+                result = await asyncio.wait_for(
+                    rag.aquery_llm(request.query, param=param),
+                    timeout=effective_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[{request_id}] Query timed out after {effective_timeout}s "
+                    f"(mode={request.mode}, query_len={len(request.query)})"
+                )
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Query timed out after {effective_timeout} seconds. "
+                    f"Try a shorter query, increase timeout, or use a different mode.",
+                )
+
+            if request.dev_logs:
+                retrieval_time = time.monotonic() - start_time
+                llm_response = result.get("llm_response", {})
+                response_content = llm_response.get("content", "")
+                logger.info(
+                    f"[{request_id}] RETRIEVAL_COMPLETE: {retrieval_time:.2f}s"
+                )
+                logger.info(f"[{request_id}] LLM_RESPONSE: {len(response_content)} chars")
 
             # Extract LLM response and references from unified result
             llm_response = result.get("llm_response", {})
@@ -354,6 +421,19 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
             response_content = llm_response.get("content", "")
             if not response_content:
                 response_content = "No relevant context found for the query."
+
+            if request.dev_logs and param.only_need_context:
+                data_section = result.get("data", {})
+                logger.debug(
+                    f"[{request_id}] DATA_SECTION: {json.dumps(data_section, indent=2)[:2000]}"
+                )
+
+            # Log full prompt in dev mode
+            if request.dev_logs:
+                if hasattr(param, "user_prompt") and param.user_prompt:
+                    logger.debug(f"[{request_id}] USER_PROMPT_OVERRIDE: {param.user_prompt}")
+                logger.debug(f"[{request_id}] RESPONSE_TYPE: {param.response_type}")
+                logger.debug(f"[{request_id}] TOTAL_TIME: {time.monotonic() - start_time:.2f}s")
 
             # Return response with or without references based on request
             if request.include_references:
@@ -556,19 +636,59 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
             Use streaming mode for real-time interfaces and non-streaming for batch processing.
         """
         try:
-            # Use the stream parameter from the request, defaulting to True if not specified
+            request_id = str(uuid.uuid4())[:8]
+            effective_timeout = _get_timeout(request.timeout)
             stream_mode = request.stream if request.stream is not None else True
             param = request.to_query_params(stream_mode)
 
+            if request.dev_logs:
+                _log_request(request_id, request, "STREAM_QUERY_START")
+                start_time = time.monotonic()
+
             from fastapi.responses import StreamingResponse
 
-            # Unified approach: always use aquery_llm for all cases
-            result = await rag.aquery_llm(request.query, param=param)
+            # Apply timeout to the LLM call
+            try:
+                result = await asyncio.wait_for(
+                    rag.aquery_llm(request.query, param=param),
+                    timeout=effective_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[{request_id}] Streaming query timed out after {effective_timeout}s "
+                    f"(mode={request.mode}, query_len={len(request.query)})"
+                )
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Streaming query timed out after {effective_timeout} seconds. "
+                    f"Try a shorter query, increase timeout, or use a different mode.",
+                )
+
+            if request.dev_logs:
+                elapsed = time.monotonic() - start_time
+                retrieval_stats = result.get("data", {}).get("metadata", {})
+                logger.info(f"[{request_id}] STREAM_RETRIEVAL_COMPLETE: {elapsed:.2f}s")
+                logger.info(
+                    f"[{request_id}] RETRIEVAL_STATS: "
+                    f"entities={retrieval_stats.get('total_entities_found', 'N/A')}, "
+                    f"relations={retrieval_stats.get('total_relations_found', 'N/A')}, "
+                    f"chunks={retrieval_stats.get('final_chunks_count', 'N/A')}"
+                )
 
             async def stream_generator():
+                request_id_gen = request_id
                 # Extract references and LLM response from unified result
                 references = result.get("data", {}).get("references", [])
                 llm_response = result.get("llm_response", {})
+
+                if request.dev_logs:
+                    logger.debug(
+                        f"[{request_id_gen}] STREAM: is_streaming={llm_response.get('is_streaming')}"
+                    )
+                    if not llm_response.get("is_streaming"):
+                        logger.debug(
+                            f"[{request_id_gen}] STREAM: non-streaming full response mode"
+                        )
 
                 if llm_response.get("is_streaming"):
                     # Streaming mode: send references first, then stream response chunks
@@ -577,18 +697,40 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
 
                     response_stream = llm_response.get("response_iterator")
                     if response_stream:
+                        chunk_count = 0
+                        chunk_start = time.monotonic()
                         try:
                             async for chunk in response_stream:
                                 if chunk:  # Only send non-empty content
+                                    chunk_count += 1
+                                    if request.dev_logs and chunk_count <= 3:
+                                        logger.debug(
+                                            f"[{request_id_gen}] STREAM_CHUNK #{chunk_count}: "
+                                            f"{len(chunk)} chars"
+                                        )
                                     yield f"{json.dumps({'response': chunk})}\n"
+                            if request.dev_logs:
+                                total_stream_time = time.monotonic() - chunk_start
+                                logger.info(
+                                    f"[{request_id_gen}] STREAM_COMPLETE: "
+                                    f"{chunk_count} chunks in {total_stream_time:.2f}s"
+                                )
                         except Exception as e:
-                            logging.error(f"Streaming error: {str(e)}")
+                            logger.error(
+                                f"[{request_id_gen}] STREAM_ERROR: {str(e)}"
+                            )
                             yield f"{json.dumps({'error': str(e)})}\n"
                 else:
                     # Non-streaming mode: send complete response in one message
                     response_content = llm_response.get("content", "")
                     if not response_content:
                         response_content = "No relevant context found for the query."
+
+                    if request.dev_logs:
+                        logger.debug(
+                            f"[{request_id_gen}] STREAM_NON_STREAMING: "
+                            f"response_len={len(response_content)}"
+                        )
 
                     # Create complete response object
                     complete_response = {"response": response_content}

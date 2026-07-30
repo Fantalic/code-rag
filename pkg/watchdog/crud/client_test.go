@@ -798,7 +798,7 @@ func TestQuery(t *testing.T) {
 		mu.Lock()
 		method = r.Method
 		pt = r.URL.Path
-		if txt, ok := body["text"].(string); ok {
+		if txt, ok := body["query"].(string); ok {
 			queryText = txt
 		}
 		mu.Unlock()
@@ -816,7 +816,7 @@ func TestQuery(t *testing.T) {
 	if method != http.MethodPost {
 		t.Errorf("expected POST, got %s", method)
 	}
-	if pt != "/query/text" {
+	if pt != "/query" {
 		t.Errorf("unexpected path: %s", pt)
 	}
 	if queryText != "what is this?" {

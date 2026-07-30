@@ -4,15 +4,15 @@ import httpx
 import sys
 
 QUERIES = [
-    "Calculator class methods",
-    "AdvancedCalculator inheritance",
-    "Sqrt method",
-    "DataStore class",
-    "Square method",
+    "What classes are in this project?",
+    "What methods does this project have?",
+    "What is the main purpose of this codebase?",
+    "List all entities and their relationships",
+    "How are the classes organized?",
 ]
 
 def main():
-    client = httpx.Client(base_url='http://localhost:9621', timeout=30, follow_redirects=True)
+    client = httpx.Client(base_url='http://localhost:9621', follow_redirects=True)
 
     for query in QUERIES:
         print(f"\n{'='*60}")

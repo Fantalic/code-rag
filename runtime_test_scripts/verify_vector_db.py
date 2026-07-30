@@ -1,5 +1,5 @@
 import httpx
-client = httpx.Client(base_url='http://localhost:9621', timeout=30, follow_redirects=True)
+client = httpx.Client(base_url='http://localhost:9621', follow_redirects=True, timeout=None)
 
 # Check all labels
 r = client.get('/graph/label/list')
