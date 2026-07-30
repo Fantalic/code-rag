@@ -23,7 +23,11 @@ AI agents connect via MCP tools to ask questions like:
 
 ## Key Features
 
-- **17 MCP tools** — query, knowledge graph, document management, system tools
+- **8 CLI commands** — start, watch, scan, mcp, status, stop, query, webui
+- **Ctrl+C support** — graceful shutdown with signal handling
+- **Quiet mode** — `--quiet` suppresses informational logs, shows only errors and results
+- **Version flag** — `--version` shows the current build version
+- **Progress spinners** — animated indicators during Docker health checks
 - **Live file watching** — git-based change detection with initial full codebase scan
 - **Dual ingestion paths** — direct graph CRUD (no LLM) for structured files, LLM pipeline for complex/unstructured content
 - **Multi-language analysers** — C# (Go native binary), future: Go, Rust, Zig
@@ -94,16 +98,13 @@ bash scripts/setup.sh
 .\scripts\setup.ps1
 ```
 
-The setup script installs any missing prerequisites (Go, Docker, Ollama), pulls Ollama models, builds the `coderag` CLI and C# analyser, and pre-builds Docker images.
+The setup script installs any missing prerequisites (Go, Docker, Ollama), pulls Ollama models, builds `coderag` CLI (with the C# analyser embedded), and pre-builds Docker images.
 
 ### Manual Setup
 
 ```bash
 # Build coderag CLI
 go build -o coderag ./cmd/coderag
-
-# Build C# analyser
-cd analysers/csharp && go build -o csharp_analyser . && cd ../..
 
 # Start everything
 ./coderag start ./myproject
@@ -117,26 +118,50 @@ cd analysers/csharp && go build -o csharp_analyser . && cd ../..
 # Start Docker services + file watcher
 coderag start ./myproject
 
-# Watch a project folder (connects to existing LightRAG)
+# Start Docker services + file watcher in quiet mode
+coderag --quiet start ./myproject
+
+# Watch a project folder only (no Docker)
 coderag watch ./myproject
 
 # Run C# analyser and populate knowledge graph
 coderag scan ./myproject
 
+# Re-scan and clear existing data first
+coderag scan --clean ./myproject
+
+# Open the WebUI in browser
+coderag webui
+
 # MCP bridge mode (for opencode)
 coderag mcp .
 
-# Check status
+# Check status of running services
 coderag status
+
+# Start MCP bridge for another project
+coderag mcp /path/to/other/project
 
 # Query the graph
 coderag query "What classes are in this project?"
 
 # Stop all services
 coderag stop
+
+# Check version
+coderag --version
 ```
 
 ### Configuration
+
+Global flags (work with any command):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--quiet` | `false` | Suppress informational output, show only errors and results |
+| `--version` | — | Print version and exit |
+
+Command flags:
 
 | Variable | Flag | Default | Description |
 |----------|------|---------|-------------|
