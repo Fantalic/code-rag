@@ -98,7 +98,7 @@ bash scripts/setup.sh
 .\scripts\setup.ps1
 ```
 
-The setup script installs any missing prerequisites (Go, Docker, Ollama), pulls Ollama models, builds `coderag` CLI (with the C# analyser embedded), and pre-builds Docker images.
+The setup script installs any missing prerequisites (Go, Docker, Ollama), pulls Ollama models, builds the `coderag` CLI and C# analyser, and pre-builds Docker images.
 
 ### Manual Setup
 
