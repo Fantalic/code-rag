@@ -1,5 +1,5 @@
 """
-CLI entry point for the Daniel LightRAG MCP server.
+CLI entry point for the CodeRAG MCP server.
 """
 
 import asyncio

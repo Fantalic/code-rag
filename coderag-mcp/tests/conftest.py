@@ -1,5 +1,5 @@
 """
-Pytest configuration and fixtures for daniel-lightrag-mcp tests.
+Pytest configuration and fixtures for coderag-mcp tests.
 """
 
 import pytest
@@ -9,8 +9,8 @@ from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 import httpx
 
-from daniel_lightrag_mcp.client import LightRAGClient
-from daniel_lightrag_mcp.server import mcp_server as server
+from coderag_mcp.client import LightRAGClient
+from coderag_mcp.server import mcp_server as server
 
 
 @pytest.fixture(scope="function")

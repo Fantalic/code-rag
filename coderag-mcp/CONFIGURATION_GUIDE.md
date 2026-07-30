@@ -1,7 +1,7 @@
-# Daniel LightRAG MCP Server - Configuration Guide
+# CodeRAG MCP Server - Configuration Guide
 
 ## Overview
-This MCP server provides comprehensive integration with your local LightRAG server, offering 22 tools across 4 categories for complete document management, querying, knowledge graph operations, and system management.
+This MCP server provides comprehensive integration with your local LightRAG server (the CodeRAG fork, specialized for representing relations in a codebase). Updated tools are specific to codebase exploration and only work with this forked LightRAG.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ This MCP server provides comprehensive integration with your local LightRAG serv
 ### 1. Install the MCP Server
 ```bash
 # Clone or navigate to the project directory
-cd path/to/daniel-lightrag-mcp
+cd path/to/coderag-mcp
 
 # Install in development mode
 pip install -e .
@@ -26,10 +26,10 @@ pip install -e ".[dev]"
 ### 2. Verify Installation
 ```bash
 # Test the server can start
-python -m daniel_lightrag_mcp --help
+python -m coderag_mcp --help
 
 # Check if all dependencies are installed
-python -c "import daniel_lightrag_mcp; print('Installation successful')"
+python -c "import coderag_mcp; print('Installation successful')"
 ```
 
 ### 3. Configure in MCP Client
@@ -40,9 +40,9 @@ Add this configuration to your Claude Desktop MCP settings file (`~/Library/Appl
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LOG_LEVEL": "INFO"
@@ -58,10 +58,10 @@ Add this configuration to your MCP settings:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python3",
-      "args": ["-m", "daniel_lightrag_mcp"],
-      "cwd": "/path/to/daniel-lightrag-mcp",
+      "args": ["-m", "coderag_mcp"],
+      "cwd": "/path/to/coderag-mcp",
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621"
       }
@@ -91,9 +91,9 @@ curl http://localhost:9621/health
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:8080",
         "LIGHTRAG_API_KEY": "your-api-key-here",
@@ -306,9 +306,9 @@ curl http://localhost:9621/health
 ### 1. Basic Connectivity Test
 ```bash
 # Test if the MCP server can start
-python -m daniel_lightrag_mcp &
+python -m coderag_mcp &
 sleep 2
-pkill -f daniel_lightrag_mcp
+pkill -f coderag_mcp
 ```
 
 ### 2. LightRAG Server Test
@@ -345,7 +345,7 @@ Use your MCP client to call the `get_health` tool to verify end-to-end connectiv
 **Solutions:**
 1. Reinstall the package:
    ```bash
-   pip uninstall daniel-lightrag-mcp
+   pip uninstall coderag-mcp
    pip install -e .
    ```
 2. Verify Python path:

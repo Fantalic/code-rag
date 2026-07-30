@@ -13,11 +13,11 @@ Add to your MCP client configuration:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python3",
       "args": [
         "-m",
-        "daniel_lightrag_mcp"
+        "coderag_mcp"
       ],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
@@ -32,7 +32,7 @@ Add to your MCP client configuration:
 
 Test the server installation:
 ```bash
-python -m daniel_lightrag_mcp --version
+python -m coderag_mcp --version
 ```
 
 ### 3. Health Check
@@ -58,9 +58,9 @@ Use the `get_health` tool to verify connectivity:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "Insert-LightRAG-API-Key-Here",
@@ -81,9 +81,9 @@ For other MCP-compatible clients, use the same basic structure:
 ```json
 {
   "servers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "environment": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "Insert-LightRAG-API-Key-Here"
@@ -131,9 +131,9 @@ set LOG_LEVEL=DEBUG
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "Insert-LightRAG-API-Key-Here",
@@ -154,9 +154,9 @@ If installed in a custom location:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "/path/to/python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "cwd": "/path/to/installation",
       "env": {
         "PYTHONPATH": "/path/to/installation",
@@ -175,9 +175,9 @@ Using a virtual environment:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "/path/to/venv/bin/python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "Insert-LightRAG-API-Key-Here"
@@ -196,7 +196,7 @@ Configure multiple LightRAG servers:
   "mcpServers": {
     "lightrag-primary": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "primary-key"
@@ -204,7 +204,7 @@ Configure multiple LightRAG servers:
     },
     "lightrag-secondary": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9622",
         "LIGHTRAG_API_KEY": "secondary-key"
@@ -221,9 +221,9 @@ For development with debug logging:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag-dev": {
+    "coderag-mcp-dev": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "Insert-LightRAG-API-Key-Here",
@@ -249,9 +249,9 @@ For development with debug logging:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621"
       }
@@ -299,14 +299,14 @@ export LIGHTRAG_API_KEY="your-secure-api-key"
 ```json
 {
   "command": "/usr/bin/python3",
-  "args": ["-m", "daniel_lightrag_mcp"]
+  "args": ["-m", "coderag_mcp"]
 }
 ```
 
 #### 2. Module Not Found
-**Error**: `No module named 'daniel_lightrag_mcp'`
+**Error**: `No module named 'coderag_mcp'`
 **Solutions**:
-- Verify installation: `pip list | grep daniel-lightrag-mcp`
+- Verify installation: `pip list | grep coderag-mcp`
 - Use full path: `"command": "/path/to/venv/bin/python"`
 - Set PYTHONPATH: `"env": {"PYTHONPATH": "/path/to/installation"}`
 
@@ -337,9 +337,9 @@ Enable debug mode:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+    "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "Insert-LightRAG-API-Key-Here",
@@ -355,7 +355,7 @@ Enable debug mode:
 **Test Configuration:**
 ```bash
 # Test Python module
-python -c "import daniel_lightrag_mcp; print('OK')"
+python -c "import coderag_mcp; print('OK')"
 
 # Test server connection
 curl http://localhost:9621/health
@@ -364,9 +364,9 @@ curl http://localhost:9621/health
 curl -H "Authorization: Bearer Insert-LightRAG-API-Key-Here" http://localhost:9621/health
 
 # Test MCP server startup
-python -m daniel_lightrag_mcp &
+python -m coderag_mcp &
 sleep 2
-pkill -f daniel_lightrag_mcp
+pkill -f coderag_mcp
 ```
 
 ## Performance Tuning
@@ -446,9 +446,9 @@ Configure retry behavior:
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag-prod": {
+    "coderag-mcp-prod": {
       "command": "/opt/venv/bin/python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "cwd": "/opt/lightrag-mcp",
       "env": {
         "LIGHTRAG_BASE_URL": "https://lightrag.yourdomain.com:9621",
@@ -521,7 +521,7 @@ Create a validation script:
 echo "Validating LightRAG MCP Configuration..."
 
 # Test Python module
-python -c "import daniel_lightrag_mcp; print('✅ Module import: OK')" || echo "❌ Module import: FAILED"
+python -c "import coderag_mcp; print('✅ Module import: OK')" || echo "❌ Module import: FAILED"
 
 # Test server connection
 curl -s http://localhost:9621/health > /dev/null && echo "✅ Server connection: OK" || echo "❌ Server connection: FAILED"
@@ -534,7 +534,7 @@ else
 fi
 
 # Test MCP server startup
-python -m daniel_lightrag_mcp &
+python -m coderag_mcp &
 PID=$!
 sleep 3
 if kill -0 $PID 2>/dev/null; then

@@ -25,7 +25,7 @@ full = [
     "codelightrag-watchdog",
 ]
 mcp = [
-    "daniel-lightrag-mcp",
+    "coderag-mcp",
 ]
 
 [tool.setuptools.packages.find]

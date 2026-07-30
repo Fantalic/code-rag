@@ -12,13 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY LightRAG ./LightRAG
-COPY daniel-lightrag-mcp ./daniel-lightrag-mcp
+COPY coderag-mcp ./coderag-mcp
 
 # Install LightRAG with API extras
 RUN pip install --no-cache-dir -e "LightRAG[api]"
 
 # Install MCP server
-RUN pip install --no-cache-dir -e daniel-lightrag-mcp
+RUN pip install --no-cache-dir -e coderag-mcp
 
 FROM base AS final
 # Copy WebUI build output (vite outDir: ../lightrag/api/webui from lightrag_webui/)

@@ -25,7 +25,7 @@ After proper investigation with real test files and populated database:
 2. **insert_texts** ✅ - Inserts multiple text documents successfully  
 3. **scan_documents** ✅ - Triggers document scanning successfully
 4. **upload_document** ✅ - **FIXED!** Now works with real files
-   - **Test:** Uploaded `/Users/danielsimpkins/Documents/Cline/VSCode_Projects/daniel-lightrag-mcp/test.txt`
+   - **Test:** Uploaded `/Users/danielsimpkins/Documents/Cline/VSCode_Projects/coderag-mcp/test.txt`
    - **Result:** `{"status": "duplicated", "message": "File 'test.txt' already exists", "track_id": ""}`
    - **Fix Applied:** Corrected response model and client logging
 

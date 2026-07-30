@@ -99,8 +99,8 @@ code-rag/
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
 │   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── daniel-lightrag-mcp/         ← Python MCP server (Docker)
-│   └── src/daniel_lightrag_mcp/ ← 22 MCP tools, SSE transport
+├── coderag-mcp/         ← Python MCP server (Docker)
+│   └── src/coderag_mcp/ ← 22 MCP tools, SSE transport
 ├── Dockerfile                   ← Multi-stage: LightRAG + WebUI + MCP
 ├── docker-compose.yml           ← lightrag (:9621) + mcp (:9622)
 ├── go.mod
@@ -115,7 +115,7 @@ code-rag/
 | `pkg/watchdog` | `github.com/coderag/pkg/watchdog` | File watching, diff engine, pipeline, CRUD client |
 | `pkg/lightrag` | `github.com/coderag/pkg/lightrag` | LightRAG HTTP client |
 | `cmd/coderag` | — | CLI binary entry point (`start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`) |
-| `daniel-lightrag-mcp` | — | Python MCP server running in Docker (stdio↔SSE bridge) |
+| `coderag-mcp` | — | Python MCP server running in Docker (stdio↔SSE bridge) |
 
 ---
 
@@ -216,7 +216,7 @@ Containers are configured in `docker-compose.yml` at the project root.
 
 ## 5. MCP Bridge & Server
 
-The MCP server runs in Docker (`daniel-lightrag-mcp` on port 9622, SSE transport) and the Go `coderag` binary on the host acts as a stdio↔SSE bridge between opencode and the Python MCP server.
+The MCP server runs in Docker (`coderag-mcp` on port 9622, SSE transport) and the Go `coderag` binary on the host acts as a stdio↔SSE bridge between opencode and the Python MCP server.
 
 ```
 opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Docker :9622) → HTTP → LightRAG API (Docker :9621)
@@ -300,7 +300,7 @@ The Go bridge (`cmd/coderag/main.go`) handles:
 2. Starting watchdog in background goroutine
 3. Bridging stdio JSON-RPC ↔ SSE to Python MCP server
 
-The Python MCP server (`daniel-lightrag-mcp`) handles:
+The Python MCP server (`coderag-mcp`) handles:
 - Tool dispatch via LightRAG HTTP client
 - 17 tool definitions and handlers (was 15, now 17 with the 4 Phase 32 additions)
 - SSE transport on port 9622

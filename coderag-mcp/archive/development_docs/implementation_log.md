@@ -1,7 +1,7 @@
-# Daniel LightRAG MCP Server - Implementation Log
+# CodeRAG MCP Server - Implementation Log
 
 ## Project Overview
-- **Project Name**: daniel-lightrag-mcp
+- **Project Name**: coderag-mcp
 - **Purpose**: MCP server for integrating with LightRAG API running on localhost:9621
 - **Version**: 0.1.0
 - **Created**: January 4, 2025
@@ -58,7 +58,7 @@ Instead of the required 22 tools, only **8 tools** were implemented, and they do
 
 ### Phase 1: Project Setup ✅
 - Created project directory structure
-- Set up Python package with proper structure under `src/daniel_lightrag_mcp/`
+- Set up Python package with proper structure under `src/coderag_mcp/`
 - Created `pyproject.toml` with all necessary dependencies and configuration
 - Added development dependencies for testing and code quality
 
@@ -67,7 +67,7 @@ Instead of the required 22 tools, only **8 tools** were implemented, and they do
 - **client.py**: HTTP client created but doesn't cover all required endpoints
 - **cli.py**: Command-line interface for running the server
 - **__init__.py**: Package initialization
-- **__main__.py**: Module entry point for `python -m daniel_lightrag_mcp`
+- **__main__.py**: Module entry point for `python -m coderag_mcp`
 - **models.py**: ❌ NOT CREATED (required for Pydantic models)
 
 ### Phase 3: Tools Implementation ❌ MAJOR GAPS
@@ -93,8 +93,8 @@ Instead of the required 22 tools, only **8 tools** were implemented, and they do
 
 ## File Structure
 ```
-daniel-lightrag-mcp/
-├── src/daniel_lightrag_mcp/
+coderag-mcp/
+├── src/coderag_mcp/
 │   ├── __init__.py          # Package initialization
 │   ├── __main__.py          # Module entry point
 │   ├── server.py            # Main MCP server (INCOMPLETE - wrong API)

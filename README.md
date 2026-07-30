@@ -215,14 +215,14 @@ code-rag/
 │   ├── lightrag/                 ← Core RAG + graph CRUD implementation
 │   ├── lightrag-api/             ← FastAPI app + routers
 │   └── lightrag_webui/           ← React 19 + TypeScript UI
-├── daniel-lightrag-mcp/          ← Python: MCP server (22 tools)
-│   ├── src/daniel_lightrag_mcp/
+├── coderag-mcp/          ← Python: MCP server (22 tools)
+│   ├── src/coderag_mcp/
 │   │   ├── server.py             ← MCP tool implementations
 │   │   └── client.py             ← HTTP client for LightRAG
 │   └── Dockerfile
 ├── docs/                         ← ARCHITECTURE, PLAN, CURRENT_CONTEXT, API_REFERENCE
 ├── tests/                        ← Integration tests
-├── daniel-lightrag-mcp/tests/    ← MCP tests
+├── coderag-mcp/tests/    ← MCP tests
 ├── docker-compose.yml
 ├── Dockerfile
 └── go.mod
@@ -235,10 +235,10 @@ code-rag/
 pytest tests/ -v
 
 # MCP tests (163)
-pytest daniel-lightrag-mcp/tests/ -v
+pytest coderag-mcp/tests/ -v
 
 # All Python tests
-pytest tests/ daniel-lightrag-mcp/tests/ -v  # 226 total
+pytest tests/ coderag-mcp/tests/ -v  # 226 total
 
 # Go build
 go build ./...
@@ -261,7 +261,7 @@ All analyser output is filtered before reaching the graph:
 
 ## Acknowledgements
 
-Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [daniel-lightrag-mcp](https://github.com/desimpkins/daniel-lightrag-mcp) (MIT). CodeRAG Go packages are MIT — use freely.
+Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT). The MCP server (`coderag-mcp/`) is a fork of [daniel-lightrag-mcp](https://github.com/desimpkins/daniel-lightrag-mcp) (MIT), integrated into the CodeRAG project with changed and added tools, made specific for codebase exploration. CodeRAG Go packages are MIT — use freely.
 
 ## License
 

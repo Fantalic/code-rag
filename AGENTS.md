@@ -24,7 +24,7 @@ code-rag/
 │   ├── lightrag/                ← Core Python package
 │   ├── lightrag-api/            ← FastAPI service
 │   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── daniel-lightrag-mcp/         ← Python MCP server (Docker, 15 tools, SSE)
+├── coderag-mcp/         ← Python MCP server (Docker, 15 tools, SSE)
 ├── .opencode/                   ← CodeGraph prompts + opencode.json
 ├── Dockerfile                   ← LightRAG + WebUI image
 ├── docker-compose.yml           ← LightRAG + optional Ollama

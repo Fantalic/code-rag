@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main entry point for daniel-lightrag-mcp package.
+Main entry point for coderag-mcp package.
 """
 
 import asyncio

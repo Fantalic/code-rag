@@ -50,7 +50,7 @@ Based on the LightRAG documentation and API endpoints, create an MCP server that
 
 ### **File Structure:**
 ```
-/Users/danielsimpkins/Documents/Cline/VSCode_Projects/daniel-lightrag-mcp/
+/Users/danielsimpkins/Documents/Cline/VSCode_Projects/coderag-mcp/
 ├── src/
 │   └── lightrag_mcp/
 │       ├── __init__.py
@@ -65,10 +65,10 @@ Based on the LightRAG documentation and API endpoints, create an MCP server that
 This MCP server will allow you to interact with your LightRAG instance through any MCP-compatible client, providing full access to document management, querying, and knowledge graph operations.
 
 Here are the Rules for implementation, that you MUST adhere to at ALL times:
-You must use this directory ONLY: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/daniel-lightrag-mcp
-The implementation plan is included in here at /Users/danielsimpkins/Documents/Cline/VSCode_Projects/daniel-lightrag-mcp/implementation_plan.md
-I require you to update a log of exactly what you have done, including files created, code modified, items tested, where you might have gathered data from, and so on. You need to continuously write to this plan each time you complete minor and mojor steps. The file you are to populate is here: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/daniel-lightrag-mcp/implementation_log.md
+You must use this directory ONLY: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/coderag-mcp
+The implementation plan is included in here at /Users/danielsimpkins/Documents/Cline/VSCode_Projects/coderag-mcp/implementation_plan.md
+I require you to update a log of exactly what you have done, including files created, code modified, items tested, where you might have gathered data from, and so on. You need to continuously write to this plan each time you complete minor and mojor steps. The file you are to populate is here: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/coderag-mcp/implementation_log.md
 If you require any information, you must explicitly ask me for it, browse the internet for it, but you may not go outside of the folder locations below without my express approval.
 Allowed locations to READ ONLY: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/LightRAG
-Allowed locations to read and write: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/daniel-lightrag-mcp
+Allowed locations to read and write: /Users/danielsimpkins/Documents/Cline/VSCode_Projects/coderag-mcp
 If you need to deviate from any of these rules, you MUST ask for approval first.

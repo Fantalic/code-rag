@@ -6,7 +6,7 @@ import pytest
 from typing import Dict, Any
 from pydantic import ValidationError
 
-from daniel_lightrag_mcp.models import (
+from coderag_mcp.models import (
     # Enums
     DocStatus, QueryMode, PipelineStatus,
     # Common models

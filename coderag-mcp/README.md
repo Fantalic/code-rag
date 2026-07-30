@@ -1,6 +1,6 @@
-# Daniel LightRAG MCP Server
+# CodeRAG MCP Server (fork of coderag-mcp)
 
-A comprehensive MCP (Model Context Protocol) server that provides **100% functional** integration with LightRAG API, offering **22 fully working tools** across 4 categories for complete document management, querying, knowledge graph operations, and system management.
+A comprehensive MCP (Model Context Protocol) server integrated into the CodeRAG project, providing extended integration with LightRAG for codebase exploration. The tools have been altered (added, modified, and removed) to make this MCP server more specific to working with codebases.
 
 ## 🎉 Status: 100% Functional
 
@@ -34,9 +34,9 @@ A comprehensive MCP (Model Context Protocol) server that provides **100% functio
    ```json
    {
      "mcpServers": {
-       "daniel-lightrag": {
-         "command": "python",
-         "args": ["-m", "daniel_lightrag_mcp"]
+        "coderag-mcp": {
+          "command": "python",
+          "args": ["-m", "coderag_mcp"]
        }
      }
    }
@@ -61,7 +61,7 @@ pip install -e ".[dev]"
 Start the MCP server:
 
 ```bash
-daniel-lightrag-mcp
+coderag-mcp
 ```
 
 ### Environment Variables
@@ -73,7 +73,7 @@ export LIGHTRAG_API_KEY="your-api-key"  # Optional
 export LIGHTRAG_TIMEOUT="30"            # Optional
 export LOG_LEVEL="INFO"                 # Optional
 
-daniel-lightrag-mcp
+coderag-mcp
 ```
 
 ## Configuration
@@ -87,9 +87,9 @@ Add to your MCP client (e.g., Claude Desktop):
 ```json
 {
   "mcpServers": {
-    "daniel-lightrag": {
+        "coderag-mcp": {
       "command": "python",
-      "args": ["-m", "daniel_lightrag_mcp"],
+      "args": ["-m", "coderag_mcp"],
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "lightragsecretkey"
@@ -611,14 +611,14 @@ All errors include:
 
 2. **Test MCP Server**:
    ```bash
-   python -m daniel_lightrag_mcp &
+   python -m coderag_mcp &
    sleep 2
-   pkill -f daniel_lightrag_mcp
+   pkill -f coderag_mcp
    ```
 
 3. **Verify Installation**:
    ```bash
-   python -c "import daniel_lightrag_mcp; print('OK')"
+   python -c "import coderag_mcp; print('OK')"
    ```
 
 ### Common Issues
@@ -653,7 +653,7 @@ All errors include:
 Enable detailed logging:
 ```bash
 export LOG_LEVEL=DEBUG
-python -m daniel_lightrag_mcp
+python -m coderag_mcp
 ```
 
 ### Getting Help
@@ -680,7 +680,7 @@ pytest
 Run tests with coverage:
 
 ```bash
-pytest --cov=src/daniel_lightrag_mcp --cov-report=html
+pytest --cov=src/coderag_mcp --cov-report=html
 ```
 
 Format code:

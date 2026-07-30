@@ -37,7 +37,7 @@ def _get_lightrag_client() -> LightRAGClient:
 
 
 mcp_server = FastMCP(
-    name="daniel-lightrag-mcp",
+    name="coderag-mcp",
     instructions="LightRAG knowledge graph MCP server for codebase exploration.",
 )
 

@@ -1,4 +1,4 @@
-# Python-related files (root + daniel-lightrag-mcp sources)
+Python-related files (root + coderag-mcp sources)
 __pycache__/
 *.py[cod]
 *$py.class
