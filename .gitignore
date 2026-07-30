@@ -122,3 +122,7 @@ gui/
 *.exe
 mcp_err.txt
 mcp_out.txt
+
+
+TODO.txt
+NOTES.txt
