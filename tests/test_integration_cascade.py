@@ -5,6 +5,14 @@ LIGHTRAG_URL = os.environ.get("LIGHTRAG_URL", "http://localhost:9621")
 WORKSPACE = os.environ.get("LIGHTRAG_WORKSPACE", "test-csharp-project")
 
 
+def _lightrag_available():
+    try:
+        httpx.get(f"{LIGHTRAG_URL}/health", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
 def _query(method, path, **kwargs):
     kwargs.setdefault("timeout", 30)
     r = getattr(httpx, method)(f"{LIGHTRAG_URL}{path}", **kwargs)
@@ -23,6 +31,8 @@ class TestCascadeIntegration:
 
     @pytest.fixture(autouse=True)
     def _setup_and_cleanup(self):
+        if not _lightrag_available():
+            pytest.skip("LightRAG server not available")
         _query("post", "/workspace", json={"workspace": WORKSPACE})
         self._delete("ClassA")
         self._delete("ClassB")
