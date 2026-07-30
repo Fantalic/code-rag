@@ -359,11 +359,7 @@ class NetworkXStorage(BaseGraphStorage):
         """
         # Get max_nodes from global_config if not provided
         if max_nodes is None:
-            max_nodes = self.global_config.get("max_graph_nodes", 1000)
-        else:
-            max_graph_nodes = self.global_config.get("max_graph_nodes", 1000)
-            if max_graph_nodes > 0:
-                max_nodes = min(max_nodes, max_graph_nodes)
+            max_nodes = 0
 
         graph = await self._get_graph()
 

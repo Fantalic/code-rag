@@ -1,23 +1,14 @@
-"""
-SSE-based MCP server entry point for LightRAG integration.
-Runs alongside LightRAG API in Docker, exposing SSE transport on port 9622.
-"""
-
 import logging
 import os
 from contextlib import asynccontextmanager
 
 import uvicorn
-from mcp.server import NotificationOptions
-from mcp.server.models import InitializationOptions
-from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .server import _get_lightrag_url, mcp_server
 
-# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -25,53 +16,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sse-server")
 
-# SSE transport: messages are POSTed to /messages/
-sse = SseServerTransport("/messages/")
-
-
-class _ASGIApp:
-    """Wraps an ASGI function so Starlette Route treats it as an ASGI app (not a request handler).
-
-    Starlette's Route inspects endpoints: functions become request handlers (called with (request)),
-    while everything else is treated as an ASGI app (called with (scope, receive, send)).
-    This wrapper ensures our raw ASGI handlers are dispatched correctly.
-    """
-
-    def __init__(self, func):
-        self.func = func
-
-    async def __call__(self, scope, receive, send):
-        await self.func(scope, receive, send)
-
-
-async def handle_sse(scope, receive, send):
-    """Handle SSE connection: client connects to /sse, receives stream."""
-    async with sse.connect_sse(scope, receive, send) as streams:
-        read_stream, write_stream = streams
-        init_options = InitializationOptions(
-            server_name="daniel-lightrag-mcp",
-            server_version="0.1.0",
-            capabilities=mcp_server.get_capabilities(
-                notification_options=NotificationOptions(),
-                experimental_capabilities={},
-            ),
-        )
-        await mcp_server.run(read_stream, write_stream, init_options)
-
-
-async def handle_messages(scope, receive, send):
-    """Handle client messages POSTed to /messages/."""
-    await sse.handle_post_message(scope, receive, send)
-
 
 async def health(request):
-    """Health check endpoint."""
     return JSONResponse({"status": "ok", "lightrag_url": _get_lightrag_url()})
 
 
 @asynccontextmanager
 async def lifespan(_app):
-    """Startup and shutdown lifecycle."""
     global lightrag_client
     from .client import LightRAGClient
 
@@ -90,18 +41,15 @@ async def lifespan(_app):
         await lightrag_client.__aexit__(None, None, None)
 
 
+base = mcp_server.sse_app()
 app = Starlette(
-    routes=[
-        Route("/sse", endpoint=_ASGIApp(handle_sse)),
-        Route("/messages/", endpoint=_ASGIApp(handle_messages)),
-        Route("/health", endpoint=health),
-    ],
+    routes=base.routes + [Route("/health", endpoint=health)],
     lifespan=lifespan,
+    middleware=base.user_middleware,
 )
 
 
 def main():
-    """Run the SSE MCP server."""
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "9622"))
     logger.info(f"Starting MCP SSE server on {host}:{port}")

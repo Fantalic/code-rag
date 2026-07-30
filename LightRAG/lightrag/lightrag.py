@@ -15,8 +15,6 @@ from typing import (
     final,
     Literal,
     Optional,
-    List,
-    Dict,
 )
 from collections.abc import AsyncIterator, Callable, Iterator
 from lightrag.prompt import PROMPTS
@@ -37,7 +35,6 @@ from lightrag.constants import (
     DEFAULT_SUMMARY_LENGTH_RECOMMENDED,
     DEFAULT_MAX_ASYNC,
     DEFAULT_MAX_PARALLEL_INSERT,
-    DEFAULT_MAX_GRAPH_NODES,
     DEFAULT_MAX_SOURCE_IDS_PER_ENTITY,
     DEFAULT_MAX_SOURCE_IDS_PER_RELATION,
     DEFAULT_ENTITY_TYPES,
@@ -360,9 +357,6 @@ class LightRAG:
         default=int(os.getenv("MAX_PARALLEL_INSERT", DEFAULT_MAX_PARALLEL_INSERT))
     )
     """Maximum number of parallel insert operations."""
-
-    max_graph_nodes: int = 0
-    """Maximum number of graph nodes (0 = unlimited)."""
 
     max_source_ids_per_entity: int = field(
         default=get_env_value(
@@ -1025,7 +1019,7 @@ class LightRAG:
         Args:
             node_label (str): Label to get knowledge graph for
             max_depth (int): Maximum depth of graph
-            max_nodes (int, optional): Maximum number of nodes to return. Defaults to self.max_graph_nodes.
+            max_nodes (int, optional): Maximum number of nodes to return (0 = unlimited).
 
         Returns:
             KnowledgeGraph: Knowledge graph containing nodes and edges
@@ -3505,7 +3499,7 @@ class LightRAG:
         )
 
     async def acreate_entity(
-        self, entity_name: str, entity_data: dict[str, Any]
+        self, entity_name: str, entity_data: dict[str, Any], no_save: bool = False
     ) -> dict[str, Any]:
         """Asynchronously create a new entity.
 
@@ -3514,6 +3508,7 @@ class LightRAG:
         Args:
             entity_name: Name of the new entity
             entity_data: Dictionary containing entity attributes, e.g. {"description": "description", "entity_type": "type"}
+            no_save: If True, skip the final graph/index save (for batch operations)
 
         Returns:
             Dictionary containing created entity information
@@ -3526,6 +3521,7 @@ class LightRAG:
             self.relationships_vdb,
             entity_name,
             entity_data,
+            no_save=no_save,
         )
 
     def create_entity(
@@ -3535,7 +3531,12 @@ class LightRAG:
         return loop.run_until_complete(self.acreate_entity(entity_name, entity_data))
 
     async def acreate_relation(
-        self, source_entity: str, target_entity: str, relation_data: dict[str, Any]
+        self,
+        source_entity: str,
+        target_entity: str,
+        relation_data: dict[str, Any],
+        no_save: bool = False,
+        skip_validation: bool = False,
     ) -> dict[str, Any]:
         """Asynchronously create a new relation between entities.
 
@@ -3545,6 +3546,8 @@ class LightRAG:
             source_entity: Name of the source entity
             target_entity: Name of the target entity
             relation_data: Dictionary containing relation attributes, e.g. {"description": "description", "keywords": "keywords"}
+            no_save: If True, skip the final graph/index save (for batch operations)
+            skip_validation: If True, skip entity existence checks (caller guarantees existence)
 
         Returns:
             Dictionary containing created relation information
@@ -3558,7 +3561,36 @@ class LightRAG:
             source_entity,
             target_entity,
             relation_data,
+            no_save=no_save,
+            skip_validation=skip_validation,
         )
+
+    async def asave_graph(self) -> None:
+        """Force a save of the graph and vector indexes after batch operations."""
+        from lightrag.utils_graph import _edit_entity_done
+
+        await _edit_entity_done(
+            self.entities_vdb,
+            self.relationships_vdb,
+            self.chunk_entity_relation_graph,
+        )
+
+    async def aclear_graph(self) -> dict[str, str]:
+        """Clear all graph data (entities, relations, vector indexes).
+
+        Drops all data from graph storage, entity VDB, and relationship VDB.
+        The storages will be re-initialized empty on next access.
+        """
+        results = await asyncio.gather(
+            self.chunk_entity_relation_graph.drop(),
+            self.entities_vdb.drop(),
+            self.relationships_vdb.drop(),
+        )
+        return {
+            "graph": results[0],
+            "entities_vdb": results[1],
+            "relationships_vdb": results[2],
+        }
 
     def create_relation(
         self, source_entity: str, target_entity: str, relation_data: dict[str, Any]

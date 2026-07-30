@@ -668,15 +668,17 @@ func TestSetWorkspace(t *testing.T) {
 
 func TestClearAll(t *testing.T) {
 	var (
-		mu         sync.Mutex
-		method, pt string
+		mu          sync.Mutex
+		methods, pt []string
+		callCount   int
 	)
 	c := testCfg(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		method = r.Method
-		pt = r.URL.Path
+		methods = append(methods, r.Method)
+		pt = append(pt, r.URL.Path)
+		callCount++
 		mu.Unlock()
-		okResponse(w, map[string]any{"status": "cleared"})
+		okResponse(w, map[string]any{"status": "success", "data": map[string]any{}})
 	}))
 
 	err := c.ClearAll()
@@ -684,11 +686,20 @@ func TestClearAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	mu.Lock()
-	if method != http.MethodDelete {
-		t.Errorf("expected DELETE, got %s", method)
+	if callCount != 2 {
+		t.Errorf("expected 2 calls, got %d", callCount)
 	}
-	if pt != "/documents" {
-		t.Errorf("unexpected path: %s", pt)
+	if methods[0] != http.MethodDelete {
+		t.Errorf("expected DELETE, got %s", methods[0])
+	}
+	if pt[0] != "/documents" {
+		t.Errorf("unexpected path: %s", pt[0])
+	}
+	if methods[1] != http.MethodDelete {
+		t.Errorf("expected DELETE, got %s", methods[1])
+	}
+	if pt[1] != "/graph" {
+		t.Errorf("unexpected path: %s", pt[1])
 	}
 	mu.Unlock()
 }

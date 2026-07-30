@@ -1488,7 +1488,7 @@ class MongoGraphStorage(BaseGraphStorage):
         Args:
             node_label: Label of the starting node, * means all nodes
             max_depth: Maximum depth of the subgraph, Defaults to 3
-            max_nodes: Maximum nodes to return, Defaults to global_config max_graph_nodes
+            max_nodes: Maximum nodes to return (0 = unlimited)
 
         Returns:
             KnowledgeGraph object containing nodes and edges, with an is_truncated flag
@@ -1512,13 +1512,8 @@ class MongoGraphStorage(BaseGraphStorage):
         C → B
         C → D
         """
-        # Use global_config max_graph_nodes as default if max_nodes is None
         if max_nodes is None:
-            max_nodes = self.global_config.get("max_graph_nodes", 1000)
-        else:
-            max_graph_nodes = self.global_config.get("max_graph_nodes", 1000)
-            if max_graph_nodes > 0:
-                max_nodes = min(max_nodes, max_graph_nodes)
+            max_nodes = 0
 
         result = KnowledgeGraph()
         start = time.perf_counter()

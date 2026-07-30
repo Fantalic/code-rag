@@ -2,7 +2,7 @@
 This module contains all graph-related routes for the LightRAG API.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 import traceback
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
@@ -82,6 +82,51 @@ class RelationCreateRequest(BaseModel):
                 "weight": 1.0,
             }
         ],
+    )
+
+
+class BatchEntityItem(BaseModel):
+    entity_name: str = Field(
+        ...,
+        description="Unique name for the new entity",
+        min_length=1,
+    )
+    entity_data: dict[str, Any] = Field(
+        ...,
+        description="Dictionary containing entity properties.",
+    )
+
+
+class BatchEntityCreateRequest(BaseModel):
+    entities: list[BatchEntityItem] = Field(
+        ...,
+        description="List of entities to create",
+        min_length=1,
+    )
+
+
+class BatchRelationItem(BaseModel):
+    source_entity: str = Field(
+        ...,
+        description="Name of the source entity",
+        min_length=1,
+    )
+    target_entity: str = Field(
+        ...,
+        description="Name of the target entity",
+        min_length=1,
+    )
+    relation_data: dict[str, Any] = Field(
+        ...,
+        description="Dictionary containing relationship properties.",
+    )
+
+
+class BatchRelationCreateRequest(BaseModel):
+    relations: list[BatchRelationItem] = Field(
+        ...,
+        description="List of relations to create",
+        min_length=1,
     )
 
 
@@ -442,6 +487,96 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
                 status_code=500, detail=f"Error creating relation: {str(e)}"
             )
 
+    @router.post("/graph/entities/batch-create", dependencies=[Depends(combined_auth)])
+    async def batch_create_entities(request: BatchEntityCreateRequest):
+        """
+        Batch create multiple entities in the knowledge graph
+
+        Creates all entities without intermediate graph saves, then saves once at the end.
+        Significantly faster than creating entities one by one for large batches.
+
+        Request Body:
+            entities (list): List of objects with:
+                - entity_name (str): Unique name for the entity
+                - entity_data (dict): Entity properties (description, entity_type, etc.)
+
+        Returns:
+            {"status": "success", "created": int, "total": int, "errors": [...]}
+        """
+        created = 0
+        errors = []
+        for item in request.entities:
+            try:
+                await rag.acreate_entity(
+                    item.entity_name, item.entity_data, no_save=True
+                )
+                created += 1
+            except ValueError as ve:
+                errors.append({"entity": item.entity_name, "error": str(ve)})
+            except Exception as e:
+                errors.append({"entity": item.entity_name, "error": str(e)})
+        await rag.asave_graph()
+        logger.info(f"Batch created {created}/{len(request.entities)} entities")
+        return {
+            "status": "success",
+            "message": f"Batch created {created} entities",
+            "data": {
+                "created": created,
+                "total": len(request.entities),
+                "errors": errors,
+            },
+        }
+
+    @router.post("/graph/relations/batch-create", dependencies=[Depends(combined_auth)])
+    async def batch_create_relations(request: BatchRelationCreateRequest):
+        """
+        Batch create multiple relations in the knowledge graph
+
+        Creates all relations without intermediate graph saves or entity existence
+        validation, then saves once at the end. Caller must ensure all source/target
+        entities already exist (e.g., by calling batch entity create first).
+
+        Request Body:
+            relations (list): List of objects with:
+                - source_entity (str): Name of the source entity
+                - target_entity (str): Name of the target entity
+                - relation_data (dict): Relation properties (description, keywords, weight, etc.)
+
+        Returns:
+            {"status": "success", "created": int, "total": int, "errors": [...]}
+        """
+        created = 0
+        errors = []
+        for item in request.relations:
+            try:
+                await rag.acreate_relation(
+                    item.source_entity,
+                    item.target_entity,
+                    item.relation_data,
+                    no_save=True,
+                    skip_validation=True,
+                )
+                created += 1
+            except Exception as e:
+                errors.append(
+                    {
+                        "source": item.source_entity,
+                        "target": item.target_entity,
+                        "error": str(e),
+                    }
+                )
+        await rag.asave_graph()
+        logger.info(f"Batch created {created}/{len(request.relations)} relations")
+        return {
+            "status": "success",
+            "message": f"Batch created {created} relations",
+            "data": {
+                "created": created,
+                "total": len(request.relations),
+                "errors": errors,
+            },
+        }
+
     @router.post("/graph/entities/merge", dependencies=[Depends(combined_auth)])
     async def merge_entities(request: EntityMergeRequest):
         """
@@ -521,6 +656,36 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=500, detail=f"Error merging entities: {str(e)}"
+            )
+
+    @router.delete("/graph", dependencies=[Depends(combined_auth)])
+    async def clear_graph():
+        """
+        Delete all graph data (entities, relations, vector indexes).
+
+        This endpoint clears the entire knowledge graph including:
+        - All entity nodes and their properties
+        - All relationship edges and their properties
+        - All vector embeddings for entities and relationships
+
+        Use this when you need to reset the graph completely (e.g., before
+        re-scanning a project from scratch).
+
+        Returns:
+            dict: Status of the operation with details about each cleared storage
+        """
+        try:
+            result = await rag.aclear_graph()
+            return {
+                "status": "success",
+                "message": "Graph data cleared successfully",
+                "data": result,
+            }
+        except Exception as e:
+            logger.error(f"Error clearing graph: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"Error clearing graph: {str(e)}"
             )
 
     return router

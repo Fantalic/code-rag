@@ -11,9 +11,7 @@ import (
 	"time"
 )
 
-const (
-	DefaultTimeout = 300 * time.Second
-)
+const DefaultTimeout = time.Duration(0) // no timeout
 
 type Config struct {
 	BaseURL    string
@@ -207,6 +205,35 @@ type UpdateRelationPayload struct {
 	UpdatedData map[string]any `json:"updated_data"`
 }
 
+type BatchEntityItem struct {
+	EntityName string     `json:"entity_name"`
+	EntityData EntityData `json:"entity_data"`
+}
+
+type BatchCreateEntitiesPayload struct {
+	Entities []BatchEntityItem `json:"entities"`
+}
+
+func (c *Config) BatchCreateEntities(entities []BatchEntityItem) (map[string]any, error) {
+	payload := BatchCreateEntitiesPayload{Entities: entities}
+	return c.do(http.MethodPost, "/graph/entities/batch-create", payload)
+}
+
+type BatchRelationItem struct {
+	SourceEntity string       `json:"source_entity"`
+	TargetEntity string       `json:"target_entity"`
+	RelationData RelationData `json:"relation_data"`
+}
+
+type BatchCreateRelationsPayload struct {
+	Relations []BatchRelationItem `json:"relations"`
+}
+
+func (c *Config) BatchCreateRelations(relations []BatchRelationItem) (map[string]any, error) {
+	payload := BatchCreateRelationsPayload{Relations: relations}
+	return c.do(http.MethodPost, "/graph/relations/batch-create", payload)
+}
+
 func (c *Config) UpdateRelation(source, target string, updatedData map[string]any) (map[string]any, error) {
 	payload := UpdateRelationPayload{
 		SourceID:    source,
@@ -322,9 +349,22 @@ func (c *Config) SetWorkspace(workspace string) error {
 func (c *Config) ClearAll() error {
 	_, err := c.do(http.MethodDelete, "/documents", nil)
 	if err != nil {
-		return fmt.Errorf("clear all: %w", err)
+		return fmt.Errorf("clear documents: %w", err)
+	}
+	_, err = c.do(http.MethodDelete, "/graph", nil)
+	if err != nil {
+		return fmt.Errorf("clear graph: %w", err)
 	}
 	log.Printf("All documents, entities, and relations cleared")
+	return nil
+}
+
+func (c *Config) ClearGraph() error {
+	_, err := c.do(http.MethodDelete, "/graph", nil)
+	if err != nil {
+		return fmt.Errorf("clear graph: %w", err)
+	}
+	log.Printf("Graph cleared")
 	return nil
 }
 

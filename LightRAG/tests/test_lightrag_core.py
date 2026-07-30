@@ -58,7 +58,6 @@ class TestLightRAGInit:
         assert rag.embedding_func_max_async == 8
         assert rag.embedding_batch_num == 10
         assert rag.auto_manage_storages_states is False
-        assert rag.max_graph_nodes == 0
         assert rag.cosine_better_than_threshold == 0.2
 
     def test_custom_params(
@@ -90,7 +89,6 @@ class TestLightRAGInit:
             enable_llm_cache=False,
             embedding_batch_num=32,
             embedding_func_max_async=16,
-            max_graph_nodes=100,
             cosine_better_than_threshold=0.5,
         )
 
@@ -104,7 +102,6 @@ class TestLightRAGInit:
         assert rag.enable_llm_cache is False
         assert rag.embedding_batch_num == 32
         assert rag.embedding_func_max_async == 16
-        assert rag.max_graph_nodes == 100
         assert rag.cosine_better_than_threshold == 0.5
 
     def test_init_without_working_dir(

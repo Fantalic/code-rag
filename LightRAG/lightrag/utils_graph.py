@@ -496,6 +496,7 @@ async def acreate_entity(
     relationships_vdb,
     entity_name: str,
     entity_data: dict[str, Any],
+    no_save: bool = False,
 ) -> dict[str, Any]:
     """Asynchronously create a new entity.
 
@@ -507,6 +508,7 @@ async def acreate_entity(
         relationships_vdb: Vector database storage for relationships
         entity_name: Name of the new entity
         entity_data: Dictionary containing entity attributes, e.g. {"description": "description", "entity_type": "type"}
+        no_save: If True, skip the final graph/index save (for batch operations)
 
     Returns:
         Dictionary containing created entity information
@@ -557,10 +559,11 @@ async def acreate_entity(
             # Update vector database
             await entities_vdb.upsert(entity_data_for_vdb)
 
-            # Save changes
-            await _edit_entity_done(
-                entities_vdb, relationships_vdb, chunk_entity_relation_graph
-            )
+            # Save changes (skip if no_save for batch operations)
+            if not no_save:
+                await _edit_entity_done(
+                    entities_vdb, relationships_vdb, chunk_entity_relation_graph
+                )
 
             logger.info(f"Entity '{entity_name}' successfully created")
             return await get_entity_info(
@@ -581,6 +584,8 @@ async def acreate_relation(
     source_entity: str,
     target_entity: str,
     relation_data: dict[str, Any],
+    no_save: bool = False,
+    skip_validation: bool = False,
 ) -> dict[str, Any]:
     """Asynchronously create a new relation between entities.
 
@@ -593,6 +598,8 @@ async def acreate_relation(
         source_entity: Name of the source entity
         target_entity: Name of the target entity
         relation_data: Dictionary containing relation attributes, e.g. {"description": "description", "keywords": "keywords"}
+        no_save: If True, skip the final graph/index save (for batch operations)
+        skip_validation: If True, skip entity existence checks (caller guarantees existence)
 
     Returns:
         Dictionary containing created relation information
@@ -601,14 +608,15 @@ async def acreate_relation(
     # Use graph database lock to ensure atomic graph and vector db operations
     async with graph_db_lock:
         try:
-            # Check if both entities exist
-            source_exists = await chunk_entity_relation_graph.has_node(source_entity)
-            target_exists = await chunk_entity_relation_graph.has_node(target_entity)
+            # Check if both entities exist (skip for batch where caller guarantees)
+            if not skip_validation:
+                source_exists = await chunk_entity_relation_graph.has_node(source_entity)
+                target_exists = await chunk_entity_relation_graph.has_node(target_entity)
 
-            if not source_exists:
-                raise ValueError(f"Source entity '{source_entity}' does not exist")
-            if not target_exists:
-                raise ValueError(f"Target entity '{target_entity}' does not exist")
+                if not source_exists:
+                    raise ValueError(f"Source entity '{source_entity}' does not exist")
+                if not target_exists:
+                    raise ValueError(f"Target entity '{target_entity}' does not exist")
 
             # Check if relation already exists — if so, merge keywords
             existing_edge = await chunk_entity_relation_graph.has_edge(
@@ -678,8 +686,9 @@ async def acreate_relation(
             # Update vector database
             await relationships_vdb.upsert(relation_data_for_vdb)
 
-            # Save changes
-            await _edit_relation_done(relationships_vdb, chunk_entity_relation_graph)
+            # Save changes (skip if no_save for batch operations)
+            if not no_save:
+                await _edit_relation_done(relationships_vdb, chunk_entity_relation_graph)
 
             logger.info(
                 f"Relation from '{source_entity}' to '{target_entity}' successfully created/updated (keywords: {keywords})"

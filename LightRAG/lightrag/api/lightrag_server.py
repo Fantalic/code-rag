@@ -750,7 +750,6 @@ def create_app(args):
             enable_llm_cache=args.enable_llm_cache,
             rerank_model_func=rerank_model_func,
             max_parallel_insert=args.max_parallel_insert,
-            max_graph_nodes=args.max_graph_nodes,
             addon_params={
                 "language": args.summary_language,
                 "entity_types": args.entity_types,
@@ -920,7 +919,6 @@ def create_app(args):
                     "enable_llm_cache_for_extract": args.enable_llm_cache_for_extract,
                     "enable_llm_cache": args.enable_llm_cache,
                     "workspace": rag_proxy.workspace,
-                    "max_graph_nodes": args.max_graph_nodes,
                     # Rerank configuration
                     "enable_rerank": rerank_model_func is not None,
                     "rerank_binding": args.rerank_binding,

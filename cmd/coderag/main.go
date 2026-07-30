@@ -613,6 +613,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 	updatedEntities := 0
 	deletedEntities := 0
 
+	var entityBatch []crud.BatchEntityItem
+
 	for _, action := range entityActions {
 		switch action.Kind {
 		case diff.ActionDelete:
@@ -623,18 +625,15 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			}
 		case diff.ActionCreate:
 			data := filter.FilterEntityData(action.Data)
-			_, err := client.CreateEntity(
-				action.EntityName,
-				filter.FilterDescription(getString(data, "description")),
-				getString(data, "entity_type", "UNKNOWN"),
-				getString(data, "source_id", ""),
-				getString(data, "file_path", ""),
-			)
-			if err == nil {
-				createdEntities++
-			} else {
-				log.Printf("ERROR creating entity %q (type=%s, file=%s): %v", action.EntityName, getString(data, "entity_type", "UNKNOWN"), getString(data, "file_path", ""), err)
-			}
+			entityBatch = append(entityBatch, crud.BatchEntityItem{
+				EntityName: action.EntityName,
+				EntityData: crud.EntityData{
+					Description: filter.FilterDescription(getString(data, "description")),
+					EntityType:  getString(data, "entity_type", "UNKNOWN"),
+					SourceID:    getString(data, "source_id", ""),
+					FilePath:    getString(data, "file_path", ""),
+				},
+			})
 		case diff.ActionUpdate:
 			data := filter.FilterEntityData(action.Data)
 			entityType := getString(data, "entity_type", "")
@@ -650,6 +649,19 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 		}
 	}
 
+	if len(entityBatch) > 0 {
+		result, err := client.BatchCreateEntities(entityBatch)
+		if err == nil {
+			if data, ok := result["data"].(map[string]any); ok {
+				if c, ok := data["created"].(float64); ok {
+					createdEntities = int(c)
+				}
+			}
+		} else {
+			log.Printf("ERROR batch creating entities: %v", err)
+		}
+	}
+
 	log.Printf("Entities: created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
 
 	oldRelMap := loadCurrentRelationsScan(client)
@@ -658,6 +670,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 
 	createdRels := 0
 	deletedRels := 0
+
+	var relBatch []crud.BatchRelationItem
 
 	for _, action := range relActions {
 		switch action.Kind {
@@ -669,20 +683,17 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			}
 		case diff.ActionCreate:
 			data := filter.FilterRelationData(action.Data)
-			_, err := client.CreateRelation(
-				action.Source,
-				action.Target,
-				filter.FilterDescription(getString(data, "description")),
-				getString(data, "keywords"),
-				getFloat(data, "weight", 1.0),
-				getString(data, "source_id", ""),
-				getString(data, "file_path", ""),
-			)
-			if err == nil {
-				createdRels++
-			} else {
-				log.Printf("ERROR creating relation %q → %q (keywords=%s, weight=%.1f, file=%s): %v", action.Source, action.Target, getString(data, "keywords"), getFloat(data, "weight", 1.0), getString(data, "file_path", ""), err)
-			}
+			relBatch = append(relBatch, crud.BatchRelationItem{
+				SourceEntity: action.Source,
+				TargetEntity: action.Target,
+				RelationData: crud.RelationData{
+					Description: filter.FilterDescription(getString(data, "description")),
+					Keywords:    getString(data, "keywords"),
+					Weight:      getFloat(data, "weight", 1.0),
+					SourceID:    getString(data, "source_id", ""),
+					FilePath:    getString(data, "file_path", ""),
+				},
+			})
 		case diff.ActionUpdate:
 			data := filter.FilterRelationData(action.Data)
 			if _, err := client.UpdateRelation(action.Source, action.Target, data); err == nil {
@@ -690,6 +701,19 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 			} else {
 				log.Printf("ERROR updating relation %q → %q: %v", action.Source, action.Target, err)
 			}
+		}
+	}
+
+	if len(relBatch) > 0 {
+		result, err := client.BatchCreateRelations(relBatch)
+		if err == nil {
+			if data, ok := result["data"].(map[string]any); ok {
+				if c, ok := data["created"].(float64); ok {
+					createdRels = int(c)
+				}
+			}
+		} else {
+			log.Printf("ERROR batch creating relations: %v", err)
 		}
 	}
 

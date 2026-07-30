@@ -1,3 +1,5 @@
+name: coderag
+
 services:
   lightrag:
     build:
