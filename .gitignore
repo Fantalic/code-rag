@@ -1,4 +1,4 @@
-Python-related files (root + coderag-mcp sources)
+Python-related files (coderag/lightrag + coderag/mcp sources)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -84,19 +84,18 @@ output*/
 # Node / Frontend
 node_modules/
 dist-ssr/
-LightRAG/lightrag/api/webui/
+/coderag/lightrag/lightrag/api/webui/
 
 # Framework-specific
 local_neo4jWorkDir/
 neo4jWorkDir/
 
 # Binary build artifacts
-coderag
-coderag.exe
+/coderag.exe
 
 # C# Analyser
 analysers/c_sharp/
-analysers/csharp/csharp_analyser.exe
+/coderag/cli/analysers/csharp/csharp_analyser.exe
 
 # Moved outside repo
 test-csharp-project/
@@ -120,6 +119,9 @@ gui/
 
 _dev_docs/
 .opencode/
+
+# Runtime output (scans write analyser results + logs here)
+.coderag/
 
 *.exe
 mcp_err.txt

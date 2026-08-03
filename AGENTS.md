@@ -6,36 +6,35 @@
 
 ```
 code-rag/
-├── cmd/
-│   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
-├── pkg/
-│   ├── watchdog/                ← File watcher (importable Go package)
-│   │   ├── watcher/             ← fsnotify + git observer
-│   │   ├── diff/                ← Entity/relation diff engine
-│   │   ├── pipeline/            ← Pipeline orchestration
-│   │   ├── parser/              ← Analyser output parsers
-│   │   ├── router/              ← File extension → analyser mapping
-│   │   ├── filter/              ← Security filter (PII/keys/secrets)
-│   │   └── crud/                ← LightRAG HTTP CRUD client
-│   └── lightrag/                ← LightRAG HTTP API client
-├── analysers/                   ← Language analysers
-│   └── csharp/                  ← C# Go native analyser
-├── LightRAG/                    ← Python RAG engine (Docker)
-│   ├── lightrag/                ← Core Python package
-│   ├── lightrag-api/            ← FastAPI service
-│   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── coderag-mcp/         ← Python MCP server (Docker, 15 tools, SSE)
-├── .opencode/                   ← CodeGraph prompts + opencode.json
-├── Dockerfile                   ← LightRAG + WebUI image
-├── docker-compose.yml           ← LightRAG + optional Ollama
-└── go.mod
+├── coderag/                      ← All owned code
+│   ├── cli/                      ← Go CLI (orchestrator)
+│   │   ├── main.go               ← Entry point
+│   │   ├── go.mod
+│   │   ├── watcher/              ← File watcher
+│   │   ├── diff/                 ← Entity/relation diff engine
+│   │   ├── pipeline/             ← Pipeline orchestration
+│   │   ├── parser/               ← Analyser output parser
+│   │   ├── router/               ← File extension → analyser mapping
+│   │   ├── filter/               ← Security filter (PII/keys/secrets)
+│   │   ├── crud/                 ← LightRAG HTTP CRUD client
+│   │   └── analysers/csharp/     ← C# Go native analyser
+│   ├── lightrag/                 ← Python RAG engine (Docker)
+│   │   ├── lightrag/             ← Core Python package
+│   │   ├── lightrag-api/         ← FastAPI service
+│   │   └── lightrag_webui/       ← React 19 + TypeScript UI
+│   ├── mcp/                      ← Python MCP server (Docker)
+│   └── tests/                    ← Integration tests
+├── scripts/                      ← Setup & build scripts
+├── docker-compose.yml
+├── Dockerfile
+└── _dev_docs/                    ← Private working docs (gitignored)
 ```
 
 ## Quick Start
 
-```powershell
+```bash
 # Build coderag CLI
-go build -o coderag ./cmd/coderag
+go build -C coderag/cli -o coderag .
 
 # Start everything (Docker + file watcher)
 coderag start <project-dir>
@@ -47,17 +46,38 @@ coderag mcp <project-dir>
 ## Development Commands
 
 ```bash
-go build -o coderag ./cmd/coderag           # Build CLI
-go build -o csharp_analyser.exe ./cmd/csharp_analyser/  # Build C# analyser
-copy csharp_analyser.exe analysers\csharp\   # Deploy (Windows)
-coderag start <dir>                          # Docker + file watcher
-coderag scan <dir>                           # Run analyser (--clean to reset)
-coderag mcp .                                # MCP bridge for opencode
-docker compose up -d                         # Start LightRAG + Ollama
-go test ./...                                # Go tests
-pytest tests/ -v                             # Python tests
-go vet ./...                                 # Lint Go
-ruff check .                                 # Lint Python
+# Build CLI
+go build -C coderag/cli -o coderag .
+
+# Build C# analyser
+cd coderag/cli/analysers/csharp && go build -o csharp_analyser.exe ./cmd/csharp_analyser/ && cd ../../..
+
+# Deploy C# analyser (Windows)
+copy coderag\cli\analysers\csharp\csharp_analyser.exe _dev_docs\analysers\csharp\
+
+# Docker + file watcher
+coderag start <dir>
+
+# Run analyser
+coderag scan <dir>
+
+# MCP bridge
+coderag mcp .
+
+# Start Docker services
+docker compose up -d
+
+# Go tests
+go test ./...
+
+# Python tests
+pytest tests/ -v
+
+# Lint Go
+go vet ./...
+
+# Lint Python
+ruff check .
 ```
 
 ## Coding Style
@@ -65,8 +85,8 @@ ruff check .                                 # Lint Python
 ### Go
 - Standard Go formatting (`gofmt`)
 - Error handling: return errors, log at caller
-- Use `pkg/lightrag` client for all LightRAG API calls
-- Use `pkg/watchdog` for file watching and diff logic
+- Use `crud` package for all LightRAG API calls
+- Use `watchdog/*` packages for file watching and diff logic
 - goroutines for concurrent watchers, channels for events
 - snake_case for filenames, PascalCase for exported identifiers
 
@@ -95,17 +115,16 @@ ruff check .                                 # Lint Python
 
 | File | What it's for | Keep updated |
 |------|---------------|--------------|
-| `docs/DOCUMENTATION.md` | High-level system reference — architecture, components, pipeline, security | ✅ **Always** |
-| `docs/API_REFERENCE.md` | Detailed API schemas — every endpoint with request/response | ✅ **Always** |
-| `docs/PLAN.md` | High-level roadmap — where we're going, what's next | ✅ Update when phases change |
-| `docs/CURRENT_CONTEXT.md` | Session memory — current state, what's been done, key decisions | ✅ Update after each task |
-| `docs/TASK.md` | Active task breakdown — detailed steps for what we're building now | ✅ Update before/after each task |
+| `DOCUMENTATION.md` | High-level system reference — architecture, components, pipeline, security | ✅ **Always** |
+| `_dev_docs/ARCHITECTURE.md` | Architecture overview | ✅ **Always** |
+| `_dev_docs/TASK.md` | Active task breakdown | ✅ Update before/after each task |
+| `_dev_docs/CURRENT_CONTEXT.md` | Session memory | ✅ Update after each task |
 
 ## Current Task
-The active sub-task prompt is in `docs/TASK.md`. Read it first before starting any work on the current phase.
+The active sub-task prompt is in `_dev_docs/TASK.md`. Read it first before starting any work on the current phase.
 
 ## CodeGraph Scanning
-See `.opencode/` for detailed agent instructions on scanning codebases:
+See `_dev_docs/` for detailed agent instructions on scanning codebases:
 - `code-graph.md`: Knowledge graph entity/relationship model
 - `scan-complete.md`: Full project scanning (6-task approach)
 - `scan-targeted.md`: Targeted entry-point scanning (6-task approach)
@@ -118,5 +137,5 @@ See `.opencode/` for detailed agent instructions on scanning codebases:
 
 ## Security
 - Never commit `.env` or secrets
-- Copy `.env.example` and `config.ini.example` for configuration
+- Copy `.env.example` for configuration
 - Use `LIGHTRAG_*` environment variables for storage backends

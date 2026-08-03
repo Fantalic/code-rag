@@ -278,34 +278,28 @@ Agent: "Add is called by ShoppingCart.CalculateTotal and TaxEngine.ApplyTax."
 
 ```
 code-rag/
-├── cmd/coderag/              ← CLI entry point → `coderag` binary
-├── pkg/
-│   ├── watchdog/             ← File watcher, diff engine, pipeline, CRUD
-│   │   ├── watcher/          ← fsnotify + git observer
-│   │   ├── diff/             ← Entity/relation diff (create/update/delete)
-│   │   ├── pipeline/         ← Orchestration + relation dedup
-│   │   ├── parser/           ← C# analyser output parser
-│   │   ├── router/           ← File extension → analyser mapping
-│   │   ├── filter/           ← Security filter (PII/keys/secrets)
-│   │   └── crud/             ← LightRAG HTTP client
-│   ├── lightrag/             ← LightRAG HTTP API client
-│   └── mcp/                  ← MCP server SDK (mark3labs/mcp-go)
-├── analysers/
-│   └── csharp/               ← Go native C# analyser
-├── LightRAG/                 ← Python RAG engine (Docker)
-│   ├── lightrag/             ← Core RAG + graph CRUD
-│   ├── lightrag-api/         ← FastAPI app
-│   └── lightrag_webui/       ← React 19 + TypeScript UI
-├── daniel-lightrag-mcp/      ← Python MCP server (Docker)
-│   └── src/daniel_lightrag_mcp/
-│       ├── server.py         ← MCP tool implementations
-│       └── client.py         ← HTTP client for LightRAG
-├── scripts/
-│   ├── setup.sh              ← Linux/macOS one-shot setup
-│   └── setup.ps1             ← Windows one-shot setup
+├── coderag/                      ← All owned code
+│   ├── cli/                      ← Go CLI (orchestrator)
+│   │   ├── main.go               ← Entry point
+│   │   ├── go.mod
+│   │   ├── watcher/              ← File watcher
+│   │   ├── diff/                 ← Entity/relation diff engine
+│   │   ├── pipeline/             ← Pipeline orchestration
+│   │   ├── parser/               ← Analyser output parser
+│   │   ├── router/               ← File extension → analyser mapping
+│   │   ├── filter/               ← Security filter (PII/keys/secrets)
+│   │   ├── crud/                 ← LightRAG HTTP CRUD client
+│   │   └── analysers/csharp/     ← C# Go native analyser
+│   ├── lightrag/                 ← Python RAG engine (Docker)
+│   │   ├── lightrag/             ← Core Python package
+│   │   ├── lightrag-api/         ← FastAPI service
+│   │   └── lightrag_webui/       ← React 19 + TypeScript UI
+│   ├── mcp/                      ← Python MCP server (Docker)
+│   └── tests/                    ← Integration tests
+├── scripts/                      ← Setup & build scripts
 ├── docker-compose.yml
 ├── Dockerfile
-└── docs/                     ← ARCHITECTURE.md, DOCUMENTATION.md, API_REFERENCE.md
+└── _dev_docs/                    ← Private working docs (gitignored)
 ```
 
 ---

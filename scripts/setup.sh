@@ -164,15 +164,14 @@ build_coderag() {
         err "Go not found — cannot build coderag"
         exit 1
     fi
-    go build -o "$ROOT/coderag" ./cmd/coderag/
+    go build -C "$ROOT/coderag/cli" -o "$ROOT/coderag" .
     ok "coderag built: $ROOT/coderag"
 
     # Also build C# analyser
     info "Building C# analyser ..."
-    cd "$ROOT/analysers/csharp"
+    cd "$ROOT/coderag/cli/analysers/csharp"
     if [ -f go.mod ]; then
-        go build -o "$ROOT/analysers/csharp/csharp_analyser" ./cmd/csharp_analyser/ 2>/dev/null ||
-        go build -o "$ROOT/analysers/csharp/csharp_analyser" . 2>/dev/null ||
+        go build -o "$ROOT/coderag/cli/analysers/csharp/csharp_analyser" ./cmd/csharp_analyser 2>/dev/null ||
         warn "C# analyser build skipped (no main package found)"
     fi
     cd "$ROOT"
@@ -224,7 +223,7 @@ echo "  Setup Complete!"
 echo "==============================="
 echo ""
 echo "  coderag CLI:    $ROOT/coderag"
-echo "  C# analyser:    $ROOT/analysers/csharp/csharp_analyser"
+echo "  C# analyser:    $ROOT/coderag/cli/analysers/csharp/csharp_analyser"
 echo "  LightRAG API:   http://localhost:9621"
 echo "  MCP SSE:        http://localhost:9622"
 echo ""

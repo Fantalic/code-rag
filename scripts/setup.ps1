@@ -184,7 +184,7 @@ function Build-CodeRAG {
         Write-Err "Go not found. Cannot build coderag."
         exit 1
     }
-    & go build -o "$ROOT\coderag.exe" .\cmd\coderag\
+    & go build -C "$ROOT\coderag\cli" -o "$ROOT\coderag.exe" .
     if ($LASTEXITCODE -eq 0) {
         Write-OK "coderag built: $ROOT\coderag.exe"
     } else {
@@ -193,9 +193,9 @@ function Build-CodeRAG {
     }
 
     Write-Info "Building C# analyser ..."
-    Push-Location "$ROOT\analysers\csharp"
+    Push-Location "$ROOT\coderag\cli\analysers\csharp"
     if (Test-Path go.mod) {
-        & go build -o "$ROOT\analysers\csharp\csharp_analyser.exe" . 2>$null
+        & go build -o "$ROOT\coderag\cli\analysers\csharp\csharp_analyser.exe" ./cmd/csharp_analyser 2>$null
         if ($LASTEXITCODE -eq 0) {
             Write-OK "C# analyser built"
         } else {
@@ -256,7 +256,7 @@ Write-Host @"
 ===============================
 
   coderag CLI:    $ROOT\coderag.exe
-  C# analyser:    $ROOT\analysers\csharp\csharp_analyser.exe
+  C# analyser:    $ROOT\coderag\cli\analysers\csharp\csharp_analyser.exe
   LightRAG API:   http://localhost:9621
   MCP SSE:        http://localhost:9622
 

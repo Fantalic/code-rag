@@ -80,42 +80,37 @@ Docker hosts the long-running Python services (LightRAG, MCP) where containeriza
 
 ```
 code-rag/
-├── cmd/
-│   └── coderag/main.go          ← CLI entry point → builds `coderag` binary
-├── pkg/
-│   ├── watchdog/                ← File watcher (importable Go package)
-│   │   ├── watcher/             ← fsnotify + git observer
-│   │   ├── diff/                ← Entity/relation diff engine
-│   │   ├── pipeline/            ← Pipeline orchestration
-│   │   ├── parser/              ← Analyser output parsers (csharp.go)
-│   │   ├── router/              ← File extension → analyser mapping
-│   │   ├── filter/              ← Security filter (PII/keys/secrets)
-│   │   └── crud/                ← LightRAG HTTP CRUD client
-│   ├── lightrag/                ← LightRAG HTTP API client
-│   └── mcp/                     ← MCP server SDK (mark3labs/mcp-go)
-├── analysers/                   ← Language analysers (host-side, native Go)
-│   └── csharp/                  ← Go native C# analyser
-├── LightRAG/                    ← Python RAG engine (Docker)
-│   ├── lightrag/                ← Core Python package
-│   ├── lightrag-api/            ← FastAPI service
-│   └── lightrag_webui/          ← React 19 + TypeScript UI
-├── coderag-mcp/         ← Python MCP server (Docker)
-│   └── src/coderag_mcp/ ← 22 MCP tools, SSE transport
-├── Dockerfile                   ← Multi-stage: LightRAG + WebUI + MCP
-├── docker-compose.yml           ← lightrag (:9621) + mcp (:9622)
-├── go.mod
-└── .opencode/
-    └── opencode.json            ← MCP config: ["coderag", "mcp", "."]
+├── coderag/                      ← All owned code
+│   ├── cli/                      ← Go CLI (orchestrator)
+│   │   ├── main.go               ← Entry point → builds `coderag` binary
+│   │   ├── watcher/              ← fsnotify + git observer
+│   │   ├── diff/                 ← Entity/relation diff engine
+│   │   ├── pipeline/             ← Pipeline orchestration
+│   │   ├── parser/               ← Analyser output parsers (csharp.go)
+│   │   ├── router/               ← File extension → analyser mapping
+│   │   ├── filter/               ← Security filter (PII/keys/secrets)
+│   │   ├── crud/                 ← LightRAG HTTP CRUD client
+│   │   └── analysers/csharp/     ← Go native C# analyser
+│   ├── lightrag/                 ← Python RAG engine (Docker)
+│   │   ├── lightrag/             ← Core Python package
+│   │   ├── lightrag-api/         ← FastAPI service
+│   │   └── lightrag_webui/       ← React 19 + TypeScript UI
+│   ├── mcp/                      ← Python MCP server (Docker)
+│   │   └── src/coderag_mcp/      ← MCP tools, SSE transport
+│   └── tests/                    ← Integration tests
+├── scripts/                      ← Setup & build scripts
+├── Dockerfile                    ← Multi-stage: LightRAG + WebUI + MCP
+├── docker-compose.yml            ← lightrag (:9621) + mcp (:9622)
+└── _dev_docs/                    ← Private working docs (gitignored)
 ```
 
 ### Package roles
 
 | Package | Import path | Purpose |
 |---------|-------------|---------|
-| `pkg/watchdog` | `github.com/coderag/pkg/watchdog` | File watching, diff engine, pipeline, CRUD client |
-| `pkg/lightrag` | `github.com/coderag/pkg/lightrag` | LightRAG HTTP client |
-| `cmd/coderag` | — | CLI binary entry point (`start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`) |
-| `coderag-mcp` | — | Python MCP server running in Docker (stdio↔SSE bridge) |
+| `coderag/cli` | `github.com/coderag` | CLI binary (`start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`) + watcher, diff engine, pipeline, CRUD client |
+| `coderag/cli/analysers/csharp` | `github.com/coderag/analysers/csharp` | Go-native C# analyser (standalone binary, subprocess) |
+| `coderag/mcp` | `coderag_mcp` (installed as `coderag-mcp`) | Python MCP server running in Docker (stdio↔SSE bridge) |
 
 ---
 
@@ -143,7 +138,7 @@ project-root/
 └── src/                       # Your code
 ```
 
-**Detection:** `LightRAG/lightrag/api/config.py:find_project_root()` searches from cwd upward for `.coderag` folder. Falls back to `./rag_storage` (legacy).
+**Detection:** `coderag/lightrag/lightrag/api/config.py:find_project_root()` searches from cwd upward for `.coderag` folder. Falls back to `./rag_storage` (legacy).
 
 **Env var override:** `LIGHTRAG_WORKING_DIR` forces the working directory. Used by `coderag start` to point LightRAG at the correct `.coderag/rag_storage`.
 
@@ -295,12 +290,12 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 
 ### MCP Server Architecture
 
-The Go bridge (`cmd/coderag/main.go`) handles:
+The Go bridge (`coderag/cli/main.go`) handles:
 1. Ensuring Docker services are up
 2. Starting watchdog in background goroutine
 3. Bridging stdio JSON-RPC ↔ SSE to Python MCP server
 
-The Python MCP server (`coderag-mcp`) handles:
+The Python MCP server (`coderag/mcp`) handles:
 - Tool dispatch via LightRAG HTTP client
 - 17 tool definitions and handlers (was 15, now 17 with the 4 Phase 32 additions)
 - SSE transport on port 9622
@@ -311,17 +306,17 @@ The Python MCP server (`coderag-mcp`) handles:
 
 ## 6. Watchdog Pipeline (Go package)
 
-The file watcher is a Go package at `pkg/watchdog/` imported by the `coderag` CLI.
+The file watcher is a Go package at `coderag/cli/` (module `github.com/coderag`) imported by the `coderag` CLI.
 
 ```
-pkg/watchdog/
-├── watcher/observer.go         ← fsnotify + git watcher, worker pool, debounce
-├── diff/engine.go              ← Entity/relation diff engine (create/update/delete)
-├── filter/security.go          ← Security filter (PII/keys/secrets)
-├── router/file.go              ← File extension → analyser mapping
-├── parser/csharp.go            ← C# analyser output parser
-├── pipeline/run.go             ← Pipeline orchestration + relation dedup
-└── crud/client.go              ← Graph CRUD HTTP client
+coderag/cli/
+├── watcher/observer.go          ← fsnotify + git watcher, worker pool, debounce
+├── diff/engine.go               ← Entity/relation diff engine (create/update/delete)
+├── filter/security.go           ← Security filter (PII/keys/secrets)
+├── router/file.go               ← File extension → analyser mapping
+├── parser/csharp.go             ← C# analyser output parser
+├── pipeline/run.go              ← Pipeline orchestration + relation dedup
+└── crud/client.go               ← Graph CRUD HTTP client
 ```
 
 ### Dual-path Design
@@ -522,7 +517,7 @@ docker compose -f <compose-file> up -d  # or podman-compose
 ### Building the binary
 
 ```bash
-go build -o coderag ./cmd/coderag
+go build -C coderag/cli -o coderag .
 ```
 
 The binary is self-contained (~20MB, no runtime dependencies) and works on Windows, Linux, and macOS.
