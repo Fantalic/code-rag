@@ -110,11 +110,18 @@ func TestParserRelationsToMap(t *testing.T) {
 		t.Fatalf("expected 3 relation keys, got %d", len(result))
 	}
 
-	// Verify source_id and file_path are present when set
-	key1 := "Person|Name|property, has"
+	// Verify source_id and file_path are present when set. Keys are canonical
+	// (direction-agnostic), true direction is preserved in source/target.
+	key1 := "Name|Person|property, has"
 	m1, ok := result[key1]
 	if !ok {
 		t.Fatalf("key %q not found in result", key1)
+	}
+	if s, _ := m1["source"].(string); s != "Person" {
+		t.Errorf("source = %q, expected %q (true direction preserved)", s, "Person")
+	}
+	if tg, _ := m1["target"].(string); tg != "Name" {
+		t.Errorf("target = %q, expected %q (true direction preserved)", tg, "Name")
 	}
 	if sid, _ := m1["source_id"].(string); sid != "Person.cs.txt" {
 		t.Errorf("source_id = %q, expected %q", sid, "Person.cs.txt")

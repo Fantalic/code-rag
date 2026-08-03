@@ -43,6 +43,8 @@ var ignoredKeys = map[string]bool{
 	"entity_id":  true,
 	"src_id":     true,
 	"tgt_id":     true,
+	"source":     true,
+	"target":     true,
 }
 
 func dataChanged(a, b map[string]any) bool {
@@ -130,12 +132,12 @@ func DiffRelations(oldRelations, newRelations map[string]map[string]any) []*Rela
 	}
 
 	for key := range mapDiff(oldKeys, newKeys).added {
-		src, tgt, kw := splitKey(key)
+		src, tgt, kw := relationEndpoints(key, newRelations[key])
 		actions = append(actions, NewRelationAction(ActionCreate, src, tgt, kw, newRelations[key]))
 	}
 
 	for key := range mapIntersection(oldKeys, newKeys) {
-		src, tgt, kw := splitKey(key)
+		src, tgt, kw := relationEndpoints(key, newRelations[key])
 		if dataChanged(oldRelations[key], newRelations[key]) {
 			actions = append(actions, NewRelationAction(ActionUpdate, src, tgt, kw, newRelations[key]))
 		}
@@ -198,4 +200,60 @@ func splitKey(key string) (string, string, string) {
 
 func RelationKey(src, tgt, kw string) string {
 	return src + "|" + tgt + "|" + kw
+}
+
+// RelationKeyIdent builds a canonical identity key for a relation, treating it
+// as undirected. LightRAG's graph endpoint lexicographically swaps source and
+// target on read-back, so diffing against raw direction causes spurious
+// delete/create churn on every scan.
+func RelationKeyIdent(src, tgt, kw string) string {
+	if src > tgt {
+		src, tgt = tgt, src
+	}
+	return RelationKey(src, tgt, kw)
+}
+
+// relationEndpoints returns the source/target for a relation action, preferring
+// the true direction stored in the relation data when present.
+func relationEndpoints(key string, data map[string]any) (string, string, string) {
+	src, tgt, kw := splitKey(key)
+	if s, ok := data["source"].(string); ok && s != "" {
+		src = s
+	}
+	if t, ok := data["target"].(string); ok && t != "" {
+		tgt = t
+	}
+	return src, tgt, kw
+}
+
+// NormalizeRelationData builds the canonical flat relation data map from a
+// LightRAG graph edge so relation diffing compares like-for-like fields.
+func NormalizeRelationData(edge map[string]any) map[string]any {
+	props, _ := edge["properties"].(map[string]any)
+	m := map[string]any{
+		"description": str(props, "description"),
+		"keywords":    str(props, "keywords"),
+		"weight":      flt(props, "weight", 1.0),
+	}
+	if sid := str(props, "source_id"); sid != "" {
+		m["source_id"] = sid
+	}
+	if fp := str(props, "file_path"); fp != "" {
+		m["file_path"] = fp
+	}
+	return m
+}
+
+func str(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func flt(m map[string]any, key string, def float64) float64 {
+	if v, ok := m[key].(float64); ok {
+		return v
+	}
+	return def
 }

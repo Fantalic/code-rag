@@ -745,6 +745,7 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 	relActions := diff.DiffRelations(oldRelMap, newRelMap)
 
 	createdRels := 0
+	updatedRels := 0
 	deletedRels := 0
 
 	var relBatch []crud.BatchRelationItem
@@ -773,7 +774,7 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 		case diff.ActionUpdate:
 			data := filter.FilterRelationData(action.Data)
 			if _, err := client.UpdateRelation(action.Source, action.Target, data); err == nil {
-				createdRels++
+				updatedRels++
 			} else {
 				log.Printf("ERROR updating relation %q -> %q: %v", action.Source, action.Target, err)
 			}
@@ -797,7 +798,7 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 	}
 
 	log.Printf("Entities: created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
-	log.Printf("Relations: created=%d, deleted=%d", createdRels, deletedRels)
+	log.Printf("Relations: created=%d, updated=%d, deleted=%d", createdRels, updatedRels, deletedRels)
 
 	return nil
 }
@@ -834,7 +835,6 @@ func parserEntitiesToMapScan(entities []parser.Entity) map[string]map[string]any
 			"description": e.Description,
 			"source_id":   e.SourceID,
 			"file_path":   e.FilePath,
-			"methods":     e.Methods,
 		}
 	}
 	return m
@@ -843,11 +843,13 @@ func parserEntitiesToMapScan(entities []parser.Entity) map[string]map[string]any
 func parserRelationsToMapScan(relations []parser.Relation) map[string]map[string]any {
 	result := make(map[string]map[string]any)
 	for _, r := range relations {
-		key := diff.RelationKey(r.Source, r.Target, r.Keywords)
+		key := diff.RelationKeyIdent(r.Source, r.Target, r.Keywords)
 		m := map[string]any{
 			"description": r.Description,
 			"keywords":    r.Keywords,
 			"weight":      r.Weight,
+			"source":      r.Source,
+			"target":      r.Target,
 		}
 		if r.SourceID != "" {
 			m["source_id"] = r.SourceID
@@ -888,8 +890,6 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 		src := ""
 		tgt := ""
 		kw := ""
-		sid := ""
-		fp := ""
 
 		if s, ok := edge["source"].(string); ok && s != "" {
 			src = s
@@ -901,26 +901,14 @@ func loadCurrentRelationsScan(client *crud.Config) map[string]map[string]any {
 			if k, ok := props["keywords"].(string); ok {
 				kw = k
 			}
-			if s, ok := props["source_id"].(string); ok && s != "" {
-				sid = s
-			}
-			if f, ok := props["file_path"].(string); ok && f != "" {
-				fp = f
-			}
 		}
 
 		if src == "" || tgt == "" {
 			continue
 		}
 
-		key := diff.RelationKey(src, tgt, kw)
-		result[key] = edge
-		if sid != "" {
-			result[key]["source_id"] = sid
-		}
-		if fp != "" {
-			result[key]["file_path"] = fp
-		}
+		key := diff.RelationKeyIdent(src, tgt, kw)
+		result[key] = diff.NormalizeRelationData(edge)
 	}
 	return result
 }

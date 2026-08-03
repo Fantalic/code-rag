@@ -619,3 +619,54 @@ func TestRelationKey(t *testing.T) {
 		}
 	})
 }
+
+func TestRelationKeyIdent(t *testing.T) {
+	// Keys must be identical regardless of stored direction, matching
+	// LightRAG's lexicographic source/target swap on graph read-back.
+	if a, b := RelationKeyIdent("PlaceOrder", "Order", "depends_on"), RelationKeyIdent("Order", "PlaceOrder", "depends_on"); a != b {
+		t.Errorf("expected identical canonical keys, got %q vs %q", a, b)
+	}
+	if RelationKeyIdent("A", "B", "kw") != "A|B|kw" {
+		t.Errorf("expected A|B|kw, got %s", RelationKeyIdent("A", "B", "kw"))
+	}
+}
+
+func TestDiffRelationsUndirected(t *testing.T) {
+	old := map[string]map[string]any{
+		RelationKeyIdent("PlaceOrder", "Order", "depends_on"): {"weight": 0.3},
+	}
+	new := map[string]map[string]any{
+		RelationKeyIdent("Order", "PlaceOrder", "depends_on"): {"weight": 0.3, "source": "PlaceOrder", "target": "Order"},
+	}
+	actions := DiffRelations(old, new)
+	if len(actions) != 0 {
+		t.Errorf("expected 0 actions for direction-swapped identical relation, got %d", len(actions))
+	}
+}
+
+func TestNormalizeRelationData(t *testing.T) {
+	edge := map[string]any{
+		"source": "A",
+		"target": "B",
+		"id":     "A-B",
+		"type":   "DIRECTED",
+		"properties": map[string]any{
+			"description": "A.B",
+			"keywords":    "calls",
+			"weight":      0.5,
+			"source_id":   "A.cs.txt",
+			"file_path":   "/src/A.cs",
+		},
+	}
+	got := NormalizeRelationData(edge)
+	want := map[string]any{
+		"description": "A.B",
+		"keywords":    "calls",
+		"weight":      0.5,
+		"source_id":   "A.cs.txt",
+		"file_path":   "/src/A.cs",
+	}
+	if dataChanged(got, want) {
+		t.Errorf("NormalizeRelationData produced %v, want %v", got, want)
+	}
+}
