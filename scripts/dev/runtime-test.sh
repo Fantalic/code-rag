@@ -175,26 +175,6 @@ else
 
     if [ -n "$PY" ]; then
         echo
-        echo "  file_stats:"
-        stats_raw=$(call_probe "file_stats" "{}")
-        if [ -n "$stats_raw" ]; then
-            printf '%s' "$stats_raw" | "$PY" -c "
-import json,sys
-try:
-    d=json.loads(sys.stdin.read())
-    if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
-    else:
-        files=d.get('result',{}).get('files',[]) or []
-        if not files: print('    (no files)')
-        for f in files:
-            print(f\"    {f.get('file_path','')}: nodes={f.get('nodes',0)} fan_in={f.get('fan_in',0)} fan_out={f.get('fan_out',0)}\")
-except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $stats_raw"
-        fi
-
-        echo
         echo "  file_dependencies(Program.cs):"
         deps_raw=$(call_probe "file_dependencies" '{"file_path":"Program.cs"}')
         if [ -n "$deps_raw" ]; then

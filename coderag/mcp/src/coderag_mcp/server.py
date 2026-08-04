@@ -98,17 +98,12 @@ async def file_dependency_cycles() -> dict:
         return _error("file_dependency_cycles", e)
 
 
-@mcp_server.tool(name="file_stats")
+# @mcp_server.tool()
 async def get_file_stats() -> dict:
-    """Per-file stats in the codebase (nodes, fan-in, fan-out). See `coderag --agent-help`."""
-    client = _get_lightrag_client()
-    try:
-        result = await client.get_file_stats()
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_file_stats", e)
-    except Exception as e:
-        return _error("get_file_stats", e)
+    """Not exposed as MCP tool. A dedicated `dead_code` tool is planned; see TASK_dead_code_identifier.md."""
+    raise NotImplementedError(
+        "get_file_stats is not exposed. A dead_code tool is planned for the future."
+    )
 
 
 @mcp_server.tool(name="exists_in_codebase")
@@ -405,16 +400,13 @@ async def find_related_files(entity_or_file: str) -> dict:
         return _error("find_related_files", e)
 
 
-@mcp_server.tool()
+# @mcp_server.tool()
 async def get_interface_methods(interface_name: str) -> dict:
-    client = _get_lightrag_client()
-    try:
-        result = await client.get_interface_methods(interface_name)
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_interface_methods", e)
-    except Exception as e:
-        return _error("get_interface_methods", e)
+    """Not exposed as MCP tool. Interface method info is available via `node_details` and `node_relations`."""
+    raise NotImplementedError(
+        "get_interface_methods is not exposed. Use node_details or node_relations "
+        "to inspect interface members and implementing classes."
+    )
 
 
 def _serialize(result: Any) -> dict:
