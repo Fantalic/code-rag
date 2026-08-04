@@ -633,6 +633,9 @@ func TestParseComplexMethodsFixture(t *testing.T) {
 		"TestApp.ComplexMethods.Save":      "[NotNull] string key, [NotNull] string value",
 		"TestApp.ComplexMethods.ExtendTo":  "this string s, int times",
 		"TestApp.ComplexMethods.GetAsync":  "CancellationToken ct = default",
+		"TestApp.ComplexMethods.Find":      "T item, Func<T, bool> match",
+		"TestApp.ComplexMethods.GetOrigin": "()",
+		"TestApp.ComplexMethods.Filter":    "this IEnumerable<T> source, Func<T, bool> pred",
 	}
 	for _, e := range r.Entities {
 		if e.Type != EntityMethod {
@@ -645,6 +648,17 @@ func TestParseComplexMethodsFixture(t *testing.T) {
 		if !strings.Contains(e.Description, want) {
 			t.Errorf("method %q description should contain %q, got %q",
 				e.Name, want, e.Description)
+		}
+	}
+
+	// Verify no spurious METHOD entity was created from a body line
+	// (regression test for "return match(item)" inside Find<T> body).
+	for _, e := range r.Entities {
+		if e.Type != EntityMethod {
+			continue
+		}
+		if strings.HasSuffix(e.Name, ".match") {
+			t.Errorf("spurious METHOD entity detected: %q — body line should not be detected as a method declaration", e.Name)
 		}
 	}
 
@@ -661,6 +675,56 @@ func TestParseComplexMethodsFixture(t *testing.T) {
 		if !strings.Contains(rel.Description, "(") || !strings.Contains(rel.Description, ")") {
 			t.Errorf("HAS_METHOD relation %s -> %s should carry the signature, got %q",
 				rel.Source, rel.Target, rel.Description)
+		}
+	}
+}
+
+func TestMethodRegexMatchesGenericMethod(t *testing.T) {
+	line := "public T Find<T>(T item, Func<T, bool> match) where T : class"
+	m := methodRegex.FindStringSubmatch(line)
+	if m == nil {
+		t.Fatalf("methodRegex should match generic method, got nil for %q", line)
+	}
+	if got := strings.TrimSpace(m[2]); got != "Find" {
+		t.Errorf("method name = %q, want Find", got)
+	}
+	if got := strings.TrimSpace(m[4]); !strings.Contains(got, "T item") {
+		t.Errorf("params should contain 'T item', got %q", got)
+	}
+}
+
+func TestMethodRegexMatchesTupleReturn(t *testing.T) {
+	line := "public (int X, int Y) GetOrigin() => (0, 0);"
+	m := methodRegex.FindStringSubmatch(line)
+	if m == nil {
+		t.Fatalf("methodRegex should match tuple return type, got nil for %q", line)
+	}
+	if got := strings.TrimSpace(m[2]); got != "GetOrigin" {
+		t.Errorf("method name = %q, want GetOrigin", got)
+	}
+	if got := strings.TrimSpace(m[1]); !strings.Contains(got, "int X") {
+		t.Errorf("return type should contain tuple '(int X, int Y)', got %q", got)
+	}
+}
+
+func TestLooksLikeMethodRejectsKeywordPrefix(t *testing.T) {
+	p := &Parser{}
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{"return match(item) ? item : null;", false},
+		{"return 0;", false},
+		{"throw new Exception();", false},
+		{"yield return items;", false},
+		{"await Task.Delay(1);", false},
+		{"public void Foo() {", true},
+		{"void Foo() => 0;", true},
+		{"public T Bar<T>() => default;", true},
+	}
+	for _, c := range cases {
+		if got := p.looksLikeMethod(c.line); got != c.want {
+			t.Errorf("looksLikeMethod(%q) = %v, want %v", c.line, got, c.want)
 		}
 	}
 }

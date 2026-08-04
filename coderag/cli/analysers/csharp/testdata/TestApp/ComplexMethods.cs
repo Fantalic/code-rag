@@ -53,5 +53,12 @@ namespace TestApp
         {
             return match(item) ? item : null;
         }
+
+        public (int X, int Y) GetOrigin() => (0, 0);
+
+        public IEnumerable<T> Filter<T>(this IEnumerable<T> source, Func<T, bool> pred) where T : class
+        {
+            return source.Where(pred);
+        }
     }
 }

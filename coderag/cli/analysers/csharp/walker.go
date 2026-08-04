@@ -12,7 +12,7 @@ import (
 var (
 	classRegex       = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|new|unsafe|async|extern|virtual|override)\s+)*(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([A-Za-z_][A-Za-z0-9_<>,\[\].\s]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_<>,\[\].]*)*))?\s*\{?\s*$`)
 	classSimpleRegex = regexp.MustCompile(`^\s*(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([A-Za-z_][A-Za-z0-9_<>,\[\].\s]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_<>,\[\].]*)*))?\s*\{?\s*$`)
-	methodRegex      = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|new|unsafe|async|extern|virtual|override)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:where\s|=>|\s*[{;])?`)
+	methodRegex      = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|new|unsafe|async|extern|virtual|override)\s+)*(?:(\([A-Za-z_0-9_<>,\[\]\s,]+\)|[A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)(<[^>]*>)?\s*\(([^)]*)\)\s*(?:where\s|=>|\s*[{;])?`)
 	propRegex        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|new|virtual|override|abstract|sealed|readonly)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*(?:get|set)`)
 	autoPropRegex    = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|new|virtual|override|abstract|sealed|readonly)\s+)*(?:([A-Za-z_][A-Za-z0-9_<>,\[\]]*(?:\?)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\{[^}]*\}`)
 	callRegex        = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
@@ -318,7 +318,21 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 }
 
 func (p *Parser) looksLikeMethod(line string) bool {
-	if strings.Contains(line, "=>") || strings.HasSuffix(strings.TrimSpace(line), "{") {
+	trimmed := strings.TrimSpace(line)
+	// Reject lines starting with non-modifier keywords. These are
+	// statements, not method declarations.
+	for _, kw := range []string{"return ", "throw ", "yield ", "await "} {
+		if strings.HasPrefix(trimmed, kw) {
+			return false
+		}
+	}
+	if strings.HasPrefix(trimmed, "return\t") || trimmed == "return" ||
+		strings.HasPrefix(trimmed, "throw\t") || trimmed == "throw" ||
+		strings.HasPrefix(trimmed, "yield\t") || trimmed == "yield" ||
+		strings.HasPrefix(trimmed, "await\t") || trimmed == "await" {
+		return false
+	}
+	if strings.Contains(line, "=>") || strings.HasSuffix(trimmed, "{") {
 		return true
 	}
 	return strings.Contains(line, "(") && strings.Contains(line, ")")
@@ -345,7 +359,7 @@ func extractVisibility(line string) string {
 func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 	returnType := strings.TrimSpace(m[1])
 	methodName := strings.TrimSpace(m[2])
-	params := strings.TrimSpace(m[3])
+	params := strings.TrimSpace(m[4])
 
 	cls := p.currentClass()
 	if cls == "" {
