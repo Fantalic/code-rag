@@ -131,7 +131,7 @@ The MCP server exposes 18 curated tools. The **graph + file tools** are fast and
 | "Find entities matching X" | `get_nodes` (filter by entity_type, name, file_path, connected_to) |
 | "Tell me about X" | `node_details` (view: details, relations, neighbors) |
 | "Codebase overview" | `get_knowledge_graph` |
-| "File ↔ entity bridge" | `get_entities_in_file`, `find_related_files`, `get_related_files` |
+| "File ↔ entity bridge" | `find_related_files`, `get_related_files` |
 | "File-level views" | `get_file_stats`, `get_file_dependencies`, `file_dependency_cycles` |
 | "Structured retrieval" | `query_data` |
 | "Annotate" | `add_note_to_entity` |

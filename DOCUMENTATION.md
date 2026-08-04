@@ -246,7 +246,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 |------|-------------|--------|
 | `get_codebase_stats` | Entity/relation counts by type, unique files, visibility counts | ❌ HTTP 500 — internal split error |
 | `list_entities_by_type` | Paginated list of entities by type (CLASS, METHOD, etc.) | ❌ Server-side filter broken — always empty |
-| `get_entities_in_file` | Filter graph by source file path | ⚠️ Windows backslash path mismatch |
+| ~~`get_entities_in_file`~~ | ~~Filter graph by source file path~~ | ❌ Dropped (use `get_nodes(file_path=...)` — substring match, no Windows path issue) |
 | `search_entities` | Regex search on entity names and descriptions | ✅ Working |
 | `get_incoming_relations` | Entities pointing TO this entity | ✅ (via get_entity_neighbors) |
 | `get_outgoing_relations` | Entities this entity points TO | ✅ (via get_entity_neighbors) |
@@ -265,7 +265,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | `get_related_files` | Limited | Returns file paths but no code snippets |
 | `get_codebase_stats` | Broken | HTTP 500 internal error |
 | `list_entities_by_type` | Broken | Server-side entity_type filter returns empty |
-| `get_entities_in_file` | Limited | Windows path backslash mismatch |
+| ~~`get_entities_in_file`~~ | ~~Limited~~ | ❌ Dropped (use `get_nodes(file_path=...)`) |
 | `add_note_to_entity` | Limited | Creates notes but reports false error |
 
 ### External Agent Quick Reference — Calling MCP Tools Directly
@@ -283,7 +283,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | `get_codebase_stats` | `/graph/label/list` + `/graphs?label=*&max_depth=3` | GET + GET |
 | `list_entities_by_type` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter | GET |
 | `search_entities` | `/graphs?label=*&max_depth=3&max_nodes=1000` + regex filter | GET |
-| `get_entities_in_file` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter by `file_path` | GET |
+| ~~`get_entities_in_file`~~ | ~~`/graphs?label=*&max_depth=3&max_nodes=1000` + filter by `file_path`~~ | ❌ Dropped |
 | `get_related_files` | `/query/data` | POST |
 
 ### MCP Server Architecture

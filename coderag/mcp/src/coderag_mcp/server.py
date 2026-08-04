@@ -262,17 +262,12 @@ async def get_nodes(
         return _error("get_nodes", e)
 
 
-@mcp_server.tool(name="nodes_in_file")
+# @mcp_server.tool()
 async def get_entities_in_file(file_path: str) -> dict:
-    """Return all nodes defined in a file. See `coderag --agent-help`."""
-    client = _get_lightrag_client()
-    try:
-        result = await client.get_entities_in_file(file_path)
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_entities_in_file", e)
-    except Exception as e:
-        return _error("get_entities_in_file", e)
+    """Not exposed as MCP tool. Superseded by `get_nodes(file_path=...)` which uses substring matching (more robust on Windows paths)."""
+    raise NotImplementedError(
+        "nodes_in_file is not exposed. Use get_nodes(file_path='OrderService.cs') instead."
+    )
 
 
 # @mcp_server.tool()
