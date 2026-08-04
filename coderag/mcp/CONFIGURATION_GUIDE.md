@@ -126,7 +126,7 @@ curl http://localhost:9621/health
 ### Knowledge Graph Tools (7 tools)
 
 11. **`get_knowledge_graph`** - Retrieve the knowledge graph from LightRAG
-12. **`get_graph_labels`** - Get labels from the knowledge graph
+12. ~~**`get_graph_labels`**~~ - ❌ Dropped from MCP surface (internal only)
 13. **`check_entity_exists`** - Check if an entity exists in the knowledge graph
 14. **`update_entity`** - Update an entity in the knowledge graph
 15. **`update_relation`** - Update a relation in the knowledge graph

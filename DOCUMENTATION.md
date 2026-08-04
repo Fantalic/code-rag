@@ -229,7 +229,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | Tool | Description | Status |
 |------|-------------|--------|
 | `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) | ✅ Working |
-| `get_graph_labels` | Get all entity/relation label types | ✅ Working |
+| ~~`get_graph_labels`~~ | ~~Get all entity/relation label types~~ | ❌ Dropped (use `nodes_by_type` / `node_neighbors`) |
 | `check_entity_exists` | Check if entity exists by name | ✅ Working |
 | `add_note_to_entity` | Attach embedded note to entity | ⚠️ Creates note but reports failure |
 | `get_related_files` | Find files related to a query (semantic search) | ⚠️ Returns file paths only — no snippets |
@@ -256,7 +256,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 |------|--------|-------|
 | `check_entity_exists` | Very Useful | Fast, reliable, boolean responses |
 | `get_knowledge_graph` | Very Useful | Returns full graph structure with nodes+edges |
-| `get_graph_labels` | Useful | Shows available entity/relation types |
+| ~~`get_graph_labels`~~ | ~~Useful~~ | ❌ Dropped (use `nodes_by_type` / `node_neighbors`) |
 | `get_entity_details` | Very Useful | Full details with relations |
 | `get_entity_neighbors` | Very Useful | Shows inheritance, implementation, calls |
 | `search_entities` | Useful | Regex pattern matching on names/descriptions |
@@ -276,7 +276,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 |---|---|---|
 | `check_entity_exists` | `/graph/entity/exists?name=XYZ` | GET |
 | `get_knowledge_graph` | `/graphs?label=*&max_depth=3&max_nodes=1000` | GET |
-| `get_graph_labels` | `/graph/label/list` | GET |
+| ~~`get_graph_labels`~~ | ~~`/graph/label/list`~~ | ❌ Dropped |
 | `get_entity_details` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter | GET |
 | `get_entity_neighbors` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter | GET |
 | `query` | `/query` | POST |

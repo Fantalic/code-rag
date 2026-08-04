@@ -137,23 +137,18 @@ async def get_knowledge_graph(max_depth: int = 1) -> dict:
         return _error("get_knowledge_graph", e)
 
 
-@mcp_server.tool(name="codebase_types")
+# @mcp_server.tool()
 async def get_graph_labels(
     node: str = "",
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    """Distinct entity types and relation keywords in the codebase; pass a member name to limit to its connections (paginated). See `coderag --agent-help`."""
-    client = _get_lightrag_client()
-    try:
-        result = await client.get_graph_labels(
-            node=node or None, limit=limit, offset=offset
-        )
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_graph_labels", e)
-    except Exception as e:
-        return _error("get_graph_labels", e)
+    """Not exposed as MCP tool. Entity/relation type info is available via `nodes_by_type`, `node_neighbors`, and `node_relations`."""
+    raise NotImplementedError(
+        "codebase_types is not exposed. Use nodes_by_type(label) for a list of "
+        "entities of a given type, or node_neighbors(node) / node_relations(node) "
+        "for type information about a specific node's connections."
+    )
 
 
 @mcp_server.tool(name="attach_note_to_node")

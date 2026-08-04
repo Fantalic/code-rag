@@ -270,15 +270,10 @@ Retrieve the knowledge graph from LightRAG.
 {}
 ```
 
-#### `get_graph_labels`
-Get labels from the knowledge graph.
+#### ~~`get_graph_labels`~~ (dropped — internal only)
+~~Get labels from the knowledge graph.~~
 
-**Parameters:** None
-
-**Example:**
-```json
-{}
-```
+Dropped from MCP surface. Use `nodes_by_type(label)`, `node_neighbors(node)`, or `node_relations(node)` instead.
 
 #### `check_entity_exists`
 Check if an entity exists in the knowledge graph.
@@ -466,10 +461,11 @@ Check LightRAG server health.
    {"tool": "get_knowledge_graph", "arguments": {}}
    ```
 
-2. **Get available labels**:
+2. ~~**Get available labels** (dropped):~~
    ```json
    {"tool": "get_graph_labels", "arguments": {}}
    ```
+   Use `nodes_by_type(label)` instead.
 
 3. **Update entity properties**:
    ```json

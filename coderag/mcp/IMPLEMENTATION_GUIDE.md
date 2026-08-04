@@ -216,7 +216,7 @@ async def get_knowledge_graph(self, label: str = "*") -> GraphResponse:
 ### Knowledge Graph (6/6 Working) ✅
 
 1. **get_knowledge_graph** ✅ - Fixed with wildcard label and response model
-2. **get_graph_labels** ✅ - Working correctly
+2. ~~**get_graph_labels**~~ ❌ - Dropped from MCP surface (internal only)
 3. **check_entity_exists** ✅ - Working with real entities
 4. **update_entity** ✅ - Fixed request parameters and response model
 5. **update_relation** ✅ - Fixed request parameters and response model
