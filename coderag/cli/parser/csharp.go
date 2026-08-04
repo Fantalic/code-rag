@@ -127,7 +127,7 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 			if colonIdx > 0 {
 				prefix := trimmed[:colonIdx]
 				switch prefix {
-				case "CLASS", "INTERFACE", "STRUCT", "ENUM", "METHOD", "PROPERTY":
+				case "CLASS", "INTERFACE", "STRUCT", "ENUM", "METHOD", "PROPERTY", "EXPORTS":
 					ent, ok := parseEntityLine(trimmed)
 					if ok {
 						ent.SourceID = filename

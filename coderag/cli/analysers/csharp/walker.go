@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -125,6 +126,7 @@ func ParseFile(filePath string, index *GlobalIndex) (*FileResult, error) {
 	}
 
 	p.parse()
+	p.emitFileMetadata()
 	return &FileResult{
 		FilePath:     filePath,
 		Entities:     p.entities,
@@ -134,6 +136,38 @@ func ParseFile(filePath string, index *GlobalIndex) (*FileResult, error) {
 		Calls:        p.calls,
 		GlobalUsings: p.globalUsings,
 	}, nil
+}
+
+// emitFileMetadata emits one EXPORTS entity per source file, carrying the
+// full export list and the file's mtime. Downstream MCP tools (dead_code)
+// query this entity instead of re-reading analyser output files.
+func (p *Parser) emitFileMetadata() {
+	var mtime int64
+	if info, err := os.Stat(p.sourcePath); err == nil {
+		mtime = info.ModTime().Unix()
+	}
+
+	canonical := fileExportsEntityName(p.sourcePath)
+	desc := strings.Join(p.exports, ", ")
+	if mtime > 0 {
+		desc = desc + " [MTIME=" + strconv.FormatInt(mtime, 10) + "]"
+	}
+
+	p.addEntity(Entity{
+		Name:        canonical,
+		Type:        EntityExports,
+		Description: desc,
+		FilePath:    p.sourcePath,
+		LineNo:      1,
+	})
+}
+
+// fileExportsEntityName returns a stable canonical name for the
+// per-file EXPORTS entity: "<basename-no-ext>:EXPORTS".
+func fileExportsEntityName(filePath string) string {
+	base := filepath.Base(filePath)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	return base + ":EXPORTS"
 }
 
 func (p *Parser) parse() {
@@ -265,12 +299,19 @@ func (p *Parser) handleClassDecl(m []string, lineNo int, line string) {
 
 	entityName := qualifiedClassName
 
+	clsVis := extractVisibility(line)
+	clsVisSuffix := ""
+	if clsVis != "" {
+		clsVisSuffix = " [" + clsVis + "]"
+	}
+
 	p.addEntity(Entity{
 		Name:        entityName,
 		Type:        entityType,
-		Description: fmt.Sprintf("%s %s", kind, name),
+		Description: fmt.Sprintf("%s %s%s", kind, name, clsVisSuffix),
 		FilePath:    p.sourcePath,
 		LineNo:      lineNo + 1,
+		Visibility:  clsVis,
 	})
 	p.exports = append(p.exports, entityName)
 
@@ -405,6 +446,7 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 		Description: desc,
 		FilePath:    p.sourcePath,
 		LineNo:      lineNo + 1,
+		Visibility:  vis,
 	})
 
 	p.addRelation(Relation{
@@ -497,6 +539,7 @@ func (p *Parser) handlePropDecl(m []string, lineNo int) {
 		Description: desc,
 		FilePath:    p.sourcePath,
 		LineNo:      lineNo + 1,
+		Visibility:  vis,
 	})
 
 	p.addRelation(Relation{

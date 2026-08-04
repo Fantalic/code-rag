@@ -17,6 +17,7 @@ from coderag_mcp.client import (
     LightRAGTimeoutError,
     LightRAGValidationError,
 )
+from coderag_mcp.models import GraphResponse
 
 
 class TestLightRAGClientInitialization:
@@ -176,3 +177,379 @@ class TestMakeRequestErrorHandling:
 
         with pytest.raises(LightRAGServerError):
             await client._make_request("POST", "/ingest")
+
+
+class TestFindDeadCode:
+    """Test the find_dead_code heuristic against mock graphs."""
+
+    @staticmethod
+    def _make_graph(nodes, edges):
+        return GraphResponse(nodes=nodes, edges=edges)
+
+    @pytest.mark.asyncio
+    async def test_finds_private_method_no_incoming(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "name": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "class Foo",
+                    },
+                },
+                {
+                    "id": "Ns.Foo.Unused",
+                    "name": "Ns.Foo.Unused",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Foo.Unused",
+                        "file_path": "Ns/Foo.cs",
+                        "line_no": 10,
+                        "description": "Ns.Foo.Unused() -> RETURNS -> void [private]",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "name": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo [MTIME=1700000000]",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Foo.Unused",
+                    "properties": {"keywords": "method, defines"},
+                }
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.find_dead_code()
+        names = {e.name for e in resp.entities}
+        assert "Ns.Foo.Unused" in names
+        assert resp.entities[0].reason == "private"
+        assert resp.entities[0].in_exports is False
+        assert resp.total == 1
+
+    @pytest.mark.asyncio
+    async def test_keeps_public_symbol_in_exports(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns.Foo.PublicUsed",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Foo.PublicUsed",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo.PublicUsed() -> RETURNS -> void [public]",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo, Ns.Foo.PublicUsed",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Foo.PublicUsed",
+                    "properties": {"keywords": "method, defines"},
+                }
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        assert resp.total == 0
+
+    @pytest.mark.asyncio
+    async def test_flags_public_symbol_not_in_exports(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns.Foo.PublicDead",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Foo.PublicDead",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo.PublicDead() -> RETURNS -> void [public]",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Foo.PublicDead",
+                    "properties": {"keywords": "method, defines"},
+                }
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        assert resp.total == 1
+        assert resp.entities[0].reason == "not_exported"
+
+    @pytest.mark.asyncio
+    async def test_skips_entities_with_incoming_edges(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns.Foo.M",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Foo.M",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo.M() -> RETURNS -> void [private]",
+                    },
+                },
+                {
+                    "id": "Ns.Bar",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Bar",
+                        "file_path": "Ns/Bar.cs",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Foo.M",
+                    "properties": {"keywords": "method, defines"},
+                },
+                {
+                    "source": "Ns.Bar",
+                    "target": "Ns.Foo.M",
+                    "properties": {"keywords": "calls"},
+                },
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        assert resp.total == 0
+
+    @pytest.mark.asyncio
+    async def test_entity_type_filter(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns.Foo.M",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Foo.M",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo.M() [private]",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Foo.M",
+                    "properties": {"keywords": "method, defines"},
+                }
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code(entity_type="CLASS")
+        # Class is no-visibility + not in exports; with empty visibility
+        # we exclude. So total == 0.
+        assert resp.total == 0
+        resp = await client.find_dead_code(entity_type="METHOD")
+        assert resp.total == 1
+
+    @pytest.mark.asyncio
+    async def test_min_age_days_filter_excludes_recent_files(self):
+        import time as _t
+
+        client = LightRAGClient()
+        recent_mtime = int(_t.time()) - 60  # 1 min old
+        old_mtime = int(_t.time()) - 60 * 86400  # 60 days old
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Recent",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Recent",
+                        "file_path": "Ns/Recent.cs",
+                        "description": "Ns.Recent() [private]",
+                    },
+                },
+                {
+                    "id": "Ns.Old",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Old",
+                        "file_path": "Ns/Old.cs",
+                        "description": "Ns.Old() [private]",
+                    },
+                },
+                {
+                    "id": "Recent:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Recent.cs",
+                        "description": f" [MTIME={recent_mtime}]",
+                    },
+                },
+                {
+                    "id": "Old:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Old.cs",
+                        "description": f" [MTIME={old_mtime}]",
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code(min_age_days=30)
+        names = {e.name for e in resp.entities}
+        assert "Ns.Old" in names
+        assert "Ns.Recent" not in names
+
+    @pytest.mark.asyncio
+    async def test_empty_graph_returns_empty(self):
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(
+            return_value=self._make_graph(nodes=[], edges=[])
+        )
+        resp = await client.find_dead_code()
+        assert resp.total == 0
+        assert resp.entities == []
+
+    @pytest.mark.asyncio
+    async def test_unknown_visibility_excluded(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.NoVis",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.NoVis",
+                        "file_path": "Ns/NoVis.cs",
+                        "description": "Ns.NoVis() -> RETURNS -> void",  # no [vis]
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        assert resp.total == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_extension_method(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.StringExt",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.StringExt.Repeat",
+                        "file_path": "Ns/StringExt.cs",
+                        "description": "Ns.StringExt.Repeat(this string s, int n) -> RETURNS -> string [public]",
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        assert resp.total == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_interface_member(self):
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.IFoo",
+                    "properties": {
+                        "entity_type": "INTERFACE",
+                        "entity_name": "Ns.IFoo",
+                        "file_path": "Ns/IFoo.cs",
+                    },
+                },
+                {
+                    "id": "Ns.IFoo.M",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.IFoo.M",
+                        "file_path": "Ns/IFoo.cs",
+                        "description": "Ns.IFoo.M() [public]",
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        assert resp.total == 0

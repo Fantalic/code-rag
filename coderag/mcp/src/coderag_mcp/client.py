@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from typing import Any, Optional
 
 import httpx
@@ -13,6 +14,8 @@ import httpx
 from .analyser_runner import run_analysis
 from .filegraph import build_file_graph
 from .models import (
+    DeadCodeEntity,
+    DeadCodeResponse,
     DocumentInfo,
     EntityCreateRequest,
     EntityCreateResponse,
@@ -1173,3 +1176,267 @@ class LightRAGClient:
             methods=methods,
             implementing_classes=implementing_classes,
         )
+
+    _VIS_SUFFIX_RE = re.compile(
+        r"\[(public|private|internal|protected|protected internal)\]\s*$"
+    )
+
+    async def find_dead_code(
+        self,
+        min_age_days: int = 0,
+        entity_type: str = "",
+    ) -> DeadCodeResponse:
+        """Find entities that are unreferenced and not exported.
+
+        An entity is dead when ALL of:
+          - it has zero incoming relations,
+          - AND (its visibility is `private` or `internal`,
+                 OR it is public but not in its file's # EXPORTS list),
+          - AND it is not an extension method, abstract method,
+            or interface member.
+
+        Extension methods are detected by a `this ` modifier before
+        the first parameter type in the description (e.g.
+        ``... -> RETURNS -> int [public]`` for a regular method vs.
+        ``this string s, int times`` for an extension method).
+
+        Args:
+            min_age_days: 0 = include all files; >0 = require file mtime
+                older than `now - min_age_days*86400`. Files without a
+                known mtime are excluded when this filter is active.
+            entity_type: optional filter (case-insensitive). Empty =
+                all types. Matches LightRAG's `entity_type` property.
+
+        Returns:
+            DeadCodeResponse with one row per dead candidate, sorted by
+            file_path then name.
+        """
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for find_dead_code: {e}")
+            return DeadCodeResponse(
+                entities=[],
+                total=0,
+                filters={
+                    "min_age_days": min_age_days,
+                    "entity_type": entity_type,
+                },
+            )
+
+        etype_filter = entity_type.strip().lower()
+
+        # Build per-file EXPORTS map and per-file mtime map from the
+        # EXPORTS metadata entities emitted by the C# walker.
+        exports_by_file: dict[str, set[str]] = {}
+        mtime_by_file: dict[str, int] = {}
+        for n in graph.nodes:
+            props = n.get("properties") or {}
+            node_type = (props.get("entity_type") or "").upper()
+            if node_type != "EXPORTS":
+                continue
+            fp_raw = n.get("file_path") or props.get("file_path", "")
+            fp = fp_raw.lower().replace("\\", "/") if fp_raw else ""
+            if not fp:
+                continue
+            desc = props.get("description") or n.get("description") or ""
+            exports = {
+                name.strip()
+                for name in desc.split(",")
+                if name.strip() and "[MTIME=" not in name
+            }
+            # Strip the [MTIME=...] tail that may be glued onto the
+            # last export name.
+            exports = {
+                re.sub(r"\s*\[MTIME=\d+\]\s*$", "", name).strip() for name in exports
+            }
+            exports_by_file[fp] = {x for x in exports if x}
+            m = re.search(r"\[MTIME=(\d+)\]", desc)
+            if m:
+                try:
+                    mtime_by_file[fp] = int(m.group(1))
+                except ValueError:
+                    pass
+
+        # Incoming-edge count per entity (only "real" usages, not
+        # structural definitions). Structural relations like
+        # "method, defines" (class -> method) and "property, has"
+        # (class -> property) are ownership, not usage; they should
+        # not count as "the method is used". Similarly "contains,
+        # nested", "inheritance, extends", "implements, interface",
+        # "has_note, annotation", and "depends_on, references" are
+        # structural. Only edges whose keywords contain "calls" or
+        # similar real-use signals count as a usage.
+        structural_keywords = (
+            "method, defines",
+            "property, has",
+            "contains, nested",
+            "inheritance, extends",
+            "implements, interface",
+            "has_note, annotation",
+            "depends_on, references",
+        )
+        incoming: dict[str, int] = {}
+        for edge in graph.edges:
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            if not tgt:
+                continue
+            kw = (edge.get("properties") or {}).get("keywords") or ""
+            if kw in structural_keywords:
+                continue
+            incoming[tgt] = incoming.get(tgt, 0) + 1
+
+        now = int(time.time())
+        # Build a set of names that are INTERFACE declarations so we
+        # can skip methods/properties declared inside them (they're
+        # required to be implemented, not dead).
+        interface_names: set[str] = set()
+        for n in graph.nodes:
+            if (n.get("properties") or {}).get(
+                "entity_type", ""
+            ).upper() == "INTERFACE":
+                nm = (
+                    (n.get("properties") or {}).get("entity_name")
+                    or n.get("name")
+                    or n.get("id")
+                    or ""
+                )
+                if nm:
+                    interface_names.add(nm)
+
+        candidates: list[DeadCodeEntity] = []
+        for n in graph.nodes:
+            props = n.get("properties") or {}
+            node_type = props.get("entity_type") or ""
+            if node_type.upper() == "EXPORTS":
+                continue
+            if etype_filter and node_type.lower() != etype_filter:
+                continue
+
+            node_id = n.get("id") or n.get("name") or ""
+            entity_name = props.get("entity_name") or n.get("name") or node_id or ""
+            if not entity_name:
+                continue
+
+            fp_raw = n.get("file_path") or props.get("file_path", "")
+            fp = fp_raw.lower().replace("\\", "/") if fp_raw else ""
+            if not fp:
+                continue
+
+            description = props.get("description") or ""
+
+            vis_match = self._VIS_SUFFIX_RE.search(description)
+            visibility = vis_match.group(1) if vis_match else ""
+            if not visibility:
+                # Unknown visibility -> exclude (safer than guessing).
+                continue
+
+            # Strip the [vis] suffix before further regex checks so
+            # they don't accidentally match the bracket text.
+            description_clean = self._VIS_SUFFIX_RE.sub("", description).strip()
+
+            # Skip interface members — they're required to be implemented.
+            if node_type.upper() == "INTERFACE":
+                continue
+            # Skip methods/properties whose parent entity is an
+            # interface (they must be implemented by something).
+            if "." in entity_name:
+                parent_name = entity_name.rsplit(".", 1)[0]
+                if parent_name in interface_names:
+                    continue
+            # Skip abstract methods — they must be overridden.
+            if "abstract" in description_clean.lower():
+                continue
+            # Skip extension methods (heuristic: "this " appears right
+            # after the method name in the description).
+            if self._is_extension_method(entity_name, description_clean):
+                continue
+
+            # Incoming-edge count.
+            if incoming.get(entity_name, 0) > 0:
+                continue
+
+            # EXPORTS check.
+            in_exports = entity_name in exports_by_file.get(fp, set())
+            exports_list = exports_by_file.get(fp, set())
+            # Also try the unqualified name for methods/properties:
+            # an entry like "TestApp.OrderService.PlaceOrder" should
+            # match the file's export "TestApp.OrderService.PlaceOrder".
+            if not in_exports and "." in entity_name:
+                short = entity_name.rsplit(".", 1)[-1]
+                if short in exports_list:
+                    in_exports = True
+
+            is_private_or_internal = visibility in {"private", "internal"}
+            is_public_unexported = visibility == "public" and not in_exports
+            if not (is_private_or_internal or is_public_unexported):
+                continue
+
+            # Age filter (mtime is per file).
+            if min_age_days > 0:
+                mtime = mtime_by_file.get(fp, 0)
+                if mtime == 0:
+                    continue
+                if (now - mtime) < min_age_days * 86400:
+                    continue
+
+            if is_private_or_internal:
+                reason = visibility
+            else:
+                reason = "not_exported"
+
+            line_no = 0
+            try:
+                line_no = int(props.get("line_no") or 0)
+            except (TypeError, ValueError):
+                line_no = 0
+
+            candidates.append(
+                DeadCodeEntity(
+                    name=entity_name,
+                    type=node_type,
+                    file_path=fp_raw,
+                    line_no=line_no,
+                    visibility=visibility,
+                    reason=reason,
+                    in_exports=in_exports,
+                )
+            )
+
+        candidates.sort(key=lambda e: (e.file_path, e.name))
+        return DeadCodeResponse(
+            entities=candidates,
+            total=len(candidates),
+            filters={
+                "min_age_days": min_age_days,
+                "entity_type": entity_type,
+            },
+        )
+
+    @staticmethod
+    def _is_extension_method(entity_name: str, description: str) -> bool:
+        """Return True if the method's description starts with
+        `<receiver> this <Type>` pattern (i.e. it's an extension method).
+
+        The walker's descriptions for extension methods look like
+        ``TestApp.X.ExtendTo(this string s, int times) -> RETURNS -> int``.
+        """
+        # After the method name and `(`, the first parameter for an
+        # extension method starts with "this ".
+        if "this " not in description:
+            return False
+        # Quick guard: "this " must appear within the parameter list,
+        # not in arbitrary prose. The walker always emits the method
+        # name followed by an opening paren.
+        idx = description.find(entity_name.rsplit(".", 1)[-1])
+        if idx < 0:
+            return False
+        paren = description.find("(", idx)
+        if paren < 0:
+            return False
+        closing = description.find(")", paren)
+        if closing < 0:
+            return False
+        param_block = description[paren + 1 : closing]
+        stripped = param_block.lstrip()
+        return stripped.startswith("this ")

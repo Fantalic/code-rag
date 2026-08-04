@@ -215,6 +215,9 @@ type BatchCreateEntitiesPayload struct {
 }
 
 func (c *Config) BatchCreateEntities(entities []BatchEntityItem) (map[string]any, error) {
+	if entities == nil {
+		entities = []BatchEntityItem{}
+	}
 	payload := BatchCreateEntitiesPayload{Entities: entities}
 	return c.do(http.MethodPost, "/graph/entities/batch-create", payload)
 }
@@ -230,6 +233,9 @@ type BatchCreateRelationsPayload struct {
 }
 
 func (c *Config) BatchCreateRelations(relations []BatchRelationItem) (map[string]any, error) {
+	if relations == nil {
+		relations = []BatchRelationItem{}
+	}
 	payload := BatchCreateRelationsPayload{Relations: relations}
 	return c.do(http.MethodPost, "/graph/relations/batch-create", payload)
 }
@@ -240,6 +246,12 @@ type BatchImportPayload struct {
 }
 
 func (c *Config) BatchImport(entities []BatchEntityItem, relations []BatchRelationItem) (map[string]any, error) {
+	if entities == nil {
+		entities = []BatchEntityItem{}
+	}
+	if relations == nil {
+		relations = []BatchRelationItem{}
+	}
 	payload := BatchImportPayload{Entities: entities, Relations: relations}
 	return c.do(http.MethodPost, "/graph/batch-import", payload)
 }

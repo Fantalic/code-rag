@@ -11,6 +11,14 @@ import (
 
 const headerPrefix = "# EXPORTS:"
 
+func fileMTIME(filePath string) int64 {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return 0
+	}
+	return info.ModTime().Unix()
+}
+
 type OutputConfig struct {
 	OutputDir string
 	SlnDir    string
@@ -42,6 +50,9 @@ func (oc *OutputConfig) WriteFileResult(fr *FileResult) (string, error) {
 	sort.Strings(fr.Imports)
 
 	fmt.Fprintf(out, "# EXPORTS: %s\n", strings.Join(fr.Exports, ", "))
+	if mtime := fileMTIME(fr.FilePath); mtime > 0 {
+		fmt.Fprintf(out, "# MTIME: %d\n", mtime)
+	}
 	fmt.Fprintf(out, "# IMPORTS: %s\n", strings.Join(fr.Imports, ", "))
 
 	for _, e := range fr.Entities {

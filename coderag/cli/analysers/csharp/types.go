@@ -11,6 +11,7 @@ const (
 	EntityInterface EntityType = "INTERFACE"
 	EntityStruct    EntityType = "STRUCT"
 	EntityEnum      EntityType = "ENUM"
+	EntityExports   EntityType = "EXPORTS"
 )
 
 type Entity struct {
@@ -19,6 +20,7 @@ type Entity struct {
 	Description string
 	FilePath    string
 	LineNo      int
+	Visibility  string // "public" | "private" | "internal" | "protected" | "" (unknown)
 }
 
 type Relation struct {

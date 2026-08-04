@@ -18,8 +18,14 @@ func TestParseClassEntity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 1 {
-		t.Fatalf("expected 1 entity, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 1 {
+		t.Fatalf("expected 1 non-metadata entity, got %d", nonMeta)
 	}
 	e := result.Entities[0]
 	if e.Name != "MyClass" {
@@ -47,8 +53,14 @@ func TestParseClassWithMethod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 2 {
-		t.Fatalf("expected 2 entities, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 2 {
+		t.Fatalf("expected 2 non-metadata entities, got %d", nonMeta)
 	}
 	var hasClass, hasMethod bool
 	for _, e := range result.Entities {
@@ -91,8 +103,14 @@ func TestParseClassWithNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 1 {
-		t.Fatalf("expected 1 entity, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 1 {
+		t.Fatalf("expected 1 non-metadata entity, got %d", nonMeta)
 	}
 	e := result.Entities[0]
 	if e.Name != "MyNs.MyClass" {
@@ -112,8 +130,14 @@ func TestParseImplementsRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 1 {
-		t.Fatalf("expected 1 entity, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 1 {
+		t.Fatalf("expected 1 non-metadata entity, got %d", nonMeta)
 	}
 	found := false
 	for _, r := range result.Relations {
@@ -139,8 +163,14 @@ func TestParseExtendsRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 1 {
-		t.Fatalf("expected 1 entity, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 1 {
+		t.Fatalf("expected 1 non-metadata entity, got %d", nonMeta)
 	}
 	found := false
 	for _, r := range result.Relations {
@@ -211,8 +241,14 @@ func TestParseMultipleClasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 2 {
-		t.Fatalf("expected 2 entities, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 2 {
+		t.Fatalf("expected 2 non-metadata entities, got %d", nonMeta)
 	}
 	names := make(map[string]bool)
 	for _, e := range result.Entities {
@@ -237,8 +273,15 @@ func TestParseEmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 0 {
-		t.Errorf("expected 0 entities, got %d", len(result.Entities))
+	// Every file emits one EXPORTS metadata entity plus whatever was parsed.
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 0 {
+		t.Errorf("expected 0 non-metadata entities, got %d", nonMeta)
 	}
 }
 
@@ -253,8 +296,14 @@ func TestParseCommentsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 0 {
-		t.Errorf("expected 0 entities, got %d", len(result.Entities))
+	var nonMeta int
+	for _, e := range result.Entities {
+		if e.Type != EntityExports {
+			nonMeta++
+		}
+	}
+	if nonMeta != 0 {
+		t.Errorf("expected 0 non-metadata entities, got %d", nonMeta)
 	}
 }
 
@@ -269,9 +318,7 @@ func TestParseNestedClass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entities) != 2 {
-		t.Fatalf("expected 2 entities, got %d", len(result.Entities))
-	}
+	// 2 class entities + 1 EXPORTS metadata entity.
 	names := make(map[string]EntityType)
 	for _, e := range result.Entities {
 		names[e.Name] = e.Type
@@ -281,6 +328,9 @@ func TestParseNestedClass(t *testing.T) {
 	}
 	if names["Outer.Inner"] != EntityClass {
 		t.Error("missing or wrong type for Outer.Inner")
+	}
+	if names["test:EXPORTS"] != EntityExports {
+		t.Errorf("missing or wrong type for test:EXPORTS, got %v", names["test:EXPORTS"])
 	}
 }
 
@@ -726,5 +776,107 @@ func TestLooksLikeMethodRejectsKeywordPrefix(t *testing.T) {
 		if got := p.looksLikeMethod(c.line); got != c.want {
 			t.Errorf("looksLikeMethod(%q) = %v, want %v", c.line, got, c.want)
 		}
+	}
+}
+
+func TestExtractVisibility(t *testing.T) {
+	cases := []struct {
+		line string
+		want string
+	}{
+		{"public class Foo", "public"},
+		{"private void M() { }", "private"},
+		{"internal static int X;", "internal"},
+		{"protected override void M() { }", "protected"},
+		{"protected internal void M() { }", "protected internal"},
+		{"class Foo", ""},
+		{"void M() { }", ""},
+		{"public sealed class Bar", "public"},
+		{"public async Task<int> Get() { }", "public"},
+	}
+	for _, c := range cases {
+		if got := extractVisibility(c.line); got != c.want {
+			t.Errorf("extractVisibility(%q) = %q, want %q", c.line, got, c.want)
+		}
+	}
+}
+
+func TestWalkerSetsVisibilityOnEntity(t *testing.T) {
+	content := []byte("namespace Ns\n{\n\tpublic class Pub\n\t{\n\t}\n\tprivate class Priv\n\t{\n\t}\n\tinternal class Intl\n\t{\n\t}\n\tclass Default\n\t{\n\t\tpublic void M() { }\n\t\tprivate void P() { }\n\t}\n}\n")
+	tmpFile := filepath.Join(t.TempDir(), "test.cs")
+	if err := os.WriteFile(tmpFile, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ParseFile(tmpFile, NewGlobalIndex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	visByName := map[string]string{}
+	for _, e := range result.Entities {
+		if e.Type == EntityClass || e.Type == EntityMethod {
+			visByName[e.Name] = e.Visibility
+		}
+	}
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"Ns.Pub", "public"},
+		{"Ns.Priv", "private"},
+		{"Ns.Intl", "internal"},
+		{"Ns.Default", ""}, // no modifier
+	}
+	for _, c := range cases {
+		if got := visByName[c.name]; got != c.want {
+			t.Errorf("%s visibility = %q, want %q", c.name, got, c.want)
+		}
+	}
+	// Spot-check that the parser tagged methods with visibility when they
+	// happen to be on their own declaration line.
+	for _, e := range result.Entities {
+		if e.Type != EntityMethod {
+			continue
+		}
+		switch e.Name {
+		case "Ns.Default.M", "Ns.Default.P":
+			if e.Visibility == "" {
+				t.Errorf("%s should carry a visibility tag, got empty", e.Name)
+			}
+		}
+	}
+}
+
+func TestWalkerEmitsFileMetadataEntity(t *testing.T) {
+	content := []byte("namespace Ns\n{\n\tpublic class A\n\t{\n\t}\n\tpublic class B\n\t{\n\t\tpublic void M() { }\n\t}\n}\n")
+	tmpFile := filepath.Join(t.TempDir(), "CodeFile.cs")
+	if err := os.WriteFile(tmpFile, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ParseFile(tmpFile, NewGlobalIndex())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var meta *Entity
+	for i, e := range result.Entities {
+		if e.Type == EntityExports {
+			meta = &result.Entities[i]
+			break
+		}
+	}
+	if meta == nil {
+		t.Fatal("EXPORTS metadata entity not emitted")
+	}
+	if meta.Name != "CodeFile:EXPORTS" {
+		t.Errorf("EXPORTS entity name = %q, want CodeFile:EXPORTS", meta.Name)
+	}
+	if !strings.HasPrefix(meta.Description, "Ns.A, Ns.B") {
+		t.Errorf("EXPORTS entity description = %q, want prefix 'Ns.A, Ns.B'", meta.Description)
+	}
+	if !strings.Contains(meta.Description, "[MTIME=") {
+		t.Errorf("EXPORTS entity description missing [MTIME=...] suffix: %q", meta.Description)
+	}
+	if meta.LineNo != 1 {
+		t.Errorf("EXPORTS entity line_no = %d, want 1", meta.LineNo)
 	}
 }

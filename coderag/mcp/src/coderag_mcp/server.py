@@ -262,6 +262,25 @@ async def get_nodes(
         return _error("get_nodes", e)
 
 
+@mcp_server.tool(name="dead_code")
+async def find_dead_code(
+    min_age_days: int = 0,
+    entity_type: str = "",
+) -> dict:
+    """Find symbols (classes, methods, properties) that are unreferenced and not exported from their file; useful for cleanup suggestions. `min_age_days` filters by file modification time (0 = all). `entity_type` restricts to one of "CLASS"/"METHOD"/"PROPERTY" (case-insensitive). See TASK_dead_code_implementation.md."""
+    client = _get_lightrag_client()
+    try:
+        result = await client.find_dead_code(
+            min_age_days=min_age_days,
+            entity_type=entity_type,
+        )
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("find_dead_code", e)
+    except Exception as e:
+        return _error("find_dead_code", e)
+
+
 # @mcp_server.tool()
 async def get_entities_in_file(file_path: str) -> dict:
     """Not exposed as MCP tool. Superseded by `get_nodes(file_path=...)` which uses substring matching (more robust on Windows paths)."""

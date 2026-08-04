@@ -12,19 +12,25 @@
 #   6. test CLI graph files | deps | cycles
 #   7. test MCP tools via scripts/dev/mcp_probe.py (SSE JSON-RPC)
 #
+# Output mode:
+#   By default, only summaries are printed (one line per probe).
+#   Detail is only printed on failure or when --verbose is set.
+#
 # Usage:
 #   sh scripts/dev/runtime-test.sh                       # default testdata
 #   sh scripts/dev/runtime-test.sh /path/to/MyApp        # custom project
 #   sh scripts/dev/runtime-test.sh --clean               # wipe graph first
 #   sh scripts/dev/runtime-test.sh --skip-build          # reuse existing image
 #   sh scripts/dev/runtime-test.sh --no-stop             # don't docker compose down
-#   CLEAN=1 SKIP_BUILD=1 sh scripts/dev/runtime-test.sh  # via env vars
+#   sh scripts/dev/runtime-test.sh --verbose             # show probe details
+#   CLEAN=1 SKIP_BUILD=1 VERBOSE=1 sh scripts/dev/runtime-test.sh
 #
 # Env vars:
 #   PROJECT_DIR - project to scan (default: testdata/TestApp)
 #   WORKSPACE   - LightRAG workspace (default: basename of PROJECT_DIR)
 #   CODERAG_BIN - path to coderag binary (default: ./coderag[.exe] in repo root)
 #   PYTHON      - python interpreter (default: python3, then python)
+#   VERBOSE     - if "1", print probe details on success too
 
 set -eu
 
@@ -34,6 +40,7 @@ ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 CLEAN="${CLEAN:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 DO_STOP=1
+VERBOSE="${VERBOSE:-0}"
 PROJECT_ARG=""
 
 for arg in "$@"; do
@@ -41,8 +48,9 @@ for arg in "$@"; do
         --clean)      CLEAN=1 ;;
         --skip-build) SKIP_BUILD=1 ;;
         --no-stop)    DO_STOP=0 ;;
+        --verbose|-v) VERBOSE=1 ;;
         --help|-h)
-            sed -n '2,18p' "$0"
+            sed -n '2,22p' "$0"
             exit 0
             ;;
         -*) echo "[XX] Unknown flag: $arg" >&2; exit 2 ;;
@@ -78,6 +86,18 @@ if [ -z "$PY" ]; then
 fi
 
 MCP_PROBE="$SCRIPT_DIR/mcp_probe.py"
+
+# Verbose/quiet helper.
+# If VERBOSE=1: prints both summary and full detail.
+# If VERBOSE=0: prints only the summary line.
+vlog() {
+    # $1 = summary line; subsequent args = optional detail lines
+    if [ "$VERBOSE" = "1" ]; then
+        printf '%s\n' "$@"
+    else
+        printf '%s\n' "$1"
+    fi
+}
 
 # --- 1. Stop existing containers ------------------------------------------
 if [ "$DO_STOP" = "1" ]; then
@@ -125,38 +145,60 @@ EW=$(date +%s)
 echo "[OK] pre-warm took $((EW - SW))s"
 
 # --- 5. Scan --------------------------------------------------------------
-echo
 echo "[..] Scanning $PROJECT_DIR ..."
 SCAN_ARGS="scan"
 [ "$CLEAN" = "1" ] && SCAN_ARGS="$SCAN_ARGS --clean"
 SCAN_ARGS="$SCAN_ARGS $PROJECT_DIR"
 
 SCAN_LOG="${SCAN_LOG:-/tmp/coderag-scan.log}"
+mkdir -p "$(dirname "$SCAN_LOG")" 2>/dev/null || SCAN_LOG="$ROOT/.coderag-scan.log"
 # shellcheck disable=SC2086
-"$CODERAG_BIN" $SCAN_ARGS >"$SCAN_LOG" 2>&1 || true
-grep -E "Extracted|Entities:|Relations:|knowledge graph|Scan complete|ERROR|Analyser produced" "$SCAN_LOG" || true
+"$CODERAG_BIN" $SCAN_ARGS >"$SCAN_LOG" 2>&1 || SCAN_RC=$?
+SCAN_RC="${SCAN_RC:-0}"
+SCAN_SUMMARY=$(grep -E "Extracted|Entities:|Relations:|knowledge graph|Scan complete|Analyser produced" "$SCAN_LOG" 2>/dev/null | tail -n 6 || true)
+SCAN_HAD_ERROR=0
+if [ "$SCAN_RC" -ne 0 ]; then SCAN_HAD_ERROR=1; fi
+if grep -qiE "error|FAIL" "$SCAN_LOG" 2>/dev/null; then SCAN_HAD_ERROR=1; fi
+if [ $SCAN_HAD_ERROR -eq 1 ]; then
+    echo "  scan: ERROR (exit $SCAN_RC)"
+    [ "$VERBOSE" = "1" ] && sed 's/^/    /' "$SCAN_LOG"
+    echo "    (full log: $SCAN_LOG)"
+else
+    if [ "$VERBOSE" = "1" ]; then
+        echo "  scan: OK"
+        echo "$SCAN_SUMMARY" | sed 's/^/    /'
+    else
+        echo "  scan: OK"
+    fi
+fi
 
 # --- 6. CLI graph commands -----------------------------------------------
-echo
 echo "[..] Testing CLI graph commands ..."
 
-echo "  graph files:"
-"$CODERAG_BIN" graph files 2>&1 | tail -n 20
+# Each CLI probe returns either "OK: <summary>" or "ERROR: <reason>".
+run_cli() {
+    label="$1"; shift
+    out=$("$CODERAG_BIN" "$@" 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "  $label: ERROR (exit $rc)"
+        [ "$VERBOSE" = "1" ] && echo "$out" | sed 's/^/    /'
+        return 1
+    fi
+    # First meaningful line as summary.
+    summary=$(echo "$out" | grep -v '^$' | head -n 1)
+    count=$(echo "$out" | grep -cv '^$')
+    echo "  $label: OK ($count lines)"
+    [ "$VERBOSE" = "1" ] && echo "$out" | sed 's/^/    /'
+    return 0
+}
 
-echo
-echo "  graph deps Program.cs:"
-"$CODERAG_BIN" graph deps "Program.cs" 2>&1 | tail -n 20
-
-echo
-echo "  graph deps OrderService.cs:"
-"$CODERAG_BIN" graph deps "OrderService.cs" 2>&1 | tail -n 20
-
-echo
-echo "  graph cycles:"
-"$CODERAG_BIN" graph cycles 2>&1 | tail -n 20
+run_cli "graph files"      graph files
+run_cli "graph deps Program.cs"      graph deps "Program.cs"
+run_cli "graph deps OrderService.cs" graph deps "OrderService.cs"
+run_cli "graph cycles"     graph cycles
 
 # --- 7. MCP server tools -------------------------------------------------
-echo
 echo "[..] Testing MCP server tools ..."
 
 # 7a. /health
@@ -173,140 +215,163 @@ else
         "$PY" "$MCP_PROBE" "$tool" "$args_json" 2>/dev/null
     }
 
-    if [ -n "$PY" ]; then
-        echo
-        echo "  file_dependencies(Program.cs):"
-        deps_raw=$(call_probe "file_dependencies" '{"file_path":"Program.cs"}')
-        if [ -n "$deps_raw" ]; then
-            printf '%s' "$deps_raw" | "$PY" -c "
+    # Generic MCP probe runner.
+    # $1 = label, $2 = tool, $3 = args json, $4 = python one-liner that
+    # reads JSON from stdin and prints a one-line summary. The summary
+    # line is shown in non-verbose mode; in verbose mode full detail is
+    # printed too.
+    # Exit status: 0 on OK, 1 on error.
+    run_probe() {
+        label="$1"; tool="$2"; args="$3"; fmt="$4"
+        raw=$(call_probe "$tool" "$args")
+        if [ -z "$raw" ]; then
+            echo "  $label: ERROR (no response)"
+            return 1
+        fi
+        if echo "$raw" | grep -q "bad args JSON"; then
+            echo "  $label: ERROR (probe rejected args: $raw)"
+            return 1
+        fi
+        summary=$(printf '%s' "$raw" | "$PY" -c "$fmt" 2>/dev/null || true)
+        if [ -z "$summary" ]; then
+            echo "  $label: ERROR (parse failure)"
+            [ "$VERBOSE" = "1" ] && printf '%s\n' "$raw" | sed 's/^/    /'
+            return 1
+        fi
+        if echo "$summary" | grep -q "^ERROR:"; then
+            echo "  $label: $summary"
+            [ "$VERBOSE" = "1" ] && printf '%s\n' "$raw" | sed 's/^/    /'
+            return 1
+        fi
+        echo "  $label: $summary"
+        if [ "$VERBOSE" = "1" ]; then
+            printf '%s\n' "$raw" | "$PY" -c "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    r=d.get('result',{})
+    print(json.dumps(r, indent=2))
+except Exception as e:
+    print(f'(parse error: {e})')
+" 2>/dev/null | sed 's/^/    /' || true
+        fi
+        return 0
+    }
+
+    run_probe "file_dependencies(Program.cs)" "file_dependencies" '{"file_path":"Program.cs"}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
     if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
+        print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
-        refs=r.get('references',[]) or []
-        deps=r.get('dependents',[]) or []
-        ents=r.get('entities',[]) or []
-        print(f\"    references: {', '.join(refs) if refs else '(none)'}\")
-        print(f\"    dependents: {', '.join(deps) if deps else '(none)'}\")
-        print(f\"    entities:   {', '.join(ents) if ents else '(none)'}\")
+        refs=len(r.get('references',[]) or [])
+        deps=len(r.get('dependents',[]) or [])
+        ents=len(r.get('entities',[]) or [])
+        print(f'OK ({refs} refs, {deps} dependents, {ents} entities)')
 except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $deps_raw"
-        fi
+    print(f'ERROR: parse: {e}')
+"
 
-        echo
-        echo "  detect_circular_dependencies:"
-        cyc_raw=$(call_probe "detect_circular_dependencies" "{}")
-        if [ -n "$cyc_raw" ]; then
-            printf '%s' "$cyc_raw" | "$PY" -c "
+    run_probe "detect_circular_dependencies" "detect_circular_dependencies" '{}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
     if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
+        print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
         cnt=r.get('count',0)
-        cycles=r.get('cycles',[]) or []
-        print(f'    count: {cnt}')
-        if cycles:
-            for c in cycles: print(f\"    cycle: {' -> '.join(c)}\")
-        else:
-            print('    no cycles')
+        print(f'OK ({cnt} cycles)' if cnt==0 else f'WARN ({cnt} cycles)')
 except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $cyc_raw"
-        fi
+    print(f'ERROR: parse: {e}')
+"
 
-        echo
-        echo "  node_details(view=details) on TestApp.OrderService:"
-        nd_raw=$(call_probe "node_details" '{"entity_name":"TestApp.OrderService","view":"details","depth":2}')
-        if [ -n "$nd_raw" ]; then
-            printf '%s' "$nd_raw" | "$PY" -c "
+    run_probe "node_details(view=details)" "node_details" '{"entity_name":"TestApp.OrderService","view":"details","depth":2}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
     if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
+        print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
         ent=r.get('entity',{})
-        rels=r.get('relations',[]) or []
-        print(f\"    node: {ent.get('name','?')} ({ent.get('type','?')})\")
-        print(f\"    relations: {len(rels)}\")
+        rels=len(r.get('relations',[]) or [])
+        print(f\"OK ({ent.get('name','?')} [{ent.get('type','?')}], {rels} relations)\")
 except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $nd_raw"
-        fi
+    print(f'ERROR: parse: {e}')
+"
 
-        echo
-        echo "  node_details(view=neighbors) on TestApp.OrderService:"
-        nn_raw=$(call_probe "node_details" '{"entity_name":"TestApp.OrderService","view":"neighbors"}')
-        if [ -n "$nn_raw" ]; then
-            printf '%s' "$nn_raw" | "$PY" -c "
+    run_probe "node_details(view=neighbors)" "node_details" '{"entity_name":"TestApp.OrderService","view":"neighbors"}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
     if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
+        print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
-        nbs=r.get('neighbors',[]) or []
-        inc=r.get('incoming_relations',[]) or []
-        out=r.get('outgoing_relations',[]) or []
-        print(f\"    neighbors: {len(nbs)}  incoming: {len(inc)}  outgoing: {len(out)}\")
+        nbs=len(r.get('neighbors',[]) or [])
+        inc=len(r.get('incoming_relations',[]) or [])
+        out=len(r.get('outgoing_relations',[]) or [])
+        print(f'OK ({nbs} neighbors, {inc} in, {out} out)')
 except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $nn_raw"
-        fi
+    print(f'ERROR: parse: {e}')
+"
 
-        echo
-        echo "  get_nodes(entity_type=class):"
-        gn_raw=$(call_probe "get_nodes" '{"entity_type":"class"}')
-        if [ -n "$gn_raw" ]; then
-            printf '%s' "$gn_raw" | "$PY" -c "
+    run_probe "get_nodes(entity_type=class)" "get_nodes" '{"entity_type":"class"}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
     if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
+        print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
-        ents=r.get('entities',[]) or []
         total=r.get('total',0)
-        names=[e.get('name','?') for e in ents]
-        print(f\"    total: {total}  returned: {len(ents)}\")
-        print(f\"    classes: {', '.join(names) if names else '(none)'}\")
+        ents=r.get('entities',[]) or []
+        print(f'OK ({total} classes)')
 except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $gn_raw"
-        fi
+    print(f'ERROR: parse: {e}')
+"
 
-        echo
-        echo "  get_nodes(name=Order,entity_type=class):"
-        gnf_raw=$(call_probe "get_nodes" '{"name":"Order","entity_type":"class"}')
-        if [ -n "$gnf_raw" ]; then
-            printf '%s' "$gnf_raw" | "$PY" -c "
+    run_probe "get_nodes(name=Order)" "get_nodes" '{"name":"Order","entity_type":"class"}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
     if not d.get('ok'):
-        print(f\"    ERROR: {d.get('error','unknown')}\")
+        print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
-        ents=r.get('entities',[]) or []
         total=r.get('total',0)
+        ents=r.get('entities',[]) or []
         names=[e.get('name','?') for e in ents]
-        print(f\"    total: {total}  matches: {', '.join(names) if names else '(none)'}\")
+        print(f\"OK ({total} matches: {', '.join(names) if names else '(none)'})\")
 except Exception as e:
-    print(f'    (parse error: {e})')
-" 2>/dev/null || echo "    (raw): $gnf_raw"
-        fi
-    fi
+    print(f'ERROR: parse: {e}')
+"
+
+    run_probe "dead_code()" "dead_code" '{"min_age_days":0}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        total=r.get('total',0)
+        ents=r.get('entities',[]) or []
+        reasons={}
+        for e in ents:
+            r_=e.get('reason','?')
+            reasons[r_]=reasons.get(r_,0)+1
+        rs=', '.join(f'{k}:{v}' for k,v in sorted(reasons.items()))
+        if rs:
+            print(f'OK ({total} dead; {rs})')
+        else:
+            print(f'OK ({total} dead)')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
 fi
 
-echo
 echo "[OK] Runtime test complete"

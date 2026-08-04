@@ -847,3 +847,48 @@ class FileCyclesResponse(BaseModel):
         default_factory=list, description="Dependency cycles between files"
     )
     count: int = Field(0, description="Number of dependency cycles found")
+
+
+class DeadCodeReason(str, Enum):
+    """Reason an entity is classified as dead."""
+
+    PRIVATE = "private"
+    INTERNAL = "internal"
+    NOT_EXPORTED = "not_exported"
+
+
+class DeadCodeEntity(BaseModel):
+    """A single dead-code candidate returned by the dead_code tool."""
+
+    name: str = Field(..., description="Qualified entity name (e.g. 'Ns.Class.M')")
+    type: str = Field(
+        ...,
+        description="Entity type: CLASS | METHOD | PROPERTY | INTERFACE | STRUCT | ENUM",
+    )
+    file_path: str = Field(..., description="Source file the entity lives in")
+    line_no: int = Field(..., description="1-indexed line number in source file")
+    visibility: str = Field(
+        "",
+        description="C# visibility modifier: public | private | internal | protected | '' (unknown)",
+    )
+    reason: str = Field(
+        ...,
+        description="Why this entity is considered dead: private | internal | not_exported",
+    )
+    in_exports: bool = Field(
+        False,
+        description="True if the entity name appears in its file's # EXPORTS list",
+    )
+
+
+class DeadCodeResponse(BaseModel):
+    """Response model for the dead_code tool."""
+
+    entities: list[DeadCodeEntity] = Field(
+        default_factory=list, description="Dead-code candidates"
+    )
+    total: int = Field(0, description="Total dead candidates before pagination")
+    filters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Echoed filters: min_age_days, entity_type",
+    )
