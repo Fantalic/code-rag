@@ -220,6 +220,48 @@ except Exception as e:
     print(f'    (parse error: {e})')
 " 2>/dev/null || echo "    (raw): $cyc_raw"
         fi
+
+        echo
+        echo "  node_details(view=details) on TestApp.OrderService:"
+        nd_raw=$(call_probe "node_details" '{"entity_name":"TestApp.OrderService","view":"details","depth":2}')
+        if [ -n "$nd_raw" ]; then
+            printf '%s' "$nd_raw" | "$PY" -c "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"    ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        ent=r.get('entity',{})
+        rels=r.get('relations',[]) or []
+        print(f\"    node: {ent.get('name','?')} ({ent.get('type','?')})\")
+        print(f\"    relations: {len(rels)}\")
+except Exception as e:
+    print(f'    (parse error: {e})')
+" 2>/dev/null || echo "    (raw): $nd_raw"
+        fi
+
+        echo
+        echo "  node_details(view=neighbors) on TestApp.OrderService:"
+        nn_raw=$(call_probe "node_details" '{"entity_name":"TestApp.OrderService","view":"neighbors"}')
+        if [ -n "$nn_raw" ]; then
+            printf '%s' "$nn_raw" | "$PY" -c "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"    ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        nbs=r.get('neighbors',[]) or []
+        inc=r.get('incoming_relations',[]) or []
+        out=r.get('outgoing_relations',[]) or []
+        print(f\"    neighbors: {len(nbs)}  incoming: {len(inc)}  outgoing: {len(out)}\")
+except Exception as e:
+    print(f'    (parse error: {e})')
+" 2>/dev/null || echo "    (raw): $nn_raw"
+        fi
     fi
 fi
 

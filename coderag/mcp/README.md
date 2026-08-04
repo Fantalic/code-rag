@@ -273,7 +273,7 @@ Retrieve the knowledge graph from LightRAG.
 #### ~~`get_graph_labels`~~ (dropped — internal only)
 ~~Get labels from the knowledge graph.~~
 
-Dropped from MCP surface. Use `nodes_by_type(label)`, `node_neighbors(node)`, or `node_relations(node)` instead.
+Dropped from MCP surface. Use `nodes_by_type(label)` or `node_details(view="neighbors"|"relations")` instead.
 
 #### `check_entity_exists`
 Check if an entity exists in the knowledge graph.

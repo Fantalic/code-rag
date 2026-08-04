@@ -93,6 +93,12 @@ if [ -n "$PY" ]; then
     RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" codebase_overview '{"max_depth":1}' 2>&1)
     echo "  codebase_overview -> $RESP" | head -c 300
     echo
+    RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" node_details '{"entity_name":"TestApp.OrderService","view":"details","depth":2}' 2>&1)
+    echo "  node_details(view=details) -> $RESP" | head -c 300
+    echo
+    RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" node_details '{"entity_name":"TestApp.OrderService","view":"neighbors"}' 2>&1)
+    echo "  node_details(view=neighbors) -> $RESP" | head -c 300
+    echo
 else
     echo "(no python, skipping)"
 fi

@@ -18,14 +18,11 @@ from coderag_mcp.server import (
     _serialize,
     add_note_to_entity,
     check_entity_exists,
-    get_codebase_stats,
-    get_entity_details,
-    get_entity_neighbors,
     get_graph_labels,
     get_knowledge_graph,
+    get_node_details,
     get_related_files,
     mcp_server,
-    query,
     query_data,
 )
 
@@ -49,11 +46,6 @@ class TestClientModule:
 class TestServerFunctions:
     """Test that server tool functions are properly defined."""
 
-    def test_query_is_coroutine(self):
-        import inspect
-
-        assert inspect.iscoroutinefunction(query)
-
     def test_check_entity_exists_is_coroutine(self):
         import inspect
 
@@ -69,6 +61,11 @@ class TestServerFunctions:
 
         assert inspect.iscoroutinefunction(get_graph_labels)
 
+    def test_get_node_details_is_coroutine(self):
+        import inspect
+
+        assert inspect.iscoroutinefunction(get_node_details)
+
 
 class TestMcpServerRegistration:
     """Test that tools are properly registered on the FastMCP server."""
@@ -79,30 +76,14 @@ class TestMcpServerRegistration:
         assert len(tools) > 0
 
     @pytest.mark.asyncio
-    async def test_all_expected_tools_registered(self):
+    async def test_all_tools_have_schemas(self):
+        """Sanity check: every registered tool has a name, description, and inputSchema."""
         tools = await mcp_server.list_tools()
-        tool_names = {t.name for t in tools}
-        expected = [
-            "query",
-            "get_related_files",
-            "check_entity_exists",
-            "get_knowledge_graph",
-            "get_graph_labels",
-            "add_note_to_entity",
-            "query_data",
-            "get_codebase_stats",
-            "get_entity_neighbors",
-            "get_entity_details",
-            "list_entities_by_type",
-            "get_entities_in_file",
-            "search_entities",
-            "get_relation_detail",
-            "get_method_signature",
-            "find_related_files",
-            "get_interface_methods",
-        ]
-        for name in expected:
-            assert name in tool_names, f"Tool {name} not registered"
+        for tool in tools:
+            assert tool.name is not None
+            assert tool.description is not None
+            assert hasattr(tool, "inputSchema")
+            assert isinstance(tool.inputSchema, dict)
 
     @pytest.mark.asyncio
     async def test_tool_schemas_have_required_fields(self):

@@ -229,16 +229,17 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | Tool | Description | Status |
 |------|-------------|--------|
 | `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) | ✅ Working |
-| ~~`get_graph_labels`~~ | ~~Get all entity/relation label types~~ | ❌ Dropped (use `nodes_by_type` / `node_neighbors`) |
+| ~~`get_graph_labels`~~ | ~~Get all entity/relation label types~~ | ❌ Dropped (use `nodes_by_type` / `node_details`) |
 | `check_entity_exists` | Check if entity exists by name | ✅ Working |
 | `add_note_to_entity` | Attach embedded note to entity | ⚠️ Creates note but reports failure |
 | `get_related_files` | Find files related to a query (semantic search) | ⚠️ Returns file paths only — no snippets |
-| `get_entity_neighbors` | 1-hop neighbors (incoming + outgoing relations) | ✅ Working |
-| `get_entity_details` | Full entity info with all relations; `depth` (1=entity, 2=structural, 3=full) | ✅ Working |
-| `get_relation_detail` | Show all relations of a specific type for an entity | ✅ Added |
-| `get_method_signature` | Show method signature (parameters, return type) | ✅ Added |
+| `node_details` | Unified node lookup; `view`: "details" / "relations" / "neighbors" | ✅ Working (merged 3 tools) |
+| ~~`get_entity_neighbors`~~ | ~~1-hop neighbors~~ | ❌ Merged into `node_details(view="neighbors")` |
+| ~~`get_entity_details`~~ | ~~Full entity info with relations~~ | ❌ Merged into `node_details(view="details")` |
+| ~~`get_relation_detail`~~ | ~~All relations of a specific type~~ | ❌ Merged into `node_details(view="relations", relation_type=...)` |
+| ~~`get_method_signature`~~ | ~~Method signature~~ | ❌ Dropped; lives in description field |
 | `find_related_files` | Find all files that reference/relate to a given entity | ✅ Added |
-| `get_interface_methods` | Show interface methods + implementing classes | ✅ Added |
+| ~~`get_interface_methods`~~ | ~~Interface methods + implementing classes~~ | ❌ Dropped (use `node_details`) |
 
 **Exploration (7 tools):**
 | Tool | Description | Status |
@@ -256,9 +257,8 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 |------|--------|-------|
 | `check_entity_exists` | Very Useful | Fast, reliable, boolean responses |
 | `get_knowledge_graph` | Very Useful | Returns full graph structure with nodes+edges |
-| ~~`get_graph_labels`~~ | ~~Useful~~ | ❌ Dropped (use `nodes_by_type` / `node_neighbors`) |
-| `get_entity_details` | Very Useful | Full details with relations |
-| `get_entity_neighbors` | Very Useful | Shows inheritance, implementation, calls |
+| ~~`get_graph_labels`~~ | ~~Useful~~ | ❌ Dropped (use `nodes_by_type` / `node_details`) |
+| `node_details` | Very Useful | Unified view: details, relations, neighbors (via `view` param) |
 | `search_entities` | Useful | Regex pattern matching on names/descriptions |
 | `query` (GET) | Moderately Useful | Natural language queries work; POST times out |
 | `query_data` | Moderately Useful | Structured query without LLM |
@@ -277,8 +277,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | `check_entity_exists` | `/graph/entity/exists?name=XYZ` | GET |
 | `get_knowledge_graph` | `/graphs?label=*&max_depth=3&max_nodes=1000` | GET |
 | ~~`get_graph_labels`~~ | ~~`/graph/label/list`~~ | ❌ Dropped |
-| `get_entity_details` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter | GET |
-| `get_entity_neighbors` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter | GET |
+| `node_details` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter (`view` param) | GET |
 | `query` | `/query` | POST |
 | `query_data` | `/query/data` | POST |
 | `get_codebase_stats` | `/graph/label/list` + `/graphs?label=*&max_depth=3` | GET + GET |
@@ -286,7 +285,6 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | `search_entities` | `/graphs?label=*&max_depth=3&max_nodes=1000` + regex filter | GET |
 | `get_entities_in_file` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter by `file_path` | GET |
 | `get_related_files` | `/query/data` | POST |
-| `get_interface_methods` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter edges | GET |
 
 ### MCP Server Architecture
 

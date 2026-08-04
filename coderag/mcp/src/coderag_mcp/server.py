@@ -143,10 +143,10 @@ async def get_graph_labels(
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    """Not exposed as MCP tool. Entity/relation type info is available via `nodes_by_type`, `node_neighbors`, and `node_relations`."""
+    """Not exposed as MCP tool. Entity/relation type info is available via `nodes_by_type` and `node_details(view='neighbors'|'relations')`."""
     raise NotImplementedError(
         "codebase_types is not exposed. Use nodes_by_type(label) for a list of "
-        "entities of a given type, or node_neighbors(node) / node_relations(node) "
+        "entities of a given type, or node_details(view='neighbors'|'relations') "
         "for type information about a specific node's connections."
     )
 
@@ -190,30 +190,35 @@ async def query_data(query: str, mode: str = "hybrid") -> dict:
         return _error("query_data", e)
 
 
-@mcp_server.tool(name="node_neighbors")
+# @mcp_server.tool()
 async def get_entity_neighbors(entity_name: str) -> dict:
-    """All nodes directly connected to a node (1 hop), plus incoming and outgoing relations. See `coderag --agent-help`."""
-    client = _get_lightrag_client()
-    try:
-        result = await client.get_entity_neighbors(entity_name)
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_entity_neighbors", e)
-    except Exception as e:
-        return _error("get_entity_neighbors", e)
+    """Not exposed as MCP tool. 1-hop neighbors are available via `node_details(view="neighbors")`."""
+    raise NotImplementedError(
+        "node_neighbors is not exposed. Use node_details(entity_name, view='neighbors')."
+    )
 
 
 @mcp_server.tool(name="node_details")
-async def get_entity_details(entity_name: str, depth: int = 3) -> dict:
-    """Return full details for one node: description, source files, incoming relations, and outgoing relations. See `coderag --agent-help`."""
+async def get_node_details(
+    entity_name: str,
+    view: str = "details",
+    relation_type: str = "",
+    depth: int = 2,
+) -> dict:
+    """Unified node lookup. `view` selects the response shape: "details" (default; node + incoming + outgoing + 1-hop neighbors), "relations" (just edges, optionally filtered by `relation_type`), or "neighbors" (1-hop neighbor entities + connecting relations). See `coderag --agent-help`."""
     client = _get_lightrag_client()
     try:
-        result = await client.get_entity_details(entity_name, depth=depth)
+        result = await client.get_node_details(
+            entity_name=entity_name,
+            view=view,
+            relation_type=relation_type,
+            depth=depth,
+        )
         return _serialize(result)
     except LightRAGError as e:
-        return _error("get_entity_details", e)
+        return _error("get_node_details", e)
     except Exception as e:
-        return _error("get_entity_details", e)
+        return _error("get_node_details", e)
 
 
 @mcp_server.tool(name="nodes_by_type")
@@ -368,19 +373,13 @@ def _extract_iso_timestamp(note_name: str, description: str) -> str:
     return ""
 
 
-@mcp_server.tool(name="node_relations")
+# @mcp_server.tool()
 async def get_relation_detail(entity_name: str, relation_type: str = "") -> dict:
-    """Return all relations attached to a node, optionally filtered by relation type. See `coderag --agent-help`."""
-    client = _get_lightrag_client()
-    try:
-        result = await client.get_relation_detail(
-            entity_name, relation_type=relation_type or ""
-        )
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_relation_detail", e)
-    except Exception as e:
-        return _error("get_relation_detail", e)
+    """Not exposed as MCP tool. Relations are available via `node_details(view="relations")`."""
+    raise NotImplementedError(
+        "node_relations is not exposed. Use node_details(entity_name, view='relations', "
+        "relation_type='...') for relations involving a node."
+    )
 
 
 @mcp_server.tool()
@@ -397,9 +396,9 @@ async def find_related_files(entity_or_file: str) -> dict:
 
 # @mcp_server.tool()
 async def get_interface_methods(interface_name: str) -> dict:
-    """Not exposed as MCP tool. Interface method info is available via `node_details` and `node_relations`."""
+    """Not exposed as MCP tool. Interface method info is available via `node_details(view='details'|'neighbors')`."""
     raise NotImplementedError(
-        "get_interface_methods is not exposed. Use node_details or node_relations "
+        "get_interface_methods is not exposed. Use node_details(view='details'|'neighbors') "
         "to inspect interface members and implementing classes."
     )
 

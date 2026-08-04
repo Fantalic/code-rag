@@ -945,6 +945,27 @@ class LightRAGClient:
             total=len(relations),
         )
 
+    async def get_node_details(
+        self,
+        entity_name: str,
+        view: str = "details",
+        relation_type: str = "",
+        depth: int = 2,
+    ):
+        """Unified node lookup. `view` selects the response shape:
+        - "details"   : node + incoming + outgoing + neighbors (depth-filtered)
+        - "relations" : relations involving the node (optionally filtered)
+        - "neighbors" : 1-hop neighbor entities + connecting relations
+        """
+        view_norm = (view or "details").lower()
+        if view_norm == "relations":
+            return await self.get_relation_detail(
+                entity_name=entity_name, relation_type=relation_type
+            )
+        if view_norm == "neighbors":
+            return await self.get_entity_neighbors(entity_name=entity_name)
+        return await self.get_entity_details(entity_name=entity_name, depth=depth)
+
     async def find_related_files(self, entity_or_file: str) -> RelatedFilesResponse:
         """Find all files related to an entity or file path."""
         try:

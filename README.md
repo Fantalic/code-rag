@@ -52,7 +52,7 @@ Four pieces, all running locally:
 What an agent experience looks like once your project is indexed:
 
 > **You:** What does `OrderService` depend on?
-> **Agent:** *calls `get_entity_details` → `get_entity_neighbors`*
+> **Agent:** *calls `node_details(view="details")` → `node_details(view="neighbors")`*
 > OrderService depends on 4 entities: `OrderRepository`, `PaymentGateway`, `EventBus`, and the `ILogger<OrderService>` interface. The two heaviest edges are to `PaymentGateway` (3 calls) and `OrderRepository` (2 calls).
 
 > **You:** If I rename `PlaceOrder`, which files break?
@@ -129,7 +129,7 @@ The MCP server exposes 18 curated tools. The **graph + file tools** are fast and
 |---|---|
 | "Does X exist?" | `check_entity_exists` |
 | "Find entities matching X" | `nodes_by_type` |
-| "Tell me about X" | `get_entity_details`, `get_entity_neighbors`, `get_relation_detail`, `get_method_signature`, `get_interface_methods` |
+| "Tell me about X" | `node_details` (view: details, relations, neighbors) |
 | "Codebase overview" | `get_knowledge_graph` |
 | "File ↔ entity bridge" | `get_entities_in_file`, `find_related_files`, `get_related_files` |
 | "File-level views" | `get_file_stats`, `get_file_dependencies`, `file_dependency_cycles` |
