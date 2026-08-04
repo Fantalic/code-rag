@@ -1,480 +1,343 @@
-# codeRAG — System Documentation
+# codeRAG — User Documentation
 
-> Everything about how this project works: components, data flow, pipeline, and security.
-> For detailed API request/response schemas, see [API_REFERENCE.md](API_REFERENCE.md).
-
-> **⚠️ Local-only Ollama:** This project supports **only local Ollama** for LLM inference and embeddings.
-> No cloud API keys, no API key auth needed — `LIGHTRAG_API_KEY` is unused. See §7 for env vars.
-
----
-
-## 1. Architecture Overview
-
-### Host vs Docker split (design rationale)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  HOST MACHINE (coderag CLI — native Go binary)                 │
-│  Fast, direct filesystem access, no Docker overhead            │
-│                                                                 │
-│  ┌──────────────┐   stdio    ┌───────────────────────────┐     │
-│  │   opencode    │◄─────────►│  coderag (Go binary)      │     │
-│  │  (AI agent)   │   (MCP)   │  • File watcher (fsnotify) │     │
-│  └──────────────┘            │  • C# analyser (subprocess)│     │
-│                              │  • Docker orchestration    │     │
-│                              │  • MCP stdio↔SSE bridge    │     │
-│                              └─────────┬─────────────────┘     │
-│                                        │                       │
-│                               HTTP :9621│      SSE :9622       │
-│                                        │                       │
-└────────────────────────────────────────┼───────────────────────┘
-                                         │
-         ┌───────────────────────────────┼───────────────────────┐
-         │  DOCKER / PODMAN             │                       │
-         │  Long-running services       │                       │
-         │                              │                       │
-         │  ┌────────────────────┐      │  ┌────────────────┐   │
-         │  │ LightRAG API       │◄─────┘  │ MCP Server     │   │
-         │  │ (Python FastAPI)   │  HTTP   │ (Python)       │   │
-         │  │ :9621              │         │ :9622           │   │
-         │  │ • Graph DB         │         │ • 15 MCP tools  │   │
-         │  │ • Vector DB        │         │ • SSE transport │   │
-         │  │ • WebUI            │         └────────────────┘   │
-         │  └────────────────────┘                              │
-         └──────────────────────────────────────────────────────┘
-```
-
-**Why this split?** The `coderag` CLI runs on the host because:
-- File watching (fsnotify) needs low latency — Docker volume mounts add overhead
-- The C# analyser spawns subprocesses on the host filesystem — Docker would require complex mounts
-- The MCP bridge connects opencode (on host) to the MCP server (in Docker) via lightweight stdio↔SSE proxying
-
-Docker hosts the long-running Python services (LightRAG, MCP) where containerization provides isolation, reproducibility, and resource management.
-
-| Component | Role | Language | Runs on |
-|-----------|------|----------|---------|
-| **coderag CLI** | Central CLI — MCP bridge, file watcher, project orchestrator | Go | Host (native binary) |
-| **LightRAG** | RAG engine — entities/relations as a knowledge graph, LLM-powered queries | Python (FastAPI) | Docker/Podman container |
-| **MCP Server** | MCP tool definitions, SSE transport | Python | Docker/Podman container |
-| **WebUI** | React 19 UI for browsing the knowledge graph | TypeScript/React | Docker container (served by LightRAG) |
-| **Ollama** | Local LLM backend for inference + embeddings | Go | Docker container or host |
-
-### How it works
-
-1. User runs `coderag mcp .` in their project directory (or opencode launches it)
-2. `coderag` checks if LightRAG is healthy at `http://localhost:9621`:
-   - **No** → runs `docker compose up -d`, waits for health
-   - **Yes** → skips startup
-3. `coderag` starts the Go file watcher on the project directory (goroutine)
-4. `coderag` enters the MCP stdio loop, exposing 15 tools to opencode
-5. Tool calls are proxied via SSE to the Python MCP server in Docker, which talks to LightRAG's HTTP API
+> The complete guide to installing, running, and using codeRAG: what it does, how to
+> set it up, how to work with it day-to-day, and how to fix things when they break.
+>
+> Quick start → [README.md](README.md) · Full CLI reference → [docs/USAGE.md](docs/USAGE.md)
+> · Install details → [docs/INSTALL.md](docs/INSTALL.md) · Agent wiring → [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md)
 
 ---
 
-## 2. Project Structure
+## 1. What codeRAG does
 
-```
-code-rag/
-├── coderag/                      ← All owned code
-│   ├── cli/                      ← Go CLI (orchestrator)
-│   │   ├── main.go               ← Entry point → builds `coderag` binary
-│   │   ├── watcher/              ← fsnotify + git observer
-│   │   ├── diff/                 ← Entity/relation diff engine
-│   │   ├── pipeline/             ← Pipeline orchestration
-│   │   ├── parser/               ← Analyser output parsers (csharp.go)
-│   │   ├── router/               ← File extension → analyser mapping
-│   │   ├── filter/               ← Security filter (PII/keys/secrets)
-│   │   ├── crud/                 ← LightRAG HTTP CRUD client
-│   │   └── analysers/csharp/     ← Go native C# analyser
-│   ├── lightrag/                 ← Python RAG engine (Docker)
-│   │   ├── lightrag/             ← Core Python package
-│   │   ├── lightrag-api/         ← FastAPI service
-│   │   └── lightrag_webui/       ← React 19 + TypeScript UI
-│   ├── mcp/                      ← Python MCP server (Docker)
-│   │   └── src/coderag_mcp/      ← MCP tools, SSE transport
-│   └── tests/                    ← Integration tests
-├── scripts/                      ← Setup & build scripts
-├── Dockerfile                    ← Multi-stage: LightRAG + WebUI + MCP
-├── docker-compose.yml            ← lightrag (:9621) + mcp (:9622)
-└── _dev_docs/                    ← Private working docs (gitignored)
-```
+codeRAG turns a source-code folder into a **live, queryable knowledge graph**:
 
-### Package roles
+- **Entities** — namespaces, classes, interfaces, structs, enums, methods, properties.
+- **Relations** — inheritance, interface implementation, method calls, property
+  ownership, namespace containment, cross-file dependencies.
 
-| Package | Import path | Purpose |
-|---------|-------------|---------|
-| `coderag/cli` | `github.com/coderag` | CLI binary (`start`, `mcp`, `scan`, `watch`, `status`, `stop`, `query`, `webui`) + watcher, diff engine, pipeline, CRUD client |
-| `coderag/cli/analysers/csharp` | `github.com/coderag/analysers/csharp` | Go-native C# analyser (standalone binary, subprocess) |
-| `coderag/mcp` | `coderag_mcp` (installed as `coderag-mcp`) | Python MCP server running in Docker (stdio↔SSE bridge) |
+Everything runs **locally by default** — no cloud APIs, no API keys. C# code is analysed by a
+native Go static analyser: the graph is deterministic and faithful to your source. An LLM
+(Ollama) is only used for optional, opt-in features:
+natural-language queries (`coderag query`) and ingestion of non-C# prose files. The
+LLM can be a local model or, if you want stronger answers, an Ollama **cloud** model
+with a small free-token allowance (see §3.1).
+
+Once indexed, you can:
+
+- **Browse the WebUI** at `http://localhost:9621` — visual graph exploration.
+- **Ask an AI agent** — 10 MCP tools let opencode/Claude/Cursor reason over the graph.
+- **Use the CLI** — `coderag graph files|deps|cycles`, `coderag query`, `coderag scan`.
+- **Keep it current** — the watcher re-indexes files as you save them.
 
 ---
 
-## 3. LightRAG
+## 2. Concepts
 
-Forked from [HKUDS/LightRAG](https://github.com/HKUDS/LightRAG). Stores entities + relations in a graph DB and vector DB (embeddings).
+### Entities and relations
 
-**Data flow (document pipeline):**
+The graph stores *symbols*, not text. An entity is a named symbol (`TestApp.OrderService`),
+a relation is a typed edge between two entities (`TestApp.OrderService.PlaceOrder --calls-->
+TestApp.OrderRepository.Find`). Every entity records which file it came from, its
+description, and — for C# — its visibility (`public`/`private`/`internal`/`protected`).
+
+### Two ingestion paths
+
+| Path | Files | LLM? | Used for |
+|------|-------|------|----------|
+| **A — Direct graph CRUD** | `.cs` (via the C# analyser) | ❌ never | C# solutions with a `.sln` |
+| **B — LightRAG pipeline** | everything else | ✅ opt-in | markdown, yaml, txt, … |
+
+Path A is deterministic and free. Path B sends file contents through LightRAG's
+LLM pipeline (chunking → entity extraction → embeddings) and only runs when you
+explicitly feed it non-C# files.
+
+### Storage per project
+
+Each project keeps its data in a `.coderag/` folder next to your code:
+
 ```
-POST /documents/text -> background enqueue -> text chunked -> LLM extracts entities+relations -> graph DB + vector DB
-```
-
-**Dedup:** LightRAG deduplicates by `file_source` in `doc_status`. If `file_source` already exists, returns `status="duplicated"`. No in-place update. See `document_routes.py:1824-1840`.
-
-**Graph CRUD** bypasses the LLM pipeline — endpoints like `/graph/entity/create` and `/graph/relation/create` operate directly on the graph + vector DB. See [API_REFERENCE.md](API_REFERENCE.md#3-entity-crud-endpoints).
-
-### Project-Based Storage
-
-Each project folder contains a `.coderag/` directory:
-```
-project-root/
+myproject/
 ├── .coderag/
-│   └── rag_storage/           # LightRAG data (graphml, vdb, kv stores)
-├── .env                       # Optional project config (minimal)
-└── src/                       # Your code
+│   ├── rag_storage/            # the knowledge graph + vector data
+│   ├── analyser_output/        # C# analyser output (.txt, debuggable)
+│   └── docker-logs/            # captured service logs after startup
+└── src/                        # your code
 ```
 
-**Detection:** `coderag/lightrag/lightrag/api/config.py:find_project_root()` searches from cwd upward for `.coderag` folder. Falls back to `./rag_storage` (legacy).
-
-**Env var override:** `LIGHTRAG_WORKING_DIR` forces the working directory. Used by `coderag start` to point LightRAG at the correct `.coderag/rag_storage`.
+codeRAG finds this folder by searching upward from the working directory; the active
+workspace is reported by `coderag status`.
 
 ---
 
-## 4. coderag CLI
+## 3. Install
 
-The `coderag` binary is the central CLI tool for the entire codeRAG system. It is a single native binary built on the user's machine (Windows, Linux, macOS).
+### 3.1 Requirements
 
-### CLI Commands
+| Tool | Min version | Needed for |
+|------|-------------|------------|
+| Go | 1.25+ | Building the CLI (not needed at runtime) |
+| Docker (Desktop on Win/mac) | 24+ | Running LightRAG + MCP services |
+| Ollama | 0.3+ | Local LLM + embeddings |
+| A `.NET` project | any | A solution file (`.sln`) for C# indexing |
+
+Two kinds of models:
+
+- **`bge-m3:latest`** — local **embeddings** model, required for the graph to work.
+  The setup script pulls it (override via `EMBEDDING_MODEL`).
+- **A code LLM** — used only by `coderag query` and prose ingestion. Two options:
+
+  | Model | Kind | Notes |
+  |-------|------|-------|
+  | `phi3.5:latest` (default) | local | Small, pulls easily, works fully offline |
+  | `qwen3-coder:480b-cloud` | **cloud** | Served by Ollama from the cloud — **nothing is downloaded**, works immediately through your local Ollama with a small free-token allowance. Needs internet + an Ollama account. |
+
+  The default `LLM_MODEL` in `docker-compose.yml` is `phi3.5:latest` because it is a
+  real local model; `qwen3-coder:480b-cloud` is a cloud model, so it is *not* pulled
+  like a local one. Switch models at any time with the `LLM_MODEL` env var.
+
+> If you don't plan to use `coderag query` or prose ingestion, `bge-m3` alone is enough
+> to keep the graph tools working — the C# analyser does not call an LLM.
+
+### 3.2 Automated setup
 
 ```bash
-coderag start   <dir>    →  Start Docker services + file watcher in foreground
-coderag mcp     <dir>    →  MCP bridge mode (stdio, for opencode/agent connections)
-                             Auto-starts Docker + watchdog in background.
-                             Bridges stdio↔SSE to Python MCP in Docker.
-                              Exposes 15 tools over MCP stdio protocol.
-coderag scan    <dir>    →  Run C# analyser and populate knowledge graph
-                             Use `--clean`/`-c` to clear graph + VDB first
-coderag webui   <dir>    →  Open WebUI in browser (ensure Docker is running)
-coderag watch   <dir>    →  File watcher only (no Docker orchestration)
-coderag status           →  Health check all services
-coderag stop             →  Stop all services (docker compose down)
-coderag query   "<text>" →  Quick query against the knowledge graph
+git clone https://github.com/Fantalic/code-rag.git
+cd code-rag
+
+# Linux / macOS
+bash scripts/setup.sh
+
+# Windows (PowerShell, run from the repo root)
+.\scripts\setup.ps1
 ```
 
-### `coderag mcp <dir>` — detailed flow
+The script: installs missing prerequisites → pulls Ollama models → builds the `coderag`
+CLI + C# analyser → pre-builds the Docker image → adds the repo to your `PATH`.
 
-```
-Step 0:  Parse flags, validate <dir> exists
-Step 1:  Check MCP SSE health at http://localhost:9622/health
-         │
-         ├─ Healthy (HTTP 200) → skip to Step 3
-         │
-         └─ Not healthy → ensure LightRAG is running
-              │
-              └─ Check LightRAG at :9621, start Docker if needed
+The model pull honors your env vars:
 
-Step 2:  Print "LightRAG ready at http://localhost:9621"
-Step 3:  Start file watcher on <dir> (goroutine, fsnotify + git poll)
-         - Watchdog runs C# analyser on solution files
-         - Diffs entities/relations against current graph
-         - Applies security filter, creates/updates/deletes via LightRAG API
-Step 4:  Enter MCP stdio loop (via SSE bridge):
-         ├─ tools/list    → return 22 tool definitions
-         ├─ tools/call    → proxy to LightRAG HTTP API or handle internally
-         └─ notifications → handle lifecycle
+```bash
+# default: embeddings only — MCP usage needs no code LLM
+bash scripts/setup.sh
+
+# explicit embedding model + a code LLM for 'coderag query'
+EMBEDDING_MODEL=bge-m3:latest LLM_MODEL=qwen3-coder:480b-cloud bash scripts/setup.sh
 ```
 
-### `coderag start <dir>` — detailed flow
+`EMBEDDING_MODEL` defaults to `bge-m3:latest`. `LLM_MODEL` is pulled only when set —
+by default the setup script pulls **no query model** (the MCP tools don't need one).
 
+### 3.3 Manual setup
+
+Build the CLI and analyser, then start Docker once:
+
+```bash
+# CLI (repo root)
+go build -C coderag/cli -o coderag .            # Linux/macOS
+go build -C coderag/cli -o coderag.exe .        # Windows
+
+# C# analyser (only needed if you index C#)
+cd coderag/cli/analysers/csharp
+go build -o csharp_analyser ./cmd/csharp_analyser/   # + .exe on Windows
+
+# Docker images (first run of coderag start does this automatically)
+docker compose build
 ```
-Step 1: Same Docker/Podman health check as above
-Step 2: Start file watcher in foreground
-Step 3: Print status + WebUI URL
-Step 4: Block until Ctrl+C
-Step 5: On shutdown → stop watcher (Docker containers stay running)
+
+Manual install, offline mode, and troubleshooting → **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+### 3.4 Verify the install
+
+```bash
+coderag status
+#   codeRAG v...
+#   LightRAG API:   running        ← http://localhost:9621
+#   MCP SSE:        running        ← http://localhost:9622
+#   Workspace:      myproject
 ```
 
-### Supported containers
-
-The Docker/Podman stack includes:
-- **LightRAG API** — Python FastAPI server on `:9621` (includes WebUI)
-- **MCP Server** — Python MCP tool server on `:9622` (SSE transport)
-- **Ollama** (optional, on host or in container) — LLM backend on `:11434`
-
-Containers are configured in `docker-compose.yml` at the project root.
+If services show `not running`, run `coderag start <your project>` once — it starts the
+Docker stack automatically.
 
 ---
 
-## 5. MCP Bridge & Server
+## 4. First index
 
-The MCP server runs in Docker (`coderag-mcp` on port 9622, SSE transport) and the Go `coderag` binary on the host acts as a stdio↔SSE bridge between opencode and the Python MCP server.
+Point codeRAG at a C# solution:
 
+```bash
+coderag scan ./myproject          # needs a .sln (searches up to 10 levels up)
+coderag scan ./myproject --clean  # wipe existing graph + analyser output first
 ```
-opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Docker :9622) → HTTP → LightRAG API (Docker :9621)
+
+What happens:
+
+1. codeRAG starts the Docker services for your project (first time only).
+2. The C# analyser parses the whole solution → `.coderag/analyser_output/*.txt`.
+3. Output is parsed into entities + relations, diffed against the current graph, and
+   written via a single batched import.
+4. `Scan complete. Knowledge graph now contains N entities`.
+
+Try it out:
+
+```bash
+coderag graph files                 # per-file stats (nodes, fan-in, fan-out)
+coderag graph deps OrderService.cs  # refs + dependents for one file
+coderag graph cycles                # circular file dependencies
+coderag webui                       # open the visual browser
+coderag query "How does order checkout work?"   # natural-language answer (LLM)
 ```
 
-### 17 MCP Tools
-
-TODO: list available and short description
-
-### External Agent Quick Reference — Calling MCP Tools Directly
-
-**Do NOT connect via MCP SSE protocol (port 9622) from external agents.** Use the HTTP REST API directly at `http://localhost:9621`. The MCP tools are Python wrappers around these HTTP endpoints:
-
-| MCP Tool | HTTP Endpoint | Method |
-|---|---|---|
-| `check_entity_exists` | `/graph/entity/exists?name=XYZ` | GET |
-| `get_knowledge_graph` | `/graphs?label=*&max_depth=3&max_nodes=1000` | GET |
-| `node_details` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter (`view` param) | GET |
-| `query` | `/query` | POST |
-| `query_data` | `/query/data` | POST |
-| `get_codebase_stats` | `/graph/label/list` + `/graphs?label=*&max_depth=3` | GET + GET |
-| `list_entities_by_type` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter | GET |
-| `search_entities` | `/graphs?label=*&max_depth=3&max_nodes=1000` + regex filter | GET |
-| `get_related_files` | `/query/data` | POST |
-
-### MCP Server Architecture
-
-The Go bridge (`coderag/cli/main.go`) handles:
-1. Ensuring Docker services are up
-2. Starting watchdog in background goroutine
-3. Bridging stdio JSON-RPC ↔ SSE to Python MCP server
-
-The Python MCP server (`coderag/mcp`) handles:
-- Tool dispatch via LightRAG HTTP client
-- 17 tool definitions and handlers (was 15, now 17 with the 4 Phase 32 additions)
-- SSE transport on port 9622
-
-**Note on tool count:** The README and CLI docs still reference "15 MCP tools" and "22 MCP tools" — the actual count is **17** (13 original + 4 newly implemented Phase 32 tools). The README should be updated accordingly.
+> `coderag query` is the only command that calls an LLM, and it needs the configured
+> `LLM_MODEL` (default `phi3.5:latest`) reachable from the Docker container — either a
+> local model you pulled, or a cloud model registered in your Ollama. See [docs/USAGE.md](docs/USAGE.md#coderag-query)
+> if it times out.
 
 ---
 
-## 6. Watchdog Pipeline (Go package)
+## 5. Day-to-day use
 
-The file watcher is a Go package at `coderag/cli/` (module `github.com/coderag`) imported by the `coderag` CLI.
+### Live watching
 
-```
-coderag/cli/
-├── watcher/observer.go          ← fsnotify + git watcher, worker pool, debounce
-├── diff/engine.go               ← Entity/relation diff engine (create/update/delete)
-├── filter/security.go           ← Security filter (PII/keys/secrets)
-├── router/file.go               ← File extension → analyser mapping
-├── parser/csharp.go             ← C# analyser output parser
-├── pipeline/run.go              ← Pipeline orchestration + relation dedup
-└── crud/client.go               ← Graph CRUD HTTP client
+```bash
+coderag start ./myproject
 ```
 
-### Dual-path Design
+Starts the Docker stack and a file watcher in the foreground. Save a `.cs` file and the
+affected entities update within seconds. Three signals keep it accurate:
 
-The watchdog supports **two ingestion paths**:
+1. **Initial sync** — git-based incremental scan at startup.
+2. **fsnotify** — real-time events for saves, renames, moves.
+3. **Git poll** — every 30 s, catches branch switches and anything fsnotify missed.
 
-**Path A — Direct graph CRUD (no LLM):**
-```
-File event -> debounce -> hash check ->
-  router -> analyser (structured output) ->
-  diff against current graph ->
-  security filter ->
-  create/update/delete entities+relations via API
-```
+Deletions **cascade**: removing a file also cleans up entities/relations that referenced
+it and re-analyses the affected files. Press `Ctrl+C` to stop (Docker stays up).
 
-**Path B — LLM pipeline via insert_text:**
-```
-File event -> debounce -> hash check ->
-  POST /documents/text with file content ->
-  LightRAG LLM pipeline (chunking, entity extraction, embedding)
+### MCP for your AI agent
+
+```bash
+coderag mcp ./myproject
 ```
 
-**Routing:** Path A is attempted first. If the file has no registered analyser, falls back to Path B.
+Starts the stdio↔SSE bridge your agent connects to (see [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md)
+for wiring opencode, Claude Desktop, Cursor, Windsurf). It also starts the watcher in the
+background, so the graph stays fresh while you chat.
 
-### Change Detection
+### Managing services
 
-Three complementary mechanisms:
-
-**1. Initial sync (startup)** — git-based incremental:
-- Walk filesystem, build MD5 hash map for all supported files
-- `getGitChangedFiles()` — files that exist on disk AND differ from git HEAD (modified + created)
-- `getGitDeletedFiles()` — files in git HEAD but removed from disk (deleted)
-- Only changed files grouped by solution → analyser runs ONCE per affected solution → enqueued as "modified"
-- Deleted files → `queueDeletionWithCascade()` (see below)
-- If git unavailable → falls back to full scan (process everything)
-
-**2. Git watcher (30s poll):** `git diff --name-only HEAD` + `git diff --cached --name-only`. Handles modified, created, and deleted files. Deleted files trigger cascade cleanup.
-
-**3. FSNotify watcher (real-time, non-git mode):** Watches filesystem events directly. Create/Write → debounce + hash check → process. Remove/Rename → cascade cleanup.
-
-### Cascade-Aware Deletion
-
-When a file is deleted, simply removing its entities is insufficient — other files in the project may reference those entities. The cascade system handles this:
-
+```bash
+coderag status    # health of API, MCP, workspace
+coderag stop      # docker compose down
+coderag watch ./myproject            # watcher only, no Docker orchestration
+coderag watch --debounce 1.0 ./x     # tune debounce (default 0.5s)
+coderag watch --workers 8 ./x        # tune worker pool (default 4)
 ```
-queueDeletionWithCascade(delPath):
-  1. Remove file from hash map (future detection)
-  2. Query LightRAG: GetEntitiesByFilePath(delPath)
-  3. For each entity in the deleted file:
-     a. Query Graph: GetAllRelations() → find relations where source or target matches
-     b. From matching relations, find OTHER files (source_id) that reference those entities
-  4. Queue "modified" events for affected files → triggers analyser + diff engine
-  5. Queue "deleted" event → removes entities + relations from graph + vector DB
-```
-
-**Fallback when `relation.source_id` is broken:** Currently `Relation` parser lacks `SourceID`/`FilePath` fields, so all relations in LightRAG get `source_id` set to whatever file triggered the last scan. The cascade must use entity-based lookup as fallback: query `GetAllEntities()` for the related entity's `file_path` instead of reading it from the relation's properties.
-
-### Analyser Scope
-
-The C# analyser operates at **solution level** (requires `.sln` file). When any file in a solution changes, the entire solution is re-analysed. The diff engine then determines which entities/relations to create, update, or delete. This ensures cross-file relations (inheritance, interface implementations) are always consistent.
-
-### Known Bugs
-
-| Bug | Impact | Fix |
-|-----|--------|-----|
-| `parser.Relation` missing `SourceID`/`FilePath` | All relations stored with `source_id` = trigger file, not the actual source file | Add fields to struct + populate in `parserRelationsToMap` |
-| `parserRelationsToMap` omits `source_id`/`file_path` from data map | `applyCSharpResults` falls back to caller's `filePath` for every relation | Include parsed fields in the data map |
-| Cascade `findAffectedFiles` reads `rel.SourceID` | Gets wrong file paths since `source_id` is broken | Use entity-based lookup instead (query `GetAllEntities()` for related entity's `file_path`) |
-
-### C# Entity Types Extracted
-
-| Type | Example | Relation |
-|------|---------|----------|
-| NAMESPACE | `SnakeGame` | contains CLASS, INTERFACE, STRUCT, ENUM |
-| CLASS | `Snake.Calculator` | defines METHOD, has PROPERTY |
-| METHOD | `Snake.Calculator.Add()` | belongs_to CLASS |
-| PROPERTY | `Snake.User.Email` | has CLASS |
-| INTERFACE | `Snake.IRepository<T>` | implemented_by CLASS |
-| STRUCT | `Snake.Point` | value type |
-| ENUM | `Snake.Direction` | enumeration |
-| INHERITS_FROM | AdvancedCalculator → Calculator | extends CLASS |
-| DEPENDS_ON | Calculator → IOperation | implements INTERFACE |
-| CALLS | MethodA → MethodB | cross-file call reference |
 
 ---
 
-## 7. Security
+## 6. MCP tools reference (10)
 
-| Category | Matches |
-|----------|---------|
-| API keys | `sk-...`, `pk-...`, `ghp_...`, `AKIA...` |
-| Auth tokens | `Bearer ...`, JWT (`eyJ...`), `token=` |
-| Passwords | `password=`, `passwd=`, `PASS=`, `secret=` |
-| Private keys | `-----BEGIN ... PRIVATE KEY-----` |
-| PII | Emails, IPv4/IPv6 addresses |
-| Internal paths | `\\server\share`, `//internal/` |
-| Env secrets | Values of vars named `*SECRET*`, `*TOKEN*` |
+Every tool is deterministic. Responses use a common envelope:
+`{"tool": "<name>", "ok": true, "result": {...}, "error": null}`.
 
-Runs **after** extraction, **before** graph insertion. Matched values -> `[REDACTED]`.
+| Tool | Arguments | What it returns |
+|------|-----------|-----------------|
+| `exists_in_codebase` | `entity_name` | True/false by qualified name (`MyApp.OrderService.PlaceOrder`) |
+| `get_nodes` | `entity_type`, `name`, `file_path`, `connected_to`, `limit=100`, `offset=0` | Filtered nodes (filters AND-combine, substring match, paginated) |
+| `node_details` | `entity_name`, `view="details"`, `relation_type`, `depth=2` | `details` = node + incoming/outgoing + 1-hop neighbors · `relations` = just edges (optionally filtered) · `neighbors` = 1-hop entities + connecting relations |
+| `codebase_overview` | `max_depth=1` | Top-level graph (nodes + edges) for orientation |
+| `file_dependencies` | `file_path` | Files that reference this file and files it depends on |
+| `detect_circular_dependencies` | — | File dependency cycles (Tarjan SCC) |
+| `dead_code` | `min_age_days=0`, `entity_type` | Unreferenced + non-exported symbols; optional age filter, type filter (`CLASS`/`METHOD`/`PROPERTY`) |
+| `query_codebase` | `query`, `mode="hybrid"` | Structured retrieval: entities, relations, chunks, file references |
+| `attach_note_to_node` | `entity_name`, `note_text` | Attaches a note (creates a NOTE node + edge) |
+| `get_notes` | `node_name` | All notes on a node, most recent first |
 
----
+**Notes for agents:**
 
-## 8. Test Infrastructure
-
-| Suite | Location | Count |
-|-------|----------|-------|
-| Root | `tests/` | 74 |
-| Test project | `../test-csharp-project/` (outside repo) | C# + git |
-
-### Key test files
-
-| File | Tests | What it covers |
-|------|-------|----------------|
-| `test_integration_lightrag.py` | 11 | Health, document, query endpoints |
-| `test_integration_graph_vdb.py` | 11 | Entity/relation VDB embedding + `file_path` persistence |
-| `test_smoke_lightrag.py` | 9 | Import/instantiation smoke tests |
-| `test_pydantic_v2.py` | 4 | Pydantic v2 migration checks |
-| `test_retry.py` | 3 | Document retry logic |
-| `test_namespace.py` | 4 | Package imports and version |
-| `test_config.py` | 4 | Configuration helpers |
-
-### Vector DB test model
-- Session-scoped mocked FastAPI server (`conftest.py`) replaces `ollama_model_complete` + `ollama_embed` with dummy functions
-- Embedding mock returns `np.array([[0.1] * 1024 for _ in texts])` — constant 1024-dim vectors
-- All API endpoints tested through `httpx.AsyncClient` via `ASGITransport`
-- Entity/relation CRUD responses include `vector_data` (from `get_entity_info` / `get_relation_info` with `include_vector_data=True`)
-- VDB state assertions: `file_path`, `entity_name`, `src_id`, `tgt_id` fields directly on response
-
-### Gotchas
-- No `tests/__init__.py` — session-scoped async fixture + package marker = deadlock
-- `asyncio_default_test_loop_scope = session` in `pytest.ini` — prevents `asyncio.Lock` deadlock
+- Names are **fully qualified** (`TestApp.OrderService.PlaceOrder`), except where a tool
+  says otherwise.
+- `file_path` filtering uses substring matching — pass `OrderService.cs`, not a full
+  Windows path.
+- `dead_code` reports **unreferenced** symbols that are also `private`/`internal` or
+  *not in their file's export list*. Public methods are always exported, so expect
+  mostly properties and non-exported classes.
 
 ---
 
-## 9. Configuration
+## 7. Configuration
+
+Environment variables (all optional; defaults shown):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `LIGHTRAG_URL` | `http://localhost:9621` | API address |
-| `LIGHTRAG_PORT` | `9621` | Server port |
-| `LIGHTRAG_WORKING_DIR` | auto-detect `.coderag/rag_storage` | Storage path |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint (the only supported LLM backend) |
-| `INPUT_DIR` | positional arg | coderag monitor path |
-| `DEBOUNCE_SECONDS` | `0.5` | Per-file debounce |
-| `WATCHER_WORKERS` | `4` | Thread pool size |
-| `DOCKER_HOST` | auto-detect | Docker or Podman socket |
+| `LIGHTRAG_URL` | `http://localhost:9621` | LightRAG API address (used by CLI + MCP) |
+| `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint reachable from Docker (override on Linux host networking with `http://localhost:11434`) |
+| `WORKSPACE` | — | Forces the active workspace for `docker compose up` |
+| `LLM_MODEL` | `phi3.5:latest` | Code LLM for `coderag query` / prose ingestion. Use any local model you pulled (e.g. `qwen3-coder` local variants) or an Ollama cloud model (e.g. `qwen3-coder:480b-cloud`, free tokens) |
+| `EMBEDDING_MODEL` | `bge-m3:latest` | Embedding model |
+| `EMBEDDING_DIM` | `1024` | Embedding dimension (must match the model) |
+| `DEBOUNCE_SECONDS` | `0.5` | Per-file watcher debounce |
+| `WATCHER_WORKERS` | `4` | Watcher worker pool size |
+| `LIGHTRAG_TIMEOUT` | `30.0` | MCP → LightRAG request timeout (seconds) |
+| `LIGHTRAG_API_KEY` | unset | Optional auth header; unused in local mode |
+
+> **Model consistency:** set `LLM_MODEL` to a model your Ollama can actually serve —
+> a local model you pulled (e.g. `phi3.5:latest`) or a cloud model registered in your
+> Ollama account (e.g. `qwen3-coder:480b-cloud`). Switching models is just an env var:
+> `export LLM_MODEL=qwen3-coder:480b-cloud` before `coderag start`, or in the repo `.env`.
 
 ---
 
-## 10. Local-Only Design
+## 8. Security
 
-This project is intentionally scoped to **local-only Ollama**:
+The watcher runs a **security filter after analysis and before graph insertion**.
+Matched values are replaced with `[REDACTED]`:
 
-- **LLM backend:** Only `OLLAMA_HOST` (default `http://localhost:11434`). No OpenAI, Azure, AWS Bedrock, etc.
-- **Embedding backend:** Only Ollama (`bge-m3:latest` or similar). No cloud embedding APIs.
-- **Auth:** `LIGHTRAG_API_KEY` is optional and unused in local mode. When unset, all API routes accept requests without headers (`utils_api.py:116`).
-- **Why:** This is an experimental project for local codebase analysis. Cloud dependencies would add complexity, cost, and security surface for no benefit in this use case.
+- API keys (`sk-…`, `pk-…`, `ghp_…`, `AKIA…`), auth tokens, JWTs
+- Passwords / secrets (`password=`, `secret=`, `token=`, …)
+- Private keys (`-----BEGIN … PRIVATE KEY-----`)
+- PII — emails, IPv4/IPv6 addresses
+- Internal/UNC paths (`\\server\share`, `//internal/`)
+- Values of env vars named `*SECRET*` / `*TOKEN*`
 
----
-
-## 11. Deployment
-
-### Docker Compose
-
-```yaml
-services:
-  lightrag:
-    build: .
-    ports:
-      - "9621:9621"
-    volumes:
-      - ./rag_storage:/app/rag_storage
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-
-  ollama:  # optional, can use host Ollama instead
-    image: ollama/ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama:/root/.ollama
-
-volumes:
-  ollama:
-```
-
-### Podman Compatibility
-
-The Docker Compose file is compatible with Podman. `coderag` auto-detects Podman when:
-- `DOCKER_HOST=podman://...` is set, or
-- Docker is not found but Podman is in `PATH`
-
-`coderag mcp` and `coderag start` use:
-```bash
-docker compose -f <compose-file> up -d  # or podman-compose
-```
-
-### Building the binary
-
-```bash
-go build -C coderag/cli -o coderag .
-```
-
-The binary is self-contained (~20MB, no runtime dependencies) and works on Windows, Linux, and macOS.
+See **[docs/SECURITY.md](docs/SECURITY.md)** for the full details.
 
 ---
 
-## 12. Known Issues
+## 9. Troubleshooting quick reference
 
-| Issue | Status | Notes |
-|-------|--------|-------|
-| GraphML NoneType error | ✅ FIXED | None values filtered in `write_nx_graph()` and `upsert_node/edge()` |
-| .env requirement | ✅ FIXED | `check_env_file()` always returns True (single-instance) |
-| LIGHTRAG_WORKING_DIR not set | ✅ FIXED | coderag passes it in `start`/`mcp` commands |
-| Entity `file_path` lost in VDB on update | ✅ FIXED | `aedit_entity()` / `aedit_relation()` now include `file_path` in VDB upsert |
-| Git watcher detects uncommitted only | ⚠️ BY DESIGN | Polls `git diff HEAD` every 30s. New commits need restart. |
-| Old entities not cleaned up on file change | ⚠️ PARTIAL | Modified files delete old entities first. No periodic cleanup. |
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `coderag scan` finds no `.sln` | Project has no solution file | Point at a folder containing (or below) a `.sln` |
+| `coderag query` times out | Ollama not reachable from Docker | Check `OLLAMA_HOST`; run `scripts/dev/diag_ollama.sh` |
+| First embedding is slow (~35 s) | `bge-m3` cold load | Pre-warm: `curl -X POST localhost:11434/api/embeddings -d '{"model":"bge-m3","input":"hi"}'` |
+| Services show `not running` | Docker not started | Start Docker Desktop, then `coderag start` |
+| Stale/wrong entities | Old workspace cached | `coderag scan --clean`, or `coderag stop` then restart |
+
+Full troubleshooting + offline mode → **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+---
+
+## 10. Where things live
+
+| Component | Address / path |
+|-----------|----------------|
+| LightRAG API + WebUI | `http://localhost:9621` |
+| MCP SSE | `http://localhost:9622` |
+| Ollama | `http://localhost:11434` (host) |
+| Project graph data | `<project>/.coderag/rag_storage` |
+| Analyser output | `<project>/.coderag/analyser_output` |
+
+---
+
+## 11. Project status
+
+- **Status:** `experimental` 🧪
+- **Ingestion:** C# (`.sln`) via the native Go analyser; other file types via the
+  optional LLM pipeline. Supported file types → **[docs/SUPPORTED_FILES.md](docs/SUPPORTED_FILES.md)**.
+- **Architecture:** host-side Go CLI + Docker-hosted Python services →
+  **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+- **License:** MIT. Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and
+  [modelcontextprotocol](https://github.com/modelcontextprotocol/python-sdk) (MIT).

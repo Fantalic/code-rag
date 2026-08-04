@@ -129,33 +129,44 @@ check_ollama() {
 }
 
 pull_models() {
-    info "Pulling Ollama models (this may take a while)..."
     CMD="${OLLAMA:-ollama}"
+    EMBED_MODEL="${EMBEDDING_MODEL:-bge-m3:latest}"
+    LLM_MODEL="${LLM_MODEL:-}"
 
     if ! $CMD --version &>/dev/null; then
         warn "Ollama not available yet — skip model pull; run manually:"
-        echo "  ollama pull qwen3-coder:480b-cloud"
-        echo "  ollama pull bge-m3:latest"
+        echo "  ollama pull $EMBED_MODEL"
         return
     fi
 
     # Check if Ollama service is running
     if ! $CMD list &>/dev/null; then
         warn "Ollama service not running — skip model pull; start Ollama then run:"
-        echo "  ollama pull qwen3-coder:480b-cloud"
-        echo "  ollama pull bge-m3:latest"
+        echo "  ollama pull $EMBED_MODEL"
         return
     fi
 
-    for model in "qwen3-coder:480b-cloud" "bge-m3:latest"; do
-        if $CMD list 2>/dev/null | grep -q "$model"; then
-            ok "Model $model already pulled"
+    info "Pulling the embedding model ($EMBED_MODEL, this may take a while)..."
+    if $CMD list 2>/dev/null | grep -qF "$EMBED_MODEL"; then
+        ok "Model $EMBED_MODEL already pulled"
+    else
+        info "Pulling $EMBED_MODEL ..."
+        $CMD pull "$EMBED_MODEL"
+        ok "Model $EMBED_MODEL pulled"
+    fi
+
+    if [ -n "$LLM_MODEL" ]; then
+        info "LLM_MODEL is set to '$LLM_MODEL' — pulling it for 'coderag query'..."
+        if $CMD list 2>/dev/null | grep -qF "$LLM_MODEL"; then
+            ok "Model $LLM_MODEL already pulled"
         else
-            info "Pulling $model ..."
-            $CMD pull "$model"
-            ok "Model $model pulled"
+            info "Pulling $LLM_MODEL ..."
+            $CMD pull "$LLM_MODEL"
+            ok "Model $LLM_MODEL pulled"
         fi
-    done
+    else
+        info "LLM_MODEL not set — skipping code-LLM pull (MCP usage needs no LLM; set LLM_MODEL for 'coderag query')"
+    fi
 }
 
 build_coderag() {

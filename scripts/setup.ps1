@@ -149,32 +149,43 @@ function Install-Ollama {
 }
 
 function Pull-Models {
-    Write-Info "Checking / pulling Ollama models (this may take a while)..."
+    $embed = if ($env:EMBEDDING_MODEL) { $env:EMBEDDING_MODEL } else { "bge-m3:latest" }
+    $llm = $env:LLM_MODEL
+
     if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Write-Warn "Ollama not in PATH. Run later:"
-        Write-Host "  ollama pull qwen3-coder:480b-cloud"
-        Write-Host "  ollama pull bge-m3:latest"
+        Write-Host "  ollama pull $embed"
         return
     }
 
     $null = & ollama list 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "Ollama service not running. Start Ollama then run:"
-        Write-Host "  ollama pull qwen3-coder:480b-cloud"
-        Write-Host "  ollama pull bge-m3:latest"
+        Write-Host "  ollama pull $embed"
         return
     }
 
-    foreach ($model in @("qwen3-coder:480b-cloud", "bge-m3:latest")) {
-        $list = & ollama list 2>$null
-        $found = $list | Select-String -Pattern $model
-        if ($found) {
-            Write-OK "Model $model already pulled"
+    Write-Info "Pulling the embedding model ($embed, this may take a while)..."
+    $list = & ollama list 2>$null
+    if ($list | Select-String -Pattern ([regex]::Escape($embed))) {
+        Write-OK "Model $embed already pulled"
+    } else {
+        Write-Info "Pulling $embed ..."
+        & ollama pull $embed 2>&1 | Out-Null
+        Write-OK "Model $embed pulled"
+    }
+
+    if ($llm) {
+        Write-Info "LLM_MODEL is set to '$llm' — pulling it for 'coderag query'..."
+        if ($list | Select-String -Pattern ([regex]::Escape($llm))) {
+            Write-OK "Model $llm already pulled"
         } else {
-            Write-Info "Pulling $model ..."
-            & ollama pull $model 2>&1 | Out-Null
-            Write-OK "Model $model pulled"
+            Write-Info "Pulling $llm ..."
+            & ollama pull $llm 2>&1 | Out-Null
+            Write-OK "Model $llm pulled"
         }
+    } else {
+        Write-Info "LLM_MODEL not set — skipping code-LLM pull (MCP usage needs no LLM; set LLM_MODEL for 'coderag query')"
     }
 }
 

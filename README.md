@@ -6,201 +6,142 @@
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://python.org)
-[![MCP](https://img.shields.io/badge/MCP-18%20tools-blueviolet)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-10%20tools-blueviolet)](https://modelcontextprotocol.io)
 [![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker)](https://docker.com)
 [![Ollama](https://img.shields.io/badge/Ollama-required-black)](https://ollama.com)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Turn your project into a live, queryable knowledge graph.**
-100% local. No cloud APIs. No API keys. AI agents explore your code via MCP.
+100% local by default. No API keys. AI agents explore your code via MCP.
+(Optional: use Ollama's cloud LLM with free tokens when you want stronger answers.)
 
 </div>
 
 ---
 
-## What it is
+## Why codeRAG
 
-codeRAG watches your project folder and builds a **live semantic knowledge graph** — classes, methods, interfaces, call graphs, and dependencies — all indexed and instantly explorable. When you change a file, only the affected entities update.
+Most code-assist tools work by shoving your files into a prompt and hoping the model
+finds what it needs. codeRAG takes a different route: it **indexes your code into a
+real knowledge graph** — classes, interfaces, methods, call graphs, dependencies — and
+lets you and your AI agents query that graph directly.
 
-- 🌐 **WebUI** — visual graph exploration at `http://localhost:9621`
-- 🤖 **MCP** — 18 curated tools for any MCP-compatible AI agent
-- 💻 **CLI** — direct control with `coderag` (single Go binary)
+The result: answers that are *deterministic* (they come straight from your code),
+*faster* (graph lookups beat token-greedy context windows), and *local* (nothing
+leaves your machine).
 
----
+## Highlights
 
-## Who is this for
-
-- **.NET devs on Visual Studio** — index your solution without burning tokens; query it from Copilot Agent or any AI extension. → **[docs/VS.md](docs/VS.md)**
-- **AI-agent users** — give your agent structured, deterministic knowledge of your codebase. Works with opencode, Claude Desktop, Cursor, Windsurf, and any other MCP client. → **[docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md)**
-- **Code archaeologists** — explore a large codebase visually with the bundled WebUI.
-
----
-
-## How it works
-
-Four pieces, all running locally:
-
-1. **C# → knowledge graph (no LLM).** A native Go static analyser parses your `.csproj`/`.cs` files, extracts entities and relations deterministically, and pushes them straight into LightRAG via HTTP CRUD. No tokens burned, no hallucinations — what you see is what your code says.
-2. **Other files → optional LLM ingest.** Markdown, YAML, `.txt`, and anything else can be ingested through LightRAG's standard pipeline. This part does use Ollama (bge-m3 for embeddings, qwen3-coder for extraction) — but it's opt-in and used only when you feed non-code files.
-3. **Live watcher.** `coderag start` watches your project with three signals: an initial scan, an `fsnotify` watcher for save events, and a periodic `git diff HEAD` poll to catch anything fsnotify misses (e.g. branch switches). Renames, moves, and deletes cascade — affected files are re-indexed automatically.
-4. **MCP for AI agents.** Two transport modes: HTTP/SSE at `:9622` (for Docker-side MCP clients) and a `coderag mcp <dir>` stdio bridge for AI agents that don't speak SSE natively (opencode, Claude Desktop, Cursor, …).
-
----
-
-## Example conversations
-
-What an agent experience looks like once your project is indexed:
-
-> **You:** What does `OrderService` depend on?
-> **Agent:** *calls `node_details(view="details")` → `node_details(view="neighbors")`*
-> OrderService depends on 4 entities: `OrderRepository`, `PaymentGateway`, `EventBus`, and the `ILogger<OrderService>` interface. The two heaviest edges are to `PaymentGateway` (3 calls) and `OrderRepository` (2 calls).
-
-> **You:** If I rename `PlaceOrder`, which files break?
-> **Agent:** *calls `node_details(view="relations")` → `get_nodes(file_path=...)` per result*
-> 3 files reference `OrderService.PlaceOrder`: `OrdersController.cs`, `CheckoutFlow.cs`, and the test file `OrderServiceTests.cs`. Start with the controller — it has 2 call sites.
-
-> **You:** Is there a circular dependency between `Order` and `OrderService`?
-> **Agent:** *calls `file_dependency_cycles`*
-> No cycles in the project. Closest one is in a different area: `Notifications` → `Templates` → `Notifications` (cycle length 2).
-
----
+- 🧊 **Deterministic C# indexing** — a native Go static analyser extracts entities and
+  relations straight from source. What you see is exactly what your code says.
+- ⚡ **Fast at scale** — content-derived IDs make re-indexing idempotent; batched graph
+  import (~30× faster than per-item HTTP CRUD) ingests a medium solution in seconds.
+- 🔄 **A watcher that actually survives your workflow** — `fsnotify` for real-time
+  saves plus a 30 s `git diff HEAD` poll for branch switches and everything fsnotify
+  misses. Deletions **cascade**: removing a file re-analyses everything that referenced it.
+- 🤖 **MCP for agents** — 10 curated, deterministic tools over an stdio↔SSE bridge, so
+  opencode, Claude Desktop, Cursor, and Windsurf can reason about your code instead of
+  reading it file by file.
+- 🗃️ **Two ingestion paths** — deterministic for code, optional LLM-assisted for prose.
+  You pay tokens only when you deliberately ingest non-code files.
+- 🧹 **Built-in dead-code analysis** — visibility + per-file export lists + file age
+  (`dead_code` MCP tool, `min_age_days` filter).
+- 🛡️ **Secret hygiene** — API keys, passwords, PII, and internal paths are redacted
+  before they ever reach the graph.
+- 🧪 **Tested** — 160+ unit tests and an end-to-end runtime smoke test (`runtime-test.sh`)
+  drive the whole stack: build → up → scan → CLI → MCP.
 
 ## Requirements
 
 | Tool | Min version | Notes |
 |------|-------------|-------|
-| Go | 1.25+ | Only needed to build the CLI; not needed at runtime |
+| Go | 1.25+ | Only to build the CLI; not needed at runtime |
 | Docker | 24+ | Runs LightRAG + MCP server |
-| Ollama | 0.3+ | Local LLM + embeddings (runs on host, not in Docker) |
-| OS | Linux, macOS, Windows (10/11 + WSL2 or Git Bash) | |
+| Ollama | 0.3+ | Local LLM + embeddings (host, not Docker) |
+| OS | Linux, macOS, Windows 10/11 (WSL2 or Git Bash) | |
 
-Required Ollama models (pulled automatically by the installer):
+Models — all switchable via env vars (`LLM_MODEL`, `EMBEDDING_MODEL`):
 
-- `qwen3-coder:480b-cloud` — code LLM (used for non-code ingest only)
-- `bge-m3:latest` — embeddings
+- **`bge-m3`** — embeddings, required, pulled locally by the setup script
+  (or set `EMBEDDING_MODEL`).
+- **`phi3.5:latest`** — default code LLM; small, local, offline-friendly.
+- **`qwen3-coder:480b-cloud`** — an Ollama **cloud** model: no large download, works
+  immediately through your local Ollama with a small free-token allowance (needs
+  internet + Ollama account). Great for stronger answers when you want them.
 
-GPU is optional but recommended for large projects.
+The setup script pulls only the embedding model by default — the MCP tools need no LLM.
+Set `LLM_MODEL` (e.g. `phi3.5:latest`) before setup if you also want `coderag query`.
 
----
-
-## Install
-
-```bash
-git clone https://github.com/Fantalic/code-rag.git
-cd code-rag
-
-# Linux / macOS
-bash scripts/setup.sh
-
-# Windows (PowerShell)
-.\scripts\setup.ps1
-```
-
-The setup script installs missing prerequisites, pulls Ollama models, builds the `coderag` CLI (~20 MB static binary), builds the C# analyser, and pre-builds the Docker image.
-
-**Manual step-by-step install, troubleshooting, and an offline mode** → **[docs/INSTALL.md](docs/INSTALL.md)**
-
----
-
-## Quick start
+## Get started
 
 ```bash
-coderag start ./myproject      # Docker + live file watcher
-coderag scan  ./myproject      # one-time index
-coderag graph files            # peek at the graph (3 files, 10 entities, …)
-coderag webui                  # open browser at http://localhost:9621
-coderag mcp   ./myproject      # start MCP bridge for your AI agent
+git clone https://github.com/Fantalic/code-rag.git && cd code-rag
+bash scripts/setup.sh        # Windows: .\scripts\setup.ps1
+
+coderag start ./myproject    # start services + live watcher
+coderag scan  ./myproject    # index a C# solution (needs a .sln)
+coderag graph files          # per-file stats
+coderag webui                # visual explorer at http://localhost:9621
+coderag mcp   ./myproject    # bridge for your AI agent (opencode, Claude, Cursor, …)
+coderag query "How does checkout work?"   # natural-language answer (LLM)
 ```
 
-For a full smoke test (down → build → up → scan → CLI + MCP):
+Manual install, offline mode, and troubleshooting → **[docs/INSTALL.md](docs/INSTALL.md)**
+· full command reference → **[docs/USAGE.md](docs/USAGE.md)**
 
-```bash
-sh scripts/dev/runtime-test.sh
-sh scripts/dev/runtime-test.sh --clean   # wipe graph first
-```
+## MCP tools (10)
 
----
+Fast, deterministic — the natural-language `query` tool exists but is CLI-only.
 
-## MCP tools (18)
-
-The MCP server exposes 18 curated tools. The **graph + file tools** are fast and deterministic — no LLM round-trip — and that's what your AI agent should reach for first. Only `query` (natural-language answer) goes through Ollama, and it's intentionally not exposed to agents — it's available only via the `coderag` CLI.
-
-| Agent intent | Tool |
+| Intent | Tool |
 |---|---|
-| "Does X exist?" | `check_entity_exists` |
-| "Find entities matching X" | `get_nodes` (filter by entity_type, name, file_path, connected_to) |
-| "Tell me about X" | `node_details` (view: details, relations, neighbors) |
-| "Codebase overview" | `get_knowledge_graph` |
-| "File ↔ entity bridge" | `get_related_files` |
-| "File-level views" | `get_file_stats`, `get_file_dependencies`, `file_dependency_cycles` |
-| "Structured retrieval" | `query_data` |
-| "Annotate" | `add_note_to_entity` |
+| "Does X exist?" | `exists_in_codebase` |
+| "Find entities matching X" | `get_nodes` (entity_type, name, file_path, connected_to) |
+| "Tell me about X" | `node_details` (details / relations / neighbors) |
+| "Orientation" | `codebase_overview` |
+| "What touches this file?" | `file_dependencies` |
+| "Any cycles?" | `detect_circular_dependencies` |
+| "What's dead?" | `dead_code` (min_age_days, entity_type) |
+| "Structured retrieval" | `query_codebase` |
+| "Leave / read notes" | `attach_note_to_node`, `get_notes` |
 
-Wiring instructions for opencode, Claude Desktop, Cursor, Windsurf, and any other MCP client → **[docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md)**
+Agent wiring (opencode, Claude Desktop, Cursor, Windsurf) → **[docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md)**
 
----
+## How it works (short)
 
-## Architecture
+1. **C# → graph.** A native Go analyser parses your `.sln`, extracts entities
+   + relations deterministically, and pushes them to LightRAG via one batched import.
+2. **Prose → optional LLM.** Non-code files can go through LightRAG's pipeline when you
+   feed them explicitly.
+3. **Live watcher.** fsnotify + a 30 s git poll keep the graph in sync; deletions cascade.
+4. **MCP bridge.** `coderag mcp <dir>` converts your agent's stdio MCP to SSE and talks
+   to the Python MCP server in Docker, which fronts the LightRAG graph.
 
 ```
-┌───────────────────────── HOST MACHINE ─────────────────────────┐
-│                                                                 │
-│  ┌─────────────┐  stdio    ┌─────────────────────────┐          │
-│  │  AI Agent   │◄─────────►│  coderag CLI  (Go)     │          │
-│  │  opencode / │    MCP    │  • file watcher         │          │
-│  │  Claude /   │           │  • C# analyser          │          │
-│  │  Cursor / … │           │  • Docker orchestration │          │
-│  └─────────────┘           │  • MCP stdio ↔ SSE      │          │
-│                            └──────────┬──────────────┘          │
-│                                       │                         │
-│  ┌────────────────────┐               │                         │
-│  │  Ollama (native)   │◄──────────────┘  HTTP :11434           │
-│  │  qwen3-coder       │   bge-m3 embeddings + LLM              │
-│  │  bge-m3            │                                      │
-│  └────────────────────┘                                      │
-└─────────────────────────────────┬───────────────────────────────┘
-                          HTTP :9621    SSE :9622
-┌─────────────────────────────────┼───────────────────────────────┐
-│  DOCKER                         │                               │
-│  ┌────────────────────┐ HTTP    │ ┌────────────────────┐        │
-│  │  LightRAG API      │◄────────┤ │  MCP Server (Py)   │        │
-│  │  + WebUI (React)   │         │ │  FastMCP / SSE     │        │
-│  │  :9621             │         │ │  :9622  18 tools   │        │
-│  └────────────────────┘         │ └────────────────────┘        │
-└─────────────────────────────────┴───────────────────────────────┘
+AI agent (stdio) → coderag mcp (Go bridge) → MCP server (Docker :9622) → LightRAG (Docker :9621)
 ```
 
-Ollama runs natively on the host (not in Docker) so the C# code path stays 100% LLM-free. The MCP bridge converts stdio → SSE so any local AI agent can talk to a server inside Docker.
+Ollama runs on the host; the C# analyser and the watcher are plain host processes.
+Architecture deep-dive →
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 
----
-
-## Built with
-
-- **Native Go static analyser for C#** — `tree-sitter`-style parsing directly into the graph, no LLM round-trip.
-- **Git-aware + fsnotify hybrid watcher** — survives branch switches, renames, and large refactors; cascade-deletes affected files.
-- **MCP over HTTP/SSE + stdio bridge** — the agent talks stdio, the server speaks SSE; `coderag mcp` is the protocol translator.
-- **Two ingestion paths** — deterministic for code, LLM-assisted only for prose; you pay tokens only when you ingest prose.
-- **Single-binary CLI + Docker orchestration** — one `coderag` binary drives the whole stack; the Docker side stays focused on LightRAG itself.
-- **Idempotent relation diffing** — re-indexing the same file is a no-op; entity/relation IDs are content-derived.
-
----
-
-## 📚 Documentation
+## Documentation
 
 | Doc | What it covers |
 |-----|----------------|
-| [docs/INSTALL.md](docs/INSTALL.md) | Manual install, troubleshooting, offline mode |
-| [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md) | Wire codeRAG into opencode, Claude Desktop, Cursor, Windsurf, … |
-| [docs/VS.md](docs/VS.md) | Visual Studio / Microsoft-stack developers |
+| [docs/INSTALL.md](docs/INSTALL.md) | Manual install, model setup, offline mode, troubleshooting |
+| [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md) | Wire codeRAG into opencode, Claude Desktop, Cursor, Windsurf |
+| [docs/VS.md](docs/VS.md) | Visual Studio / .NET developers |
 | [docs/USAGE.md](docs/USAGE.md) | Full CLI reference, all flags, day-to-day workflow |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Repo layout, data flow, components |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, host/Docker split |
 | [docs/SECURITY.md](docs/SECURITY.md) | What gets redacted before reaching the graph |
 | [docs/SUPPORTED_FILES.md](docs/SUPPORTED_FILES.md) | File types, analysers, ingestion paths |
 
----
+A more guided tour, concepts, and configuration → **[DOCUMENTATION.md](DOCUMENTATION.md)**
 
 ## Status
 
 **Status:** `experimental` 🧪 · **License:** MIT
 
-Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [modelcontextprotocol](https://github.com/modelcontextprotocol/python-sdk) (MIT).
+Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and
+[modelcontextprotocol](https://github.com/modelcontextprotocol/python-sdk) (MIT).
