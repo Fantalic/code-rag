@@ -2,12 +2,13 @@
 Pytest configuration and fixtures for coderag-mcp tests.
 """
 
-import pytest
 import asyncio
-from typing import Dict, Any
 from collections.abc import AsyncGenerator
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
+
 import httpx
+import pytest
 
 from coderag_mcp.client import LightRAGClient
 from coderag_mcp.server import mcp_server as server
@@ -39,49 +40,49 @@ def lightrag_client(mock_httpx_client):
 @pytest.fixture
 def mock_response():
     """Create a mock HTTP response."""
-    def _create_response(status_code: int = 200, json_data: dict[str, Any] = None, text: str = ""):
+
+    def _create_response(
+        status_code: int = 200, json_data: dict[str, Any] = None, text: str = ""
+    ):
         response = MagicMock()
         response.status_code = status_code
         response.json.return_value = json_data or {}
         response.text = text
         response.raise_for_status = MagicMock()
-        
+
         if status_code >= 400:
             error = httpx.HTTPStatusError(
-                message=f"HTTP {status_code}",
-                request=MagicMock(),
-                response=response
+                message=f"HTTP {status_code}", request=MagicMock(), response=response
             )
             response.raise_for_status.side_effect = error
-        
+
         return response
-    
+
     return _create_response
 
 
 @pytest.fixture
 def mock_streaming_response():
     """Create a mock streaming HTTP response."""
+
     def _create_streaming_response(chunks: list, status_code: int = 200):
         async def aiter_text():
             for chunk in chunks:
                 yield chunk
-        
+
         response = MagicMock()
         response.status_code = status_code
         response.aiter_text = aiter_text
         response.raise_for_status = MagicMock()
-        
+
         if status_code >= 400:
             error = httpx.HTTPStatusError(
-                message=f"HTTP {status_code}",
-                request=MagicMock(),
-                response=response
+                message=f"HTTP {status_code}", request=MagicMock(), response=response
             )
             response.raise_for_status.side_effect = error
-        
+
         return response
-    
+
     return _create_streaming_response
 
 
@@ -92,7 +93,7 @@ def sample_text_document():
     return {
         "title": "Test Document",
         "content": "This is a test document content.",
-        "metadata": {"author": "test", "category": "testing"}
+        "metadata": {"author": "test", "category": "testing"},
     }
 
 
@@ -103,7 +104,7 @@ def sample_insert_response():
         "id": "doc_123",
         "status": "success",
         "message": "Document inserted successfully",
-        "track_id": "track_123"
+        "track_id": "track_123",
     }
 
 
@@ -118,12 +119,12 @@ def sample_query_response():
                 "document_id": "doc_123",
                 "snippet": "This is a test snippet",
                 "score": 0.95,
-                "metadata": {"relevance": "high"}
+                "metadata": {"relevance": "high"},
             }
         ],
         "total_results": 1,
         "processing_time": 0.123,
-        "context": "Test context information"
+        "context": "Test context information",
     }
 
 
@@ -137,10 +138,10 @@ def sample_documents_response():
                 "title": "Test Document",
                 "status": "processed",
                 "created_at": "2024-01-01T00:00:00Z",
-                "metadata": {"author": "test"}
+                "metadata": {"author": "test"},
             }
         ],
-        "statuses": {}
+        "statuses": {},
     }
 
 
@@ -155,7 +156,7 @@ def sample_graph_response():
                 "type": "concept",
                 "properties": {"description": "A test entity"},
                 "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": None
+                "updated_at": None,
             }
         ],
         "edges": [
@@ -167,10 +168,10 @@ def sample_graph_response():
                 "properties": {"strength": "high"},
                 "weight": 0.8,
                 "created_at": None,
-                "updated_at": None
+                "updated_at": None,
             }
         ],
-        "is_truncated": False
+        "is_truncated": False,
     }
 
 
@@ -183,7 +184,7 @@ def sample_health_response():
         "uptime": 3600.0,
         "database_status": "connected",
         "cache_status": "active",
-        "message": "All systems operational"
+        "message": "All systems operational",
     }
 
 
@@ -194,17 +195,11 @@ def sample_pipeline_status_response():
         "status": "running",
         "progress": 75.5,
         "current_task": "processing documents",
-        "message": "Pipeline is running normally"
+        "message": "Pipeline is running normally",
     }
 
 
 @pytest.fixture
 def sample_status_counts_response():
     """Sample status counts response for testing."""
-    return {
-        "pending": 5,
-        "processing": 2,
-        "processed": 100,
-        "failed": 1,
-        "total": 108
-    }
+    return {"pending": 5, "processing": 2, "processed": 100, "failed": 1, "total": 108}

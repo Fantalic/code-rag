@@ -270,6 +270,33 @@ type GraphResponse struct {
 	Edges []map[string]any `json:"edges"`
 }
 
+// GetGraphSnapshot returns the full knowledge graph (nodes and raw edges) in
+// one request. Edge direction is preserved by the server in
+// properties.source/target; see graph.EdgeEndpoints.
+func (c *Config) GetGraphSnapshot() (*GraphResponse, error) {
+	url := c.BaseURL + "/graphs?label=*&max_depth=2&max_nodes=10000"
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	for k, v := range c.Headers() {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var result GraphResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
 func (c *Config) GetAllEntities() ([]map[string]any, error) {
 	url := c.BaseURL + "/graphs?label=*&max_depth=1&max_nodes=10000"
 	req, err := http.NewRequest(http.MethodGet, url, nil)

@@ -2,16 +2,17 @@
 Unit tests for MCP server functionality.
 """
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from coderag_mcp.client import (
-    LightRAGError,
-    LightRAGConnectionError,
-    LightRAGValidationError,
-    LightRAGAPIError,
-)
+import pytest
+
 from coderag_mcp import server as server_module
+from coderag_mcp.client import (
+    LightRAGAPIError,
+    LightRAGConnectionError,
+    LightRAGError,
+    LightRAGValidationError,
+)
 
 
 class TestServerModuleImports:
@@ -24,6 +25,18 @@ class TestServerModuleImports:
     def test_get_related_files_function_exists(self):
         assert hasattr(server_module, "get_related_files")
         assert callable(server_module.get_related_files)
+
+    def test_get_file_dependencies_function_exists(self):
+        assert hasattr(server_module, "get_file_dependencies")
+        assert callable(server_module.get_file_dependencies)
+
+    def test_file_dependency_cycles_function_exists(self):
+        assert hasattr(server_module, "file_dependency_cycles")
+        assert callable(server_module.file_dependency_cycles)
+
+    def test_get_file_stats_function_exists(self):
+        assert hasattr(server_module, "get_file_stats")
+        assert callable(server_module.get_file_stats)
 
     def test_check_entity_exists_function_exists(self):
         assert hasattr(server_module, "check_entity_exists")
@@ -93,12 +106,26 @@ class TestServerToolNames:
         tools = await server_module.mcp_server.list_tools()
         tool_names = {t.name for t in tools}
         expected = [
-            "query", "get_related_files", "check_entity_exists",
-            "get_knowledge_graph", "get_graph_labels", "add_note_to_entity",
-            "query_data", "get_codebase_stats", "get_entity_neighbors",
-            "get_entity_details", "list_entities_by_type", "get_entities_in_file",
-            "search_entities", "get_relation_detail", "get_method_signature",
-            "find_related_files", "get_interface_methods",
+            "query",
+            "get_related_files",
+            "check_entity_exists",
+            "get_knowledge_graph",
+            "get_graph_labels",
+            "add_note_to_entity",
+            "query_data",
+            "get_codebase_stats",
+            "get_entity_neighbors",
+            "get_entity_details",
+            "list_entities_by_type",
+            "get_entities_in_file",
+            "search_entities",
+            "get_relation_detail",
+            "get_method_signature",
+            "find_related_files",
+            "get_interface_methods",
+            "get_file_dependencies",
+            "file_dependency_cycles",
+            "get_file_stats",
         ]
         for name in expected:
             assert name in tool_names, f"Tool {name} not found in registered tools"

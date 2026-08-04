@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -23,6 +24,7 @@ import (
 	"github.com/coderag/crud"
 	"github.com/coderag/diff"
 	"github.com/coderag/filter"
+	"github.com/coderag/graph"
 	"github.com/coderag/pipeline"
 	"github.com/coderag/parser"
 	"github.com/coderag/watcher"
@@ -121,6 +123,31 @@ func main() {
 				Usage:  "Query the knowledge graph",
 				Action: queryCmd,
 				Args:   true,
+			},
+			{
+				Name:   "graph",
+				Usage:  "Derived file-level views of the knowledge graph",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "files",
+						Usage:  "Per-file stats table (nodes, fan-in, fan-out)",
+						Action: graphFilesCmd,
+						Flags:  graphFlags(),
+					},
+					{
+						Name:   "deps",
+						Usage:  "Show file dependencies (refs + dependents)",
+						Action: graphDepsCmd,
+						Args:   true,
+						Flags:  graphFlags(),
+					},
+					{
+						Name:   "cycles",
+						Usage:  "Detect dependency cycles between files",
+						Action: graphCyclesCmd,
+						Flags:  graphFlags(),
+					},
+				},
 			},
 		},
 	}
@@ -515,6 +542,119 @@ func queryCmd(c *cli.Context) error {
 	}
 
 	fmt.Printf("%v\n", result)
+	return nil
+}
+
+func graphFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "workspace",
+			Aliases: []string{"w"},
+			Usage:   "LightRAG workspace to query (default: currently active)",
+			Value:   "",
+		},
+		&cli.StringFlag{
+			Name:    "url",
+			Aliases: []string{"u"},
+			Usage:   "LightRAG API URL",
+			EnvVars: []string{"LIGHTRAG_URL"},
+			Value:   "http://localhost:9621",
+		},
+	}
+}
+
+func loadFileGraph(c *cli.Context) (*graph.FileGraph, error) {
+	client := &crud.Config{BaseURL: c.String("url")}
+	if ws := c.String("workspace"); ws != "" {
+		if err := client.SetWorkspace(ws); err != nil {
+			return nil, fmt.Errorf("set workspace %q: %w", ws, err)
+		}
+	}
+	snap, err := client.GetGraphSnapshot()
+	if err != nil {
+		return nil, fmt.Errorf("fetch graph: %w", err)
+	}
+	return graph.Build(snap.Nodes, snap.Edges), nil
+}
+
+func graphFilesCmd(c *cli.Context) error {
+	g, err := loadFileGraph(c)
+	if err != nil {
+		return err
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "FILE\tNODES\tFAN-IN\tFAN-OUT")
+	for _, s := range g.Stats() {
+		fmt.Fprintf(w, "%s\t%d\t%d\t%d\n", s.FilePath, s.Nodes, s.FanIn, s.FanOut)
+	}
+	w.Flush()
+	return nil
+}
+
+func graphDepsCmd(c *cli.Context) error {
+	arg := c.Args().First()
+	if arg == "" {
+		return fmt.Errorf("usage: coderag graph deps <file>")
+	}
+
+	g, err := loadFileGraph(c)
+	if err != nil {
+		return err
+	}
+
+	file, ok := g.ResolveFile(arg)
+	if !ok {
+		return fmt.Errorf("no file in the graph matches %q", arg)
+	}
+
+	fmt.Printf("File: %s\n", file)
+
+	refs := g.Refs(file)
+	if len(refs) == 0 {
+		fmt.Println("References: (none)")
+	} else {
+		fmt.Printf("References (%d):\n", len(refs))
+		for _, r := range refs {
+			fmt.Printf("  %s\n", r)
+		}
+	}
+
+	deps := g.Dependents(file)
+	if len(deps) == 0 {
+		fmt.Println("Dependents: (none)")
+	} else {
+		fmt.Printf("Dependents (%d):\n", len(deps))
+		for _, d := range deps {
+			fmt.Printf("  %s\n", d)
+		}
+	}
+
+	entities := g.Entities(file)
+	if len(entities) > 0 {
+		fmt.Printf("Entities (%d):\n", len(entities))
+		for _, e := range entities {
+			fmt.Printf("  %s\n", e)
+		}
+	}
+	return nil
+}
+
+func graphCyclesCmd(c *cli.Context) error {
+	g, err := loadFileGraph(c)
+	if err != nil {
+		return err
+	}
+
+	cycles := g.Cycles()
+	if len(cycles) == 0 {
+		fmt.Println("No dependency cycles found.")
+		return nil
+	}
+	fmt.Printf("Dependency cycles found (%d):\n", len(cycles))
+	for i, cyc := range cycles {
+		fmt.Printf("  Cycle %d: %s\n", i+1, strings.Join(cyc, " -> "))
+	}
 	return nil
 }
 

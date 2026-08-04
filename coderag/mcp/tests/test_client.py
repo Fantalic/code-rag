@@ -2,19 +2,20 @@
 Unit tests for LightRAG client functionality.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
 
 from coderag_mcp.client import (
-    LightRAGClient,
-    LightRAGError,
-    LightRAGConnectionError,
-    LightRAGAuthError,
-    LightRAGValidationError,
     LightRAGAPIError,
-    LightRAGTimeoutError,
+    LightRAGAuthError,
+    LightRAGClient,
+    LightRAGConnectionError,
+    LightRAGError,
     LightRAGServerError,
+    LightRAGTimeoutError,
+    LightRAGValidationError,
 )
 
 
@@ -157,9 +158,7 @@ class TestMakeRequestErrorHandling:
     @pytest.mark.asyncio
     async def test_timeout_error_on_timeout(self):
         client = LightRAGClient()
-        client.client.post = AsyncMock(
-            side_effect=httpx.TimeoutException("timeout")
-        )
+        client.client.post = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
 
         with pytest.raises(LightRAGTimeoutError, match="Request timeout"):
             await client._make_request("POST", "/ingest")

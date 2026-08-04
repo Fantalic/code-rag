@@ -2,18 +2,31 @@
 Integration tests for the coderag MCP server and client together.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from coderag_mcp.client import (
-    LightRAGClient, LightRAGError, LightRAGValidationError,
-    LightRAGConnectionError, LightRAGAPIError
+    LightRAGAPIError,
+    LightRAGClient,
+    LightRAGConnectionError,
+    LightRAGError,
+    LightRAGValidationError,
 )
 from coderag_mcp.server import (
-    mcp_server, query, get_related_files, check_entity_exists,
-    get_knowledge_graph, get_graph_labels, add_note_to_entity,
-    query_data, get_codebase_stats, get_entity_neighbors,
-    get_entity_details, _serialize, _error,
+    _error,
+    _serialize,
+    add_note_to_entity,
+    check_entity_exists,
+    get_codebase_stats,
+    get_entity_details,
+    get_entity_neighbors,
+    get_graph_labels,
+    get_knowledge_graph,
+    get_related_files,
+    mcp_server,
+    query,
+    query_data,
 )
 
 
@@ -38,18 +51,22 @@ class TestServerFunctions:
 
     def test_query_is_coroutine(self):
         import inspect
+
         assert inspect.iscoroutinefunction(query)
 
     def test_check_entity_exists_is_coroutine(self):
         import inspect
+
         assert inspect.iscoroutinefunction(check_entity_exists)
 
     def test_get_knowledge_graph_is_coroutine(self):
         import inspect
+
         assert inspect.iscoroutinefunction(get_knowledge_graph)
 
     def test_get_graph_labels_is_coroutine(self):
         import inspect
+
         assert inspect.iscoroutinefunction(get_graph_labels)
 
 
@@ -66,12 +83,23 @@ class TestMcpServerRegistration:
         tools = await mcp_server.list_tools()
         tool_names = {t.name for t in tools}
         expected = [
-            "query", "get_related_files", "check_entity_exists",
-            "get_knowledge_graph", "get_graph_labels", "add_note_to_entity",
-            "query_data", "get_codebase_stats", "get_entity_neighbors",
-            "get_entity_details", "list_entities_by_type", "get_entities_in_file",
-            "search_entities", "get_relation_detail", "get_method_signature",
-            "find_related_files", "get_interface_methods",
+            "query",
+            "get_related_files",
+            "check_entity_exists",
+            "get_knowledge_graph",
+            "get_graph_labels",
+            "add_note_to_entity",
+            "query_data",
+            "get_codebase_stats",
+            "get_entity_neighbors",
+            "get_entity_details",
+            "list_entities_by_type",
+            "get_entities_in_file",
+            "search_entities",
+            "get_relation_detail",
+            "get_method_signature",
+            "find_related_files",
+            "get_interface_methods",
         ]
         for name in expected:
             assert name in tool_names, f"Tool {name} not registered"

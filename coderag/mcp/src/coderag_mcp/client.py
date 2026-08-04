@@ -11,6 +11,7 @@ from typing import Any, Optional
 import httpx
 
 from .analyser_runner import run_analysis
+from .filegraph import build_file_graph
 from .models import (
     CodebaseStatsResponse,
     DocumentInfo,
@@ -22,6 +23,10 @@ from .models import (
     EntityNeighborsResponse,
     EntityUpdateRequest,
     EntityUpdateResponse,
+    FileCyclesResponse,
+    FileDependenciesResponse,
+    FileStatInfo,
+    FileStatsResponse,
     GetEntitiesInFileResponse,
     GraphResponse,
     InsertResponse,
@@ -446,6 +451,48 @@ class LightRAGClient:
             total_found=len(files),
         )
 
+    # --- Derived file-level views ---
+
+    async def get_file_dependencies(self, file_path: str) -> FileDependenciesResponse:
+        """Return files this file references and files that depend on it.
+
+        Derived on demand from the knowledge graph; no file nodes are stored.
+        """
+        graph = await self.get_knowledge_graph(label="*")
+        fg = build_file_graph(graph.nodes, graph.edges)
+        resolved = fg.resolve_file(file_path)
+        if resolved is None:
+            return FileDependenciesResponse(file_path=file_path, not_found=True)
+        return FileDependenciesResponse(
+            file_path=resolved,
+            references=fg.references(resolved),
+            dependents=fg.dependents(resolved),
+            entities=fg.entities(resolved),
+            not_found=False,
+        )
+
+    async def file_dependency_cycles(self) -> FileCyclesResponse:
+        """Return dependency cycles between files (Tarjan SCC)."""
+        graph = await self.get_knowledge_graph(label="*")
+        fg = build_file_graph(graph.nodes, graph.edges)
+        cycles = fg.cycles()
+        return FileCyclesResponse(cycles=cycles, count=len(cycles))
+
+    async def get_file_stats(self) -> FileStatsResponse:
+        """Return per-file stats (nodes, fan-in, fan-out)."""
+        graph = await self.get_knowledge_graph(label="*")
+        fg = build_file_graph(graph.nodes, graph.edges)
+        files = [
+            FileStatInfo(
+                file_path=f["file_path"],
+                nodes=f["nodes"],
+                fan_in=f["fan_in"],
+                fan_out=f["fan_out"],
+            )
+            for f in fg.stats()
+        ]
+        return FileStatsResponse(files=files, total_files=len(files))
+
     # --- C# Analyser (keep for project analysis) ---
 
     async def insert_text(
@@ -690,11 +737,22 @@ class LightRAGClient:
 
         # Filter by depth
         if depth < 3:
-            structural_kw = {"contains", "defines", "has", "nested", "method", "property"}
+            structural_kw = {
+                "contains",
+                "defines",
+                "has",
+                "nested",
+                "method",
+                "property",
+            }
             all_relations = [
-                r for r in all_relations
-                if structural_kw & set(
-                    kw.strip() for kw in r.properties.get("keywords", "").split(",") if kw.strip()
+                r
+                for r in all_relations
+                if structural_kw
+                & set(
+                    kw.strip()
+                    for kw in r.properties.get("keywords", "").split(",")
+                    if kw.strip()
                 )
             ]
             incoming = [r for r in all_relations if r.target_entity == entity_name]
@@ -938,9 +996,7 @@ class LightRAGClient:
             entity_name=entity_name, return_type="", parameters=[], description=""
         )
 
-    async def find_related_files(
-        self, entity_or_file: str
-    ) -> RelatedFilesResponse:
+    async def find_related_files(self, entity_or_file: str) -> RelatedFilesResponse:
         """Find all files related to an entity or file path."""
         try:
             graph = await self.get_knowledge_graph(label="*")
@@ -989,10 +1045,11 @@ class LightRAGClient:
                         if n_fp:
                             n_fp_lower = n_fp.lower().replace("\\", "/")
                             if n_fp_lower not in {
-                                f.lower().replace("\\", "/")
-                                for f in related_files
+                                f.lower().replace("\\", "/") for f in related_files
                             }:
-                                n_name = n_props.get("entity_name") or node.get("id") or ""
+                                n_name = (
+                                    n_props.get("entity_name") or node.get("id") or ""
+                                )
                                 related_files.setdefault(n_fp, set()).add(n_name)
 
         files_list = sorted(related_files.keys())

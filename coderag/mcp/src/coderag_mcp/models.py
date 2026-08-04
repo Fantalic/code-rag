@@ -671,7 +671,8 @@ class CodebaseStatsResponse(BaseModel):
         default_factory=list, description="All relation types present"
     )
     visibility_counts: dict[str, int] = Field(
-        default_factory=dict, description="Entity count by visibility (public/private/etc.)"
+        default_factory=dict,
+        description="Entity count by visibility (public/private/etc.)",
     )
 
 
@@ -793,3 +794,48 @@ class InterfaceMethodsResponse(BaseModel):
     implementing_classes: list[str] = Field(
         default_factory=list, description="Classes that implement this interface"
     )
+
+
+class FileDependenciesResponse(BaseModel):
+    """Response model for get_file_dependencies tool."""
+
+    file_path: str = Field(..., description="Resolved file path")
+    references: list[str] = Field(
+        default_factory=list, description="Files this file references"
+    )
+    dependents: list[str] = Field(
+        default_factory=list, description="Files that depend on this file"
+    )
+    entities: list[str] = Field(
+        default_factory=list, description="Entity ids declared in this file"
+    )
+    not_found: bool = Field(
+        False, description="True if the file was not found in the graph"
+    )
+
+
+class FileStatInfo(BaseModel):
+    """Per-file stats for the get_file_stats tool."""
+
+    file_path: str = Field(..., description="File path")
+    nodes: int = Field(0, description="Number of graph entities in this file")
+    fan_in: int = Field(0, description="Number of files that depend on this file")
+    fan_out: int = Field(0, description="Number of files this file references")
+
+
+class FileStatsResponse(BaseModel):
+    """Response model for get_file_stats tool."""
+
+    files: list[FileStatInfo] = Field(
+        default_factory=list, description="Per-file stats"
+    )
+    total_files: int = Field(0, description="Total number of files")
+
+
+class FileCyclesResponse(BaseModel):
+    """Response model for file_dependency_cycles tool."""
+
+    cycles: list[list[str]] = Field(
+        default_factory=list, description="Dependency cycles between files"
+    )
+    count: int = Field(0, description="Number of dependency cycles found")

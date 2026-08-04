@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from dotenv import load_dotenv
+
 from mcp.server.fastmcp import FastMCP
 
 from .client import LightRAGAPIError, LightRAGClient, LightRAGError
@@ -74,6 +75,48 @@ async def get_related_files(
         return _error("get_related_files", e)
     except Exception as e:
         return _error("get_related_files", e)
+
+
+@mcp_server.tool()
+async def get_file_dependencies(file_path: str) -> dict:
+    """Return files this file references and files that depend on it.
+
+    Derived on demand from the knowledge graph (no file nodes stored).
+    """
+    client = _get_lightrag_client()
+    try:
+        result = await client.get_file_dependencies(file_path)
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("get_file_dependencies", e)
+    except Exception as e:
+        return _error("get_file_dependencies", e)
+
+
+@mcp_server.tool()
+async def file_dependency_cycles() -> dict:
+    """Return dependency cycles between files in the knowledge graph."""
+    client = _get_lightrag_client()
+    try:
+        result = await client.file_dependency_cycles()
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("file_dependency_cycles", e)
+    except Exception as e:
+        return _error("file_dependency_cycles", e)
+
+
+@mcp_server.tool()
+async def get_file_stats() -> dict:
+    """Return per-file stats (nodes, fan-in, fan-out) from the knowledge graph."""
+    client = _get_lightrag_client()
+    try:
+        result = await client.get_file_stats()
+        return _serialize(result)
+    except LightRAGError as e:
+        return _error("get_file_stats", e)
+    except Exception as e:
+        return _error("get_file_stats", e)
 
 
 @mcp_server.tool()
@@ -264,14 +307,10 @@ async def _handle_add_note(
 
 
 @mcp_server.tool()
-async def get_relation_detail(
-    entity_name: str, relation_type: str
-) -> dict:
+async def get_relation_detail(entity_name: str, relation_type: str) -> dict:
     client = _get_lightrag_client()
     try:
-        result = await client.get_relation_detail(
-            entity_name, relation_type
-        )
+        result = await client.get_relation_detail(entity_name, relation_type)
         return _serialize(result)
     except LightRAGError as e:
         return _error("get_relation_detail", e)
@@ -342,7 +381,7 @@ def _error(tool_name: str, error: Exception) -> dict:
 async def main() -> None:
     load_dotenv()
     logger.info(
-        f"Starting LightRAG MCP server (17 tools), LightRAG URL: {_get_lightrag_url()}"
+        f"Starting LightRAG MCP server (20 tools), LightRAG URL: {_get_lightrag_url()}"
     )
 
     try:

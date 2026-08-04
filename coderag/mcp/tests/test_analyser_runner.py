@@ -2,20 +2,21 @@
 Unit tests for the C# analyser runner module.
 """
 
-import pytest
 import os
 import re
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
 
 from coderag_mcp.analyser_runner import (
-    _should_skip,
+    SKIP_FILE_PATTERNS,
     _filter_output_files,
-    _read_output_files,
     _find_analyser_binary,
     _find_solution_file,
+    _read_output_files,
+    _should_skip,
     run_analysis,
-    SKIP_FILE_PATTERNS,
 )
 
 
@@ -32,7 +33,10 @@ class TestSkipPatterns:
         assert _should_skip("TestConsole_TestConsole.GlobalUsings.g.txt") is True
 
     def test_skip_assembly_attributes(self):
-        assert _should_skip("TestConsole_.NETCoreApp,Version=v7.0.AssemblyAttributes.txt") is True
+        assert (
+            _should_skip("TestConsole_.NETCoreApp,Version=v7.0.AssemblyAttributes.txt")
+            is True
+        )
 
     def test_keep_normal_output(self):
         assert _should_skip("TestLib_Calculator.txt") is False
@@ -112,7 +116,9 @@ class TestReadOutputFiles:
         (output_dir / "Calc.txt").write_text("content", encoding="utf-8")
         bad_file = output_dir / "bad.txt"
         bad_file.write_text("bad", encoding="utf-8")
-        with patch.object(Path, "read_text", side_effect=[PermissionError("denied"), "content"]):
+        with patch.object(
+            Path, "read_text", side_effect=[PermissionError("denied"), "content"]
+        ):
             results = _read_output_files(output_dir / "nonexistent")
             assert results == []
 
@@ -128,15 +134,21 @@ class TestFindAnalyserBinary:
         binary = analyser_dir / "CSharpAnalyzerTool.exe"
         binary.write_text("fake binary")
         relative = Path("../analysers/c_sharp/CSharpAnalyzerTool.exe")
-        with patch("coderag_mcp.analyser_runner.__file__", str(module_dir / "__init__.py")):
-            with patch("coderag_mcp.analyser_runner.ANALYSER_RELATIVE_PATH", str(relative)):
+        with patch(
+            "coderag_mcp.analyser_runner.__file__", str(module_dir / "__init__.py")
+        ):
+            with patch(
+                "coderag_mcp.analyser_runner.ANALYSER_RELATIVE_PATH", str(relative)
+            ):
                 result = _find_analyser_binary()
                 assert result.exists()
 
     def test_raises_when_binary_missing(self, tmp_path):
         module_dir = tmp_path / "coderag_mcp"
         module_dir.mkdir(parents=True)
-        with patch("coderag_mcp.analyser_runner.__file__", str(module_dir / "__init__.py")):
+        with patch(
+            "coderag_mcp.analyser_runner.__file__", str(module_dir / "__init__.py")
+        ):
             with pytest.raises(FileNotFoundError, match="C# analyser binary not found"):
                 _find_analyser_binary()
 
@@ -184,11 +196,15 @@ class TestRunAnalysis:
 
     @patch("coderag_mcp.analyser_runner.subprocess.run")
     @patch("coderag_mcp.analyser_runner._find_analyser_binary")
-    def test_run_analysis_success(self, mock_find_binary, mock_subprocess_run, tmp_path):
+    def test_run_analysis_success(
+        self, mock_find_binary, mock_subprocess_run, tmp_path
+    ):
         sln = tmp_path / "Test.sln"
         sln.write_text("solution", encoding="utf-8")
         mock_find_binary.return_value = Path("/fake/analyser.exe")
-        mock_subprocess_run.return_value = MagicMock(returncode=0, stdout="Done", stderr="")
+        mock_subprocess_run.return_value = MagicMock(
+            returncode=0, stdout="Done", stderr=""
+        )
 
         output_dir = tmp_path / "relations_output"
         output_dir.mkdir()
@@ -201,29 +217,39 @@ class TestRunAnalysis:
 
     @patch("coderag_mcp.analyser_runner.subprocess.run")
     @patch("coderag_mcp.analyser_runner._find_analyser_binary")
-    def test_run_analysis_analyser_fails(self, mock_find_binary, mock_subprocess_run, tmp_path):
+    def test_run_analysis_analyser_fails(
+        self, mock_find_binary, mock_subprocess_run, tmp_path
+    ):
         sln = tmp_path / "Test.sln"
         sln.write_text("solution", encoding="utf-8")
         mock_find_binary.return_value = Path("/fake/analyser.exe")
-        mock_subprocess_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+        mock_subprocess_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="error"
+        )
 
         with pytest.raises(RuntimeError, match="C# analyser exited with code 1"):
             run_analysis(str(sln), output_dir=str(tmp_path))
 
     @patch("coderag_mcp.analyser_runner.subprocess.run")
     @patch("coderag_mcp.analyser_runner._find_analyser_binary")
-    def test_run_analysis_no_output_dir(self, mock_find_binary, mock_subprocess_run, tmp_path):
+    def test_run_analysis_no_output_dir(
+        self, mock_find_binary, mock_subprocess_run, tmp_path
+    ):
         sln = tmp_path / "Test.sln"
         sln.write_text("solution", encoding="utf-8")
         mock_find_binary.return_value = Path("/fake/analyser.exe")
-        mock_subprocess_run.return_value = MagicMock(returncode=0, stdout="Done", stderr="")
+        mock_subprocess_run.return_value = MagicMock(
+            returncode=0, stdout="Done", stderr=""
+        )
 
         results = run_analysis(str(sln), output_dir=str(tmp_path))
         assert results == []
 
     @patch("coderag_mcp.analyser_runner.subprocess.run")
     @patch("coderag_mcp.analyser_runner._find_analyser_binary")
-    def test_run_analysis_timeout(self, mock_find_binary, mock_subprocess_run, tmp_path):
+    def test_run_analysis_timeout(
+        self, mock_find_binary, mock_subprocess_run, tmp_path
+    ):
         sln = tmp_path / "Test.sln"
         sln.write_text("solution", encoding="utf-8")
         mock_find_binary.return_value = Path("/fake/analyser.exe")
@@ -234,7 +260,9 @@ class TestRunAnalysis:
 
     @patch("coderag_mcp.analyser_runner.subprocess.run")
     @patch("coderag_mcp.analyser_runner._find_analyser_binary")
-    def test_run_analysis_binary_not_found(self, mock_find_binary, mock_subprocess_run, tmp_path):
+    def test_run_analysis_binary_not_found(
+        self, mock_find_binary, mock_subprocess_run, tmp_path
+    ):
         sln = tmp_path / "Test.sln"
         sln.write_text("solution", encoding="utf-8")
         mock_find_binary.return_value = Path("/fake/analyser.exe")
@@ -242,4 +270,3 @@ class TestRunAnalysis:
 
         with pytest.raises(FileNotFoundError, match="binary not found"):
             run_analysis(str(sln), output_dir=str(tmp_path))
-
