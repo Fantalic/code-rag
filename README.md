@@ -1,107 +1,113 @@
-<div align="center">
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=rect&color=0:1a1a2e,100:16213e&height=120&section=header&text=codeRAG&fontSize=60&fontColor=e94560&fontAlignY=55" alt="codeRAG"/>
+</p>
 
-# 🧠 codeRAG
+<p align="center">
+  <i>Real-time codebase knowledge graphs for C# — queried by AI agents via MCP.</i>
+</p>
 
-### *Your codebase, visualized. Your knowledge graph, alive.*
-
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://python.org)
-[![MCP](https://img.shields.io/badge/MCP-10%20tools-blueviolet)](https://modelcontextprotocol.io)
-[![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker)](https://docker.com)
-[![Ollama](https://img.shields.io/badge/Ollama-required-black)](https://ollama.com)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-**Your C# solution as a live, queryable knowledge graph.**
-
-Deterministic code indexing · Built-in dead-code analysis · Live file watcher ·
-Circular-dependency detection · MCP tools for AI agents · 100% local by default
-
-</div>
+<p align="center">
+  <img src="https://img.shields.io/badge/status-experimental-e94560?style=flat-square" alt="experimental"/>
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go"/>
+  <img src="https://img.shields.io/badge/Docker-24+-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker"/>
+  <a href="https://github.com/Fantalic/code-rag/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-9b59b6?style=flat-square" alt="License"/></a>
+</p>
 
 ---
 
-## Requirements
+## What this is
 
-| Tool | Min version | Notes |
-|------|-------------|-------|
-| Go | 1.25+ | Only to build the CLI; not needed at runtime |
-| Docker | 24+ | Runs LightRAG + MCP server |
-| Ollama | 0.3+ | Local LLM + embeddings (host, not Docker) |
-| OS | Linux, macOS, Windows 10/11 (WSL2 or Git Bash) | |
+A proof-of-concept tool that turns a C# solution into a **live, queryable knowledge graph**.  
+Instead of grepping files or reading static docs, AI agents ask the graph directly via MCP.
 
-Models — pulled by the setup script, switchable via env vars (`EMBEDDING_MODEL`,
-`LLM_MODEL`). By default the script pulls only the embedding model (`bge-m3:latest`);
-the MCP tools need no LLM. Set `LLM_MODEL` (e.g. `phi3.5:latest`, or the
-`qwen3-coder:480b-cloud` cloud model) before setup if you also want `coderag query`.
+Built to explore what's possible when deterministic code analysis meets local LLMs — no cloud, no data leaving the machine.
 
-## Get started
+---
+
+## What it does
+
+| Capability | How |
+|---|---|
+| **Index** | Native Go parser extracts entities & relations from `.sln` deterministically |
+| **Sync** | Live file watcher (`fsnotify` + git polling) keeps the graph current |
+| **Query** | 10 MCP tools for agents: existence checks, dependency maps, dead-code detection, circular-dependency analysis |
+| **Explore** | Web UI at `localhost:9621` for visual graph navigation |
+| **Answer** | Natural-language queries via local Ollama (optional) |
+
+---
+
+## Try it
 
 ```bash
 git clone https://github.com/Fantalic/code-rag.git && cd code-rag
 bash scripts/setup.sh        # Windows: .\scripts\setup.ps1
 
-coderag start ./myproject    # start services + live watcher
-coderag scan  ./myproject    # index a C# solution (needs a .sln)
-coderag graph files          # per-file stats
-coderag webui                # visual explorer at http://localhost:9621
-coderag mcp   ./myproject    # bridge for your AI agent (opencode, Claude, Cursor, …)
-coderag query "How does checkout work?"   # natural-language answer (LLM)
+coderag start ./myproject    # spin up services + watcher
+coderag scan  ./myproject    # index your .sln
+coderag webui                # open graph explorer
+coderag mcp   ./myproject    # bridge for your AI agent
+coderag query "How does checkout work?"
 ```
 
-Manual install, offline mode, and troubleshooting → **[docs/INSTALL.md](docs/INSTALL.md)**
-· full command reference → **[docs/USAGE.md](docs/USAGE.md)**
+Requirements: Go 1.25+, Docker 24+, Ollama 0.3+.  
+Full setup & troubleshooting → [`docs/INSTALL.md`](docs/INSTALL.md)
 
-## MCP tools (10)
+---
 
-| Intent | Tool |
-|---|---|
-| "Does X exist?" | `exists_in_codebase` |
-| "Find entities matching X" | `get_nodes` (entity_type, name, file_path, connected_to) |
-| "Tell me about X" | `node_details` (details / relations / neighbors) |
-| "Orientation" | `codebase_overview` |
-| "What touches this file?" | `file_dependencies` |
-| "Any cycles?" | `detect_circular_dependencies` |
-| "What's dead?" | `dead_code` (min_age_days, entity_type) |
-| "Structured retrieval" | `query_codebase` |
-| "Leave / read notes" | `attach_note_to_node`, `get_notes` |
-
-Agent wiring (opencode, Claude Desktop, Cursor, Windsurf) → **[docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md)**
-
-## How it works (short)
-
-1. **C# → graph.** A native Go analyser parses your `.sln`, extracts entities
-   + relations deterministically, and pushes them to LightRAG via one batched import.
-2. **Prose → optional LLM.** Non-code files can go through LightRAG's pipeline when you
-   feed them explicitly.
-3. **Live watcher.** fsnotify + a 30 s git poll keep the graph in sync; deletions cascade.
-4. **MCP bridge.** `coderag mcp <dir>` converts your agent's stdio MCP to SSE and talks
-   to the Python MCP server in Docker, which fronts the LightRAG graph.
+## Architecture
 
 ```
-AI agent (stdio) → coderag mcp (Go bridge) → MCP server (Docker :9622) → LightRAG (Docker :9621)
+C# solution (.sln)
+      │
+      ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ Go analyzer │────▶│ LightRAG    │◀────│ Go watcher  │
+│ (determin.) │     │ (:9621)     │     │ (live sync) │
+└─────────────┘     └──────┬──────┘     └─────────────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+         ┌────────┐   ┌────────┐   ┌────────┐
+         │ Web UI │   │ MCP    │   │ Ollama │
+         │        │   │ Server │   │ (host) │
+         └────────┘   └────────┘   └────────┘
 ```
 
-Ollama runs on the host; the C# analyser and the watcher are plain host processes.
-Architecture deep-dive →
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+Deep dive → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
+---
 
 ## Documentation
 
-| Doc | What it covers |
-|-----|----------------|
-| [docs/INSTALL.md](docs/INSTALL.md) | Manual install, model setup, offline mode, troubleshooting |
-| [docs/MCP_CLIENTS.md](docs/MCP_CLIENTS.md) | Wire codeRAG into opencode, Claude Desktop, Cursor, Windsurf |
-| [docs/VS.md](docs/VS.md) | Visual Studio / .NET developers |
-| [docs/USAGE.md](docs/USAGE.md) | Full CLI reference, all flags, day-to-day workflow |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, host/Docker split |
-| [docs/SECURITY.md](docs/SECURITY.md) | What gets redacted before reaching the graph |
-| [docs/SUPPORTED_FILES.md](docs/SUPPORTED_FILES.md) | File types, analysers, ingestion paths |
+| File | Topic |
+|---|---|
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Setup, models, offline mode, troubleshooting |
+| [`docs/USAGE.md`](docs/USAGE.md) | Full CLI reference |
+| [`docs/MCP_CLIENTS.md`](docs/MCP_CLIENTS.md) | Wiring into Claude, Cursor, OpenCode, Windsurf |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Components, data flow, design decisions |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Redaction rules |
 
-A more guided tour, concepts, and configuration → **[DOCUMENTATION.md](DOCUMENTATION.md)**
+---
+
+## Tech stack
+
+- **Go** — CLI, C# parser, file watcher, MCP bridge
+- **Python / LightRAG** — Knowledge graph engine
+- **Docker** — Containerized MCP server + graph backend
+- **Ollama** — Local LLM + embeddings
+
+Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [MCP](https://modelcontextprotocol.io/) (MIT).
+
+---
 
 ## Status
 
-**Status:** `experimental` 🧪 · **License:** MIT
+Experimental. Core indexing and MCP tooling work.  
+Natural-language querying is functional but rough.  
+Feedback welcome — open an issue or reach out.
 
-Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and
-[modelcontextprotocol](https://github.com/modelcontextprotocol/python-sdk) (MIT).
+---
+
+<p align="center">
+  <sub>MIT License © <a href="https://github.com/Fantalic">Fantalic</a></sub>
+</p>
