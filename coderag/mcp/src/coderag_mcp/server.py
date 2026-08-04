@@ -395,16 +395,13 @@ async def get_relation_detail(entity_name: str, relation_type: str = "") -> dict
     )
 
 
-@mcp_server.tool()
+# @mcp_server.tool()
 async def find_related_files(entity_or_file: str) -> dict:
-    client = _get_lightrag_client()
-    try:
-        result = await client.find_related_files(entity_or_file)
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("find_related_files", e)
-    except Exception as e:
-        return _error("find_related_files", e)
+    """Not exposed as MCP tool. Use `get_nodes(connected_to=...)` for entities touching X, then group by `file_path` to derive the related-files view."""
+    raise NotImplementedError(
+        "find_related_files is not exposed. Use get_nodes(connected_to='X') and group by "
+        "file_path to find files related to X."
+    )
 
 
 # @mcp_server.tool()

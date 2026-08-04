@@ -56,7 +56,7 @@ What an agent experience looks like once your project is indexed:
 > OrderService depends on 4 entities: `OrderRepository`, `PaymentGateway`, `EventBus`, and the `ILogger<OrderService>` interface. The two heaviest edges are to `PaymentGateway` (3 calls) and `OrderRepository` (2 calls).
 
 > **You:** If I rename `PlaceOrder`, which files break?
-> **Agent:** *calls `find_related_files`*
+> **Agent:** *calls `node_details(view="relations")` → `get_nodes(file_path=...)` per result*
 > 3 files reference `OrderService.PlaceOrder`: `OrdersController.cs`, `CheckoutFlow.cs`, and the test file `OrderServiceTests.cs`. Start with the controller — it has 2 call sites.
 
 > **You:** Is there a circular dependency between `Order` and `OrderService`?
@@ -131,7 +131,7 @@ The MCP server exposes 18 curated tools. The **graph + file tools** are fast and
 | "Find entities matching X" | `get_nodes` (filter by entity_type, name, file_path, connected_to) |
 | "Tell me about X" | `node_details` (view: details, relations, neighbors) |
 | "Codebase overview" | `get_knowledge_graph` |
-| "File ↔ entity bridge" | `find_related_files`, `get_related_files` |
+| "File ↔ entity bridge" | `get_related_files` |
 | "File-level views" | `get_file_stats`, `get_file_dependencies`, `file_dependency_cycles` |
 | "Structured retrieval" | `query_data` |
 | "Annotate" | `add_note_to_entity` |

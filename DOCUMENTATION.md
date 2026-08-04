@@ -41,11 +41,6 @@
          │  │ • Vector DB        │         │ • SSE transport │   │
          │  │ • WebUI            │         └────────────────┘   │
          │  └────────────────────┘                              │
-         │                                                      │
-         │  ┌────────────────────┐                              │
-         │  │ Ollama (optional)  │◄─── localhost:11434          │
-         │  │ LLM + embeddings   │                              │
-         │  └────────────────────┘                              │
          └──────────────────────────────────────────────────────┘
 ```
 
@@ -219,54 +214,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 
 ### 17 MCP Tools
 
-**Query (2 tools):**
-| Tool | Description | Status |
-|------|-------------|--------|
-| `query` | LLM-powered natural language query (hybrid mode) | ⚠️ POST `/query` times out — Ollama connectivity issue |
-| `query_data` | Structured query without LLM (entities + relationships) | ⚠️ POST `/query/data` times out — Ollama connectivity issue |
-
-**Knowledge Graph & Traversal (8 tools):**
-| Tool | Description | Status |
-|------|-------------|--------|
-| `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) | ✅ Working |
-| ~~`get_graph_labels`~~ | ~~Get all entity/relation label types~~ | ❌ Dropped (use `get_nodes` / `node_details`) |
-| `check_entity_exists` | Check if entity exists by name | ✅ Working |
-| `add_note_to_entity` | Attach embedded note to entity | ⚠️ Creates note but reports failure |
-| `get_related_files` | Find files related to a query (semantic search) | ⚠️ Returns file paths only — no snippets |
-| `node_details` | Unified node lookup; `view`: "details" / "relations" / "neighbors" | ✅ Working (merged 3 tools) |
-| ~~`get_entity_neighbors`~~ | ~~1-hop neighbors~~ | ❌ Merged into `node_details(view="neighbors")` |
-| ~~`get_entity_details`~~ | ~~Full entity info with relations~~ | ❌ Merged into `node_details(view="details")` |
-| ~~`get_relation_detail`~~ | ~~All relations of a specific type~~ | ❌ Merged into `node_details(view="relations", relation_type=...)` |
-| ~~`get_method_signature`~~ | ~~Method signature~~ | ❌ Dropped; lives in description field |
-| `find_related_files` | Find all files that reference/relate to a given entity | ✅ Added |
-| ~~`get_interface_methods`~~ | ~~Interface methods + implementing classes~~ | ❌ Dropped (use `node_details`) |
-
-**Exploration (7 tools):**
-| Tool | Description | Status |
-|------|-------------|--------|
-| `get_codebase_stats` | Entity/relation counts by type, unique files, visibility counts | ❌ HTTP 500 — internal split error |
-| `list_entities_by_type` | Paginated list of entities by type (CLASS, METHOD, etc.) | ❌ Server-side filter broken — always empty |
-| ~~`get_entities_in_file`~~ | ~~Filter graph by source file path~~ | ❌ Dropped (use `get_nodes(file_path=...)` — substring match, no Windows path issue) |
-| `search_entities` | Regex search on entity names and descriptions | ✅ Working |
-| `get_incoming_relations` | Entities pointing TO this entity | ✅ (via get_entity_neighbors) |
-| `get_outgoing_relations` | Entities this entity points TO | ✅ (via get_entity_neighbors) |
-
-### MCP Tool Effectiveness (Tested on test-csharp-project, July 2026)
-
-| Tool | Rating | Notes |
-|------|--------|-------|
-| `check_entity_exists` | Very Useful | Fast, reliable, boolean responses |
-| `get_knowledge_graph` | Very Useful | Returns full graph structure with nodes+edges |
-| ~~`get_graph_labels`~~ | ~~Useful~~ | ❌ Dropped (use `get_nodes` / `node_details`) |
-| `node_details` | Very Useful | Unified view: details, relations, neighbors (via `view` param) |
-| `search_entities` | Useful | Regex pattern matching on names/descriptions |
-| `query` (GET) | Moderately Useful | Natural language queries work; POST times out |
-| `query_data` | Moderately Useful | Structured query without LLM |
-| `get_related_files` | Limited | Returns file paths but no code snippets |
-| `get_codebase_stats` | Broken | HTTP 500 internal error |
-| `list_entities_by_type` | Broken | Server-side entity_type filter returns empty |
-| ~~`get_entities_in_file`~~ | ~~Limited~~ | ❌ Dropped (use `get_nodes(file_path=...)`) |
-| `add_note_to_entity` | Limited | Creates notes but reports false error |
+TODO: list available and short description
 
 ### External Agent Quick Reference — Calling MCP Tools Directly
 
@@ -276,14 +224,12 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 |---|---|---|
 | `check_entity_exists` | `/graph/entity/exists?name=XYZ` | GET |
 | `get_knowledge_graph` | `/graphs?label=*&max_depth=3&max_nodes=1000` | GET |
-| ~~`get_graph_labels`~~ | ~~`/graph/label/list`~~ | ❌ Dropped |
 | `node_details` | `/graphs?label=*&max_depth=3&max_nodes=1000` + client-side filter (`view` param) | GET |
 | `query` | `/query` | POST |
 | `query_data` | `/query/data` | POST |
 | `get_codebase_stats` | `/graph/label/list` + `/graphs?label=*&max_depth=3` | GET + GET |
 | `list_entities_by_type` | `/graphs?label=*&max_depth=3&max_nodes=1000` + filter | GET |
 | `search_entities` | `/graphs?label=*&max_depth=3&max_nodes=1000` + regex filter | GET |
-| ~~`get_entities_in_file`~~ | ~~`/graphs?label=*&max_depth=3&max_nodes=1000` + filter by `file_path`~~ | ❌ Dropped |
 | `get_related_files` | `/query/data` | POST |
 
 ### MCP Server Architecture
