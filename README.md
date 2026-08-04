@@ -11,45 +11,14 @@
 [![Ollama](https://img.shields.io/badge/Ollama-required-black)](https://ollama.com)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Turn your project into a live, queryable knowledge graph.**
-100% local by default. No API keys. AI agents explore your code via MCP.
-(Optional: use Ollama's cloud LLM with free tokens when you want stronger answers.)
+**Your C# solution as a live, queryable knowledge graph.**
+
+Deterministic code indexing · Built-in dead-code analysis · Live file watcher ·
+Circular-dependency detection · MCP tools for AI agents · 100% local by default
 
 </div>
 
 ---
-
-## Why codeRAG
-
-Most code-assist tools work by shoving your files into a prompt and hoping the model
-finds what it needs. codeRAG takes a different route: it **indexes your code into a
-real knowledge graph** — classes, interfaces, methods, call graphs, dependencies — and
-lets you and your AI agents query that graph directly.
-
-The result: answers that are *deterministic* (they come straight from your code),
-*faster* (graph lookups beat token-greedy context windows), and *local* (nothing
-leaves your machine).
-
-## Highlights
-
-- 🧊 **Deterministic C# indexing** — a native Go static analyser extracts entities and
-  relations straight from source. What you see is exactly what your code says.
-- ⚡ **Fast at scale** — content-derived IDs make re-indexing idempotent; batched graph
-  import (~30× faster than per-item HTTP CRUD) ingests a medium solution in seconds.
-- 🔄 **A watcher that actually survives your workflow** — `fsnotify` for real-time
-  saves plus a 30 s `git diff HEAD` poll for branch switches and everything fsnotify
-  misses. Deletions **cascade**: removing a file re-analyses everything that referenced it.
-- 🤖 **MCP for agents** — 10 curated, deterministic tools over an stdio↔SSE bridge, so
-  opencode, Claude Desktop, Cursor, and Windsurf can reason about your code instead of
-  reading it file by file.
-- 🗃️ **Two ingestion paths** — deterministic for code, optional LLM-assisted for prose.
-  You pay tokens only when you deliberately ingest non-code files.
-- 🧹 **Built-in dead-code analysis** — visibility + per-file export lists + file age
-  (`dead_code` MCP tool, `min_age_days` filter).
-- 🛡️ **Secret hygiene** — API keys, passwords, PII, and internal paths are redacted
-  before they ever reach the graph.
-- 🧪 **Tested** — 160+ unit tests and an end-to-end runtime smoke test (`runtime-test.sh`)
-  drive the whole stack: build → up → scan → CLI → MCP.
 
 ## Requirements
 
@@ -60,17 +29,10 @@ leaves your machine).
 | Ollama | 0.3+ | Local LLM + embeddings (host, not Docker) |
 | OS | Linux, macOS, Windows 10/11 (WSL2 or Git Bash) | |
 
-Models — all switchable via env vars (`LLM_MODEL`, `EMBEDDING_MODEL`):
-
-- **`bge-m3`** — embeddings, required, pulled locally by the setup script
-  (or set `EMBEDDING_MODEL`).
-- **`phi3.5:latest`** — default code LLM; small, local, offline-friendly.
-- **`qwen3-coder:480b-cloud`** — an Ollama **cloud** model: no large download, works
-  immediately through your local Ollama with a small free-token allowance (needs
-  internet + Ollama account). Great for stronger answers when you want them.
-
-The setup script pulls only the embedding model by default — the MCP tools need no LLM.
-Set `LLM_MODEL` (e.g. `phi3.5:latest`) before setup if you also want `coderag query`.
+Models — pulled by the setup script, switchable via env vars (`EMBEDDING_MODEL`,
+`LLM_MODEL`). By default the script pulls only the embedding model (`bge-m3:latest`);
+the MCP tools need no LLM. Set `LLM_MODEL` (e.g. `phi3.5:latest`, or the
+`qwen3-coder:480b-cloud` cloud model) before setup if you also want `coderag query`.
 
 ## Get started
 
@@ -90,8 +52,6 @@ Manual install, offline mode, and troubleshooting → **[docs/INSTALL.md](docs/I
 · full command reference → **[docs/USAGE.md](docs/USAGE.md)**
 
 ## MCP tools (10)
-
-Fast, deterministic — the natural-language `query` tool exists but is CLI-only.
 
 | Intent | Tool |
 |---|---|
