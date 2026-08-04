@@ -90,8 +90,8 @@ fi
 
 section "MCP SSE round-trip"
 if [ -n "$PY" ]; then
-    RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" get_file_stats "{}" 2>&1)
-    echo "  get_file_stats -> $RESP" | head -c 300
+    RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" file_stats "{}" 2>&1)
+    echo "  file_stats -> $RESP" | head -c 300
     echo
 else
     echo "(no python, skipping)"

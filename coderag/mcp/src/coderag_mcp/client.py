@@ -13,7 +13,6 @@ import httpx
 from .analyser_runner import run_analysis
 from .filegraph import build_file_graph
 from .models import (
-    CodebaseStatsResponse,
     DocumentInfo,
     EntityCreateRequest,
     EntityCreateResponse,
@@ -35,7 +34,6 @@ from .models import (
     InterfaceMethodsResponse,
     LabelsResponse,
     ListEntitiesResponse,
-    MethodSignatureResponse,
     QueryDataResponse,
     QueryRequest,
     QueryResponse,
@@ -318,12 +316,64 @@ class LightRAGClient:
         result.is_truncated = len(filtered_nodes) < len(result.nodes)
         return result
 
-    async def get_graph_labels(self) -> LabelsResponse:
-        """Get labels for entities and relations in the knowledge graph."""
-        response_data = await self._make_request("GET", "/graph/label/list")
-        if isinstance(response_data, list):
-            response_data = {"labels": response_data}
-        return LabelsResponse(**response_data)
+    async def get_graph_labels(
+        self,
+        node: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> LabelsResponse:
+        """Get entity + relation labels in the codebase.
+
+        If `node` is given, restricts to types connected to that member
+        (both incoming and outgoing). Otherwise returns all types in the
+        codebase. Paginated via `offset`/`limit` for iteration over large
+        lists — call again with higher offset to fetch the next page.
+        """
+        if node is None:
+            response_data = await self._make_request("GET", "/graph/label/list")
+            if isinstance(response_data, list):
+                response_data = {"labels": response_data}
+            base = LabelsResponse(**response_data)
+        else:
+            graph = await self.get_knowledge_graph(label="*")
+            entity_types: set[str] = set()
+            relation_keywords: set[str] = set()
+            for edge in graph.edges:
+                src = edge.get("source") or edge.get("src_id") or ""
+                tgt = edge.get("target") or edge.get("tgt_id") or ""
+                if node not in (src, tgt):
+                    continue
+                kw = edge.get("properties", {}).get("keywords", "")
+                if kw:
+                    for piece in (
+                        kw.split(",") if isinstance(kw, str) else [str(p) for p in kw]
+                    ):
+                        piece = piece.strip()
+                        if piece:
+                            relation_keywords.add(piece)
+                for endpoint_node in graph.nodes:
+                    end_id = endpoint_node.get("id") or endpoint_node.get("name") or ""
+                    end_props = endpoint_node.get("properties") or {}
+                    end_name = end_props.get("entity_name") or end_id
+                    if end_name in (src, tgt):
+                        end_type = end_props.get("entity_type", "")
+                        if end_type:
+                            entity_types.add(end_type)
+            base = LabelsResponse(
+                entity_labels=sorted(entity_types),
+                relation_labels=sorted(relation_keywords),
+                node=node,
+            )
+
+        entity_total = len(base.entity_labels)
+        relation_total = len(base.relation_labels)
+        return LabelsResponse(
+            entity_labels=base.entity_labels[offset : offset + limit],
+            relation_labels=base.relation_labels[offset : offset + limit],
+            node=base.node,
+            entity_labels_total=entity_total,
+            relation_labels_total=relation_total,
+        )
 
     async def check_entity_exists(self, entity_name: str) -> EntityExistsResponse:
         """Check if an entity exists in the knowledge graph."""
@@ -541,79 +591,6 @@ class LightRAGClient:
         )
         return QueryDataResponse(**response_data)
 
-    async def get_codebase_stats(self) -> CodebaseStatsResponse:
-        """Get statistics about the codebase from the knowledge graph."""
-        labels_resp = await self.get_graph_labels()
-        entity_types = labels_resp.entity_labels or []
-        relation_types = labels_resp.relation_labels or []
-
-        entity_counts: dict[str, int] = {t: 0 for t in entity_types}
-        relation_counts: dict[str, int] = {t: 0 for t in relation_types}
-        all_files: set[str] = set()
-        discovered_entity_types: set[str] = set()
-        discovered_relation_types: set[str] = set()
-
-        try:
-            graph = await self.get_knowledge_graph(label="*")
-            for node in graph.nodes:
-                node_type = node.get("properties", {}).get("entity_type", "")
-                if node_type:
-                    discovered_entity_types.add(node_type)
-                    if node_type in entity_counts:
-                        entity_counts[node_type] += 1
-                    else:
-                        entity_counts[node_type] = entity_counts.get(node_type, 0) + 1
-                fp = node.get("file_path") or node.get("properties", {}).get(
-                    "file_path", ""
-                )
-                if fp:
-                    all_files.add(fp)
-
-            for edge in graph.edges:
-                keywords = edge.get("properties", {}).get("keywords", "")
-                if keywords:
-                    if isinstance(keywords, list):
-                        kw_list = [k.strip() for k in keywords if k.strip()]
-                        for kw in kw_list:
-                            discovered_relation_types.add(kw)
-                            relation_counts[kw] = relation_counts.get(kw, 0) + 1
-                    elif isinstance(keywords, str):
-                        for kw in keywords.split(","):
-                            kw = kw.strip()
-                            if kw:
-                                discovered_relation_types.add(kw)
-                                relation_counts[kw] = relation_counts.get(kw, 0) + 1
-        except Exception as e:
-            self.logger.error(f"Error getting codebase stats: {e}")
-
-        total_entities = sum(entity_counts.values())
-        total_relations = sum(relation_counts.values())
-
-        all_entity_types = sorted(set(entity_types) | discovered_entity_types)
-        all_relation_types = sorted(set(relation_types) | discovered_relation_types)
-
-        # Count by visibility
-        visibility_counts: dict[str, int] = {}
-        for node in graph.nodes:
-            desc = node.get("properties", {}).get("description", "")
-            if "[" in desc and "]" in desc:
-                end = desc.index("]")
-                start = desc.rindex("[", 0, end)
-                vis = desc[start + 1 : end]
-                if vis:
-                    visibility_counts[vis] = visibility_counts.get(vis, 0) + 1
-
-        return CodebaseStatsResponse(
-            total_entities=total_entities,
-            total_relations=total_relations,
-            entity_counts_by_type=entity_counts,
-            relation_counts_by_type=relation_counts,
-            unique_files=len(all_files),
-            entity_types=all_entity_types,
-            relation_types=all_relation_types,
-            visibility_counts=visibility_counts,
-        )
-
     async def get_entity_neighbors(self, entity_name: str) -> EntityNeighborsResponse:
         """Get all entities directly connected to an entity (1-hop neighbors)."""
         graph = await self.get_knowledge_graph(label="*")
@@ -771,33 +748,60 @@ class LightRAGClient:
         )
 
     async def list_entities_by_type(
-        self, entity_type: str, limit: int = 100, offset: int = 0
+        self,
+        entity_type: str,
+        node: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> ListEntitiesResponse:
-        """List entities of a specific type with pagination."""
+        """List entities of a specific type with pagination and optional node filter."""
         graph = await self.get_knowledge_graph(label="*")
-        entities: list[EntityInfo] = []
 
-        for node in graph.nodes:
-            node_type = node.get("properties", {}).get("entity_type", "")
-            if node_type.lower() == entity_type.lower():
-                node_id = node.get("id") or node.get("name") or ""
-                fallback_name = (
-                    f"{entity_type.lower()}_{node_id}"
-                    if node_id
-                    else f"entity_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
-                )
-                entity_data = _safe_entity_data(node, fallback_name)
-                try:
-                    entities.append(EntityInfo(**entity_data))
-                except Exception:
-                    entity_data["name"] = fallback_name
-                    entities.append(EntityInfo(**entity_data))
+        connected_names: Optional[set[str]] = None
+        if node:
+            connected_names = set()
+            for edge in graph.edges:
+                src = edge.get("source") or edge.get("src_id") or ""
+                tgt = edge.get("target") or edge.get("tgt_id") or ""
+                if src == node:
+                    connected_names.add(tgt)
+                elif tgt == node:
+                    connected_names.add(src)
+
+        entities: list[EntityInfo] = []
+        for n in graph.nodes:
+            node_type = n.get("properties", {}).get("entity_type", "")
+            if node_type.lower() != entity_type.lower():
+                continue
+            if connected_names is not None:
+                node_id = n.get("id") or n.get("name") or ""
+                props = n.get("properties") or {}
+                candidate_names = {
+                    node_id,
+                    props.get("entity_name", ""),
+                    props.get("name", ""),
+                }
+                if not (candidate_names & connected_names):
+                    continue
+            node_id = n.get("id") or n.get("name") or ""
+            fallback_name = (
+                f"{entity_type.lower()}_{node_id}"
+                if node_id
+                else f"entity_{hashlib.md5(str(n).encode()).hexdigest()[:8]}"
+            )
+            entity_data = _safe_entity_data(n, fallback_name)
+            try:
+                entities.append(EntityInfo(**entity_data))
+            except Exception:
+                entity_data["name"] = fallback_name
+                entities.append(EntityInfo(**entity_data))
 
         total = len(entities)
         paginated = entities[offset : offset + limit]
 
         return ListEntitiesResponse(
             entity_type=entity_type,
+            node=node,
             entities=paginated,
             total=total,
             returned=len(paginated),
@@ -898,16 +902,16 @@ class LightRAGClient:
         )
 
     async def get_relation_detail(
-        self, entity_name: str, relation_type: str
+        self, entity_name: str, relation_type: str = ""
     ) -> RelationDetailResponse:
-        """Get all relations of a specific type for an entity."""
+        """Get relations for an entity. If relation_type is omitted, all relations are returned."""
         try:
             graph = await self.get_knowledge_graph(label="*")
         except Exception as e:
             self.logger.error(f"Error fetching graph for relation detail: {e}")
             return RelationDetailResponse(
                 entity_name=entity_name,
-                relation_type=relation_type,
+                relation_type=relation_type or "*",
                 relations=[],
                 total=0,
             )
@@ -917,83 +921,28 @@ class LightRAGClient:
             src = edge.get("source") or edge.get("src_id") or ""
             tgt = edge.get("target") or edge.get("tgt_id") or ""
             kw = edge.get("properties", {}).get("keywords", "")
-            if src == entity_name or tgt == entity_name:
-                if relation_type.lower() in kw.lower():
-                    rel_data = {
-                        "id": edge.get("id", f"{src}-{tgt}"),
-                        "source_entity": src,
-                        "target_entity": tgt,
-                        "type": kw,
-                        "properties": edge.get("properties", {}),
-                        "weight": edge.get("weight"),
-                    }
-                    try:
-                        relations.append(RelationInfo(**rel_data))
-                    except Exception:
-                        pass
+            if src != entity_name and tgt != entity_name:
+                continue
+            if relation_type and relation_type.lower() not in kw.lower():
+                continue
+            rel_data = {
+                "id": edge.get("id", f"{src}-{tgt}"),
+                "source_entity": src,
+                "target_entity": tgt,
+                "type": kw,
+                "properties": edge.get("properties", {}),
+                "weight": edge.get("weight"),
+            }
+            try:
+                relations.append(RelationInfo(**rel_data))
+            except Exception:
+                pass
 
         return RelationDetailResponse(
             entity_name=entity_name,
             relation_type=relation_type,
             relations=relations,
             total=len(relations),
-        )
-
-    async def get_method_signature(self, entity_name: str) -> MethodSignatureResponse:
-        """Get method signature details for a method entity."""
-        try:
-            graph = await self.get_knowledge_graph(label="*")
-        except Exception as e:
-            self.logger.error(f"Error fetching graph for method signature: {e}")
-            return MethodSignatureResponse(
-                entity_name=entity_name, return_type="", parameters=[], description=""
-            )
-
-        for node in graph.nodes:
-            node_id = node.get("id") or node.get("name") or ""
-            node_name = (
-                node.get("properties", {}).get("entity_name")
-                or node.get("name")
-                or node_id
-            )
-            if node_name == entity_name:
-                props = node.get("properties", {})
-                desc = props.get("description", "")
-                file_path = props.get("file_path", "")
-                params: list[dict[str, str]] = []
-
-                # Try to extract parameters from description
-                # e.g. "method_name(params) -> return_type"
-                param_match = re.search(r"\(([^)]*)\)", desc)
-                if param_match:
-                    param_str = param_match.group(1).strip()
-                    if param_str:
-                        for p in param_str.split(","):
-                            p = p.strip()
-                            if " " in p:
-                                parts = p.rsplit(" ", 1)
-                                params.append(
-                                    {"name": parts[0].strip(), "type": parts[1].strip()}
-                                )
-                            elif p:
-                                params.append({"name": p, "type": "unknown"})
-
-                # Try to extract return type
-                return_type = ""
-                ret_match = re.search(r"->\s*(\w+)", desc)
-                if ret_match:
-                    return_type = ret_match.group(1)
-
-                return MethodSignatureResponse(
-                    entity_name=entity_name,
-                    return_type=return_type,
-                    parameters=params,
-                    description=desc,
-                    file_path=file_path,
-                )
-
-        return MethodSignatureResponse(
-            entity_name=entity_name, return_type="", parameters=[], description=""
         )
 
     async def find_related_files(self, entity_or_file: str) -> RelatedFilesResponse:

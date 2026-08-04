@@ -3,6 +3,7 @@ package csharpanalyser
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -391,5 +392,275 @@ func TestReadSourceFile(t *testing.T) {
 	}
 	if got != content {
 		t.Errorf("ReadSourceFile = %q, want %q", got, content)
+	}
+}
+
+func parseMethodContent(t *testing.T, src string, seed ...func(*GlobalIndex)) *FileResult {
+	t.Helper()
+	tmpFile := filepath.Join(t.TempDir(), "test.cs")
+	if err := os.WriteFile(tmpFile, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	index := NewGlobalIndex()
+	for _, s := range seed {
+		s(index)
+	}
+	result, err := ParseFile(tmpFile, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func findMethod(t *testing.T, r *FileResult) Entity {
+	t.Helper()
+	for _, e := range r.Entities {
+		if e.Type == EntityMethod {
+			return e
+		}
+	}
+	t.Fatal("no METHOD entity found")
+	return Entity{}
+}
+
+func findRelation(t *testing.T, r *FileResult, source, target, keywords string) Relation {
+	t.Helper()
+	for _, rel := range r.Relations {
+		if rel.Source == source && rel.Target == target && rel.Keywords == keywords {
+			return rel
+		}
+	}
+	t.Fatalf("no relation found: source=%q target=%q keywords=%q", source, target, keywords)
+	return Relation{}
+}
+
+func TestParseMethodWithOutKeyword(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tbool TryParse(string s, out int result) { return true; }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "out int result") {
+		t.Errorf("description should contain 'out int result', got: %q", m.Description)
+	}
+	if !strings.Contains(m.Description, "TryParse(string s, out int result)") {
+		t.Errorf("description should contain 'TryParse(string s, out int result)', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodWithRefKeyword(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tvoid Swap(ref int a, ref int b) { }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "ref int a, ref int b") {
+		t.Errorf("description should contain 'ref int a, ref int b', got: %q", m.Description)
+	}
+	if !strings.Contains(m.Description, "Swap(ref int a, ref int b)") {
+		t.Errorf("description should contain 'Swap(ref int a, ref int b)', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodWithParamsKeyword(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tvoid Log(params string[] msgs) { }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "params string[] msgs") {
+		t.Errorf("description should contain 'params string[] msgs', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodWithLambdaDelegateType(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tvoid Process(Func<int, bool> predicate) { }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "Func<int, bool> predicate") {
+		t.Errorf("description should contain 'Func<int, bool> predicate', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodWithTupleType(t *testing.T) {
+	parts := splitParams("(int, int) coords")
+	if len(parts) != 1 || parts[0] != "(int, int) coords" {
+		t.Errorf("splitParams must keep nested parens intact; got %v", parts)
+	}
+}
+
+func TestParseMethodWithAttributeOnParam(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tvoid Foo([NotNull] string s) { }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "[NotNull] string s") {
+		t.Errorf("description should contain '[NotNull] string s', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodWithDefaultValue(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tvoid Bar(int x = 5, string label = \"hi\") { }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "int x = 5, string label = \"hi\"") {
+		t.Errorf("description should contain 'int x = 5, string label = \"hi\"', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodNoParams(t *testing.T) {
+	r := parseMethodContent(t,
+		"class C {\n\tvoid Baz() { }\n}\n",
+	)
+	m := findMethod(t, r)
+	if !strings.Contains(m.Description, "C.Baz() -> RETURNS -> void") {
+		t.Errorf("description should contain 'C.Baz() -> RETURNS -> void', got: %q", m.Description)
+	}
+}
+
+func TestParseMethodRelationsWithNamespace(t *testing.T) {
+	src := "namespace TestApp {\n\tclass Order { }\n\tclass OrderService {\n\t\tpublic void PlaceOrder(Order order) { }\n\t\tpublic decimal Total(Order order) { return 0; }\n\t}\n}\n"
+	r := parseMethodContent(t, src,
+		func(i *GlobalIndex) {
+			i.Classes["TestApp.Order"] = &ClassInfo{Name: "TestApp.Order"}
+		},
+	)
+	for _, e := range r.Entities {
+		if e.Type != EntityMethod {
+			continue
+		}
+		if !strings.Contains(e.Description, "(") || !strings.Contains(e.Description, ")") {
+			t.Errorf("method %q description should include parens, got %q", e.Name, e.Description)
+		}
+	}
+	count := 0
+	for _, rel := range r.Relations {
+		if rel.Source == "TestApp.OrderService.PlaceOrder" &&
+			rel.Target == "TestApp.Order" &&
+			rel.Keywords == "depends_on" {
+			if !strings.Contains(rel.Description, "PlaceOrder(Order order)") {
+				t.Errorf("depends_on description should contain 'PlaceOrder(Order order)', got %q", rel.Description)
+			}
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 depends_on relation PlaceOrder->Order, got %d", count)
+	}
+}
+
+func TestSplitParamsBalanced(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"", []string{}},
+		{"Order order", []string{"Order order"}},
+		{"Order order, int qty", []string{"Order order", "int qty"}},
+		{"Func<int, Order> callback", []string{"Func<int, Order> callback"}},
+		{"Dictionary<string, List<int>> data", []string{"Dictionary<string, List<int>> data"}},
+		{"(int, int) coords", []string{"(int, int) coords"}},
+		{"(int, int) coords, int qty", []string{"(int, int) coords", "int qty"}},
+		{"ref int a, ref int b", []string{"ref int a", "ref int b"}},
+	}
+	for _, tc := range cases {
+		got := splitParams(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("splitParams(%q) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("splitParams(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestParseParamDecl(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantType string
+		wantName string
+		wantOK   bool
+	}{
+		{"Order order", "Order", "order", true},
+		{"out int result", "int", "result", true},
+		{"ref int a", "int", "a", true},
+		{"params string[] messages", "string[]", "messages", true},
+		{"Func<int, Order> callback", "Func<int, Order>", "callback", true},
+		{"Dictionary<string, List<int>> data", "Dictionary<string, List<int>>", "data", true},
+		{"(int, int) coords", "(int, int)", "coords", true},
+		{"[NotNull] string s", "string", "s", true},
+		{"int x = 5", "int", "x", true},
+		{`string s = "hi"`, "string", "s", true},
+		{"Order? order", "Order?", "order", true},
+		{"List<string> items", "List<string>", "items", true},
+		{"int[,] grid", "int[,]", "grid", true},
+		{"Action a = null", "Action", "a", true},
+		{"Action<int> h = x => Log(x)", "Action<int>", "h", true},
+		{"this StringBuilder sb", "StringBuilder", "sb", true},
+		{"", "", "", false},
+		{"int", "", "", false},
+		{"   ", "", "", false},
+	}
+	for _, tc := range cases {
+		gotType, gotName, gotOK := parseParamDecl(tc.in)
+		if gotOK != tc.wantOK || gotType != tc.wantType || gotName != tc.wantName {
+			t.Errorf("parseParamDecl(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tc.in, gotType, gotName, gotOK, tc.wantType, tc.wantName, tc.wantOK)
+		}
+	}
+}
+
+func TestParseComplexMethodsFixture(t *testing.T) {
+	fixturePath := filepath.Join("testdata", "TestApp", "ComplexMethods.cs")
+	if _, err := os.Stat(fixturePath); err != nil {
+		t.Skipf("fixture %s not present: %v", fixturePath, err)
+	}
+	index := NewGlobalIndex()
+	index.Classes["TestApp.Order"] = &ClassInfo{Name: "TestApp.Order"}
+	r, err := ParseFile(fixturePath, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]string{
+		"TestApp.ComplexMethods.TryParse":  "out int result",
+		"TestApp.ComplexMethods.Swap":      "ref int a, ref int b",
+		"TestApp.ComplexMethods.Log":       "params string[] messages",
+		"TestApp.ComplexMethods.Process":   "Func<int, bool> predicate, int seed",
+		"TestApp.ComplexMethods.Send":      "int priority = 0, bool ccSender = true",
+		"TestApp.ComplexMethods.Save":      "[NotNull] string key, [NotNull] string value",
+		"TestApp.ComplexMethods.ExtendTo":  "this string s, int times",
+		"TestApp.ComplexMethods.GetAsync":  "CancellationToken ct = default",
+	}
+	for _, e := range r.Entities {
+		if e.Type != EntityMethod {
+			continue
+		}
+		want, ok := expected[e.Name]
+		if !ok {
+			continue
+		}
+		if !strings.Contains(e.Description, want) {
+			t.Errorf("method %q description should contain %q, got %q",
+				e.Name, want, e.Description)
+		}
+	}
+
+	for _, rel := range r.Relations {
+		if rel.Keywords != "method, defines" {
+			continue
+		}
+		if !strings.HasPrefix(rel.Source, "TestApp.ComplexMethods.") {
+			continue
+		}
+		if rel.Source == "TestApp.ComplexMethods" {
+			continue
+		}
+		if !strings.Contains(rel.Description, "(") || !strings.Contains(rel.Description, ")") {
+			t.Errorf("HAS_METHOD relation %s -> %s should carry the signature, got %q",
+				rel.Source, rel.Target, rel.Description)
+		}
 	}
 }

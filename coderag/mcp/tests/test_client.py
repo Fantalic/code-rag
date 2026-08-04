@@ -108,9 +108,6 @@ class TestClientMethodsExist:
     def test_query_data_exists(self):
         assert hasattr(LightRAGClient, "query_data")
 
-    def test_get_codebase_stats_exists(self):
-        assert hasattr(LightRAGClient, "get_codebase_stats")
-
     def test_get_entity_neighbors_exists(self):
         assert hasattr(LightRAGClient, "get_entity_neighbors")
 
@@ -128,9 +125,6 @@ class TestClientMethodsExist:
 
     def test_get_relation_detail_exists(self):
         assert hasattr(LightRAGClient, "get_relation_detail")
-
-    def test_get_method_signature_exists(self):
-        assert hasattr(LightRAGClient, "get_method_signature")
 
     def test_find_related_files_exists(self):
         assert hasattr(LightRAGClient, "find_related_files")

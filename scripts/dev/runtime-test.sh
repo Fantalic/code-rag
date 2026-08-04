@@ -175,8 +175,8 @@ else
 
     if [ -n "$PY" ]; then
         echo
-        echo "  get_file_stats:"
-        stats_raw=$(call_probe "get_file_stats" "{}")
+        echo "  file_stats:"
+        stats_raw=$(call_probe "file_stats" "{}")
         if [ -n "$stats_raw" ]; then
             printf '%s' "$stats_raw" | "$PY" -c "
 import json,sys
@@ -195,8 +195,8 @@ except Exception as e:
         fi
 
         echo
-        echo "  get_file_dependencies(Program.cs):"
-        deps_raw=$(call_probe "get_file_dependencies" '{"file_path":"Program.cs"}')
+        echo "  file_dependencies(Program.cs):"
+        deps_raw=$(call_probe "file_dependencies" '{"file_path":"Program.cs"}')
         if [ -n "$deps_raw" ]; then
             printf '%s' "$deps_raw" | "$PY" -c "
 import json,sys
@@ -218,8 +218,8 @@ except Exception as e:
         fi
 
         echo
-        echo "  file_dependency_cycles:"
-        cyc_raw=$(call_probe "file_dependency_cycles" "{}")
+        echo "  detect_circular_dependencies:"
+        cyc_raw=$(call_probe "detect_circular_dependencies" "{}")
         if [ -n "$cyc_raw" ]; then
             printf '%s' "$cyc_raw" | "$PY" -c "
 import json,sys

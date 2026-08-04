@@ -434,10 +434,20 @@ class GraphResponse(BaseModel):
 
 
 class LabelsResponse(BaseModel):
-    """Response model for graph labels."""
+    """Response model for codebase_types (entity + relation labels)."""
 
     entity_labels: list[str] = Field(default_factory=list)
     relation_labels: list[str] = Field(default_factory=list)
+    node: Optional[str] = Field(
+        None,
+        description="If set, lists are restricted to types connected to this member.",
+    )
+    entity_labels_total: int = Field(
+        0, description="Total entity labels before pagination"
+    )
+    relation_labels_total: int = Field(
+        0, description="Total relation labels before pagination"
+    )
 
 
 class EntityExistsResponse(BaseModel):
@@ -470,7 +480,7 @@ class RelationCreateResponse(BaseModel):
 
 
 class AddNoteResponse(BaseModel):
-    """Response model for add_note_to_entity."""
+    """Response model for attach_note_to_node."""
 
     status: str = "success"
     entity_name: str = ""
@@ -478,6 +488,24 @@ class AddNoteResponse(BaseModel):
     note_text: str = ""
     relationship_created: bool = False
     message: str = ""
+
+
+class NoteInfo(BaseModel):
+    """One note attached to a node."""
+
+    note_entity_name: str = Field(..., description="Graph name of the NOTE entity")
+    description: str = Field("", description="Note text including provenance header")
+    created_at: Optional[str] = Field(
+        None, description="ISO timestamp when the note was attached"
+    )
+
+
+class NotesResponse(BaseModel):
+    """Response model for get_notes (notes attached to a node)."""
+
+    node: str = Field(..., description="Member/node the notes are attached to")
+    notes: list[NoteInfo] = Field(default_factory=list)
+    total: int = Field(0, description="Number of notes returned")
 
 
 class EntityUpdateResponse(BaseModel):
@@ -652,30 +680,6 @@ class EntityDetailsResponse(BaseModel):
     )
 
 
-class CodebaseStatsResponse(BaseModel):
-    """Response model for codebase statistics."""
-
-    total_entities: int = Field(0, description="Total entity count")
-    total_relations: int = Field(0, description="Total relation count")
-    entity_counts_by_type: dict[str, int] = Field(
-        default_factory=dict, description="Entity count per type"
-    )
-    relation_counts_by_type: dict[str, int] = Field(
-        default_factory=dict, description="Relation count per type"
-    )
-    unique_files: int = Field(0, description="Number of unique source files")
-    entity_types: list[str] = Field(
-        default_factory=list, description="All entity types present"
-    )
-    relation_types: list[str] = Field(
-        default_factory=list, description="All relation types present"
-    )
-    visibility_counts: dict[str, int] = Field(
-        default_factory=dict,
-        description="Entity count by visibility (public/private/etc.)",
-    )
-
-
 class ListEntitiesRequest(BaseModel):
     """Request model for listing entities by type."""
 
@@ -690,8 +694,11 @@ class ListEntitiesResponse(BaseModel):
     """Response model for entity listing."""
 
     entity_type: str = Field(..., description="Entity type requested")
+    node: Optional[str] = Field(
+        None, description="If set, only nodes connected to this one are listed"
+    )
     entities: list[EntityInfo] = Field(default_factory=list)
-    total: int = Field(0, description="Total entities of this type")
+    total: int = Field(0, description="Total entities of this type (after node filter)")
     returned: int = Field(0, description="Entities returned in this response")
 
 
@@ -752,18 +759,6 @@ class RelationDetailResponse(BaseModel):
         default_factory=list, description="Matching relations"
     )
     total: int = Field(0, description="Total matching relations")
-
-
-class MethodSignatureResponse(BaseModel):
-    """Response model for get_method_signature tool."""
-
-    entity_name: str = Field(..., description="Method entity name")
-    return_type: str = Field("", description="Return type if extractable")
-    parameters: list[dict[str, str]] = Field(
-        default_factory=list, description="Method parameters"
-    )
-    description: str = Field("", description="Method description from graph")
-    file_path: str = Field("", description="Source file path")
 
 
 class RelatedFilesResponse(BaseModel):

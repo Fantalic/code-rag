@@ -376,9 +376,13 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 	if vis != "" {
 		visSuffix = " [" + vis + "]"
 	}
-	desc := fmt.Sprintf("%s.%s()%s", cls, methodName, visSuffix)
+	paramStr := "()"
+	if params != "" {
+		paramStr = "(" + params + ")"
+	}
+	desc := fmt.Sprintf("%s.%s%s%s", cls, methodName, paramStr, visSuffix)
 	if returnType != "" {
-		desc = fmt.Sprintf("%s.%s() -> RETURNS -> %s%s", cls, methodName, returnType, visSuffix)
+		desc = fmt.Sprintf("%s.%s%s -> RETURNS -> %s%s", cls, methodName, paramStr, returnType, visSuffix)
 	}
 
 	p.addEntity(Entity{
@@ -392,7 +396,7 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 	p.addRelation(Relation{
 		Source:      cls,
 		Target:      qualifiedName,
-		Description: fmt.Sprintf("%s.%s()", cls, methodName),
+		Description: fmt.Sprintf("%s.%s%s", cls, methodName, paramStr),
 		Keywords:    "method, defines",
 		Weight:      1.0,
 	})
@@ -404,7 +408,7 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 				p.addRelation(Relation{
 					Source:      qualifiedName,
 					Target:      resolvedType,
-					Description: fmt.Sprintf("%s.%s() -> RETURNS -> %s", cls, methodName, resolvedType),
+					Description: fmt.Sprintf("%s.%s%s -> RETURNS -> %s", cls, methodName, paramStr, resolvedType),
 					Keywords:    "depends_on, references",
 					Weight:      0.5,
 				})
@@ -418,29 +422,23 @@ func (p *Parser) handleMethodDecl(m []string, lineNo int) {
 
 	p.scopeVars = append(p.scopeVars, make(map[string]string))
 	if params != "" {
-		paramPairs := strings.Split(params, ",")
-		for _, pair := range paramPairs {
-			pair = strings.TrimSpace(pair)
-			if pair == "" {
+		for _, pair := range splitParams(params) {
+			paramType, paramName, ok := parseParamDecl(pair)
+			if !ok || paramName == "" {
 				continue
 			}
-			parts := strings.Fields(pair)
-			if len(parts) >= 2 {
-				paramType := parts[0]
-				paramName := parts[len(parts)-1]
-				resolvedType := p.resolveType(paramType)
-				p.scopeVars[len(p.scopeVars)-1][paramName] = resolvedType
-				p.imports = append(p.imports, paramType)
-				if p.index != nil && resolvedType != paramType {
-					if _, ok := p.index.Classes[resolvedType]; ok {
-						p.addRelation(Relation{
-							Source:      qualifiedName,
-							Target:      resolvedType,
-							Description: fmt.Sprintf("%s.%s() uses %s param %s", cls, methodName, resolvedType, paramName),
-							Keywords:    "depends_on",
-							Weight:      0.3,
-						})
-					}
+			resolvedType := p.resolveType(paramType)
+			p.scopeVars[len(p.scopeVars)-1][paramName] = resolvedType
+			p.imports = append(p.imports, paramType)
+			if p.index != nil && resolvedType != paramType {
+				if _, ok := p.index.Classes[resolvedType]; ok {
+					p.addRelation(Relation{
+						Source:      qualifiedName,
+						Target:      resolvedType,
+						Description: fmt.Sprintf("%s.%s%s uses %s param %s", cls, methodName, paramStr, resolvedType, paramName),
+						Keywords:    "depends_on",
+						Weight:      0.3,
+					})
 				}
 			}
 		}
@@ -612,6 +610,106 @@ func (p *Parser) isInImports(s string) bool {
 		}
 	}
 	return p.namespace != "" && strings.Contains(p.namespace, s)
+}
+
+func balancedClose(s string, openChar, closeChar byte) int {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case openChar:
+			depth++
+		case closeChar:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func findTopLevelChar(s string, c byte) int {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '<', '[':
+			depth++
+		case ')', '>', ']':
+			if depth > 0 {
+				depth--
+			}
+		case c:
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func splitParams(s string) []string {
+	var result []string
+	start := 0
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '<', '[':
+			depth++
+		case ')', '>', ']':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				result = append(result, strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	rest := strings.TrimSpace(s[start:])
+	if rest != "" {
+		result = append(result, rest)
+	}
+	return result
+}
+
+func parseParamDecl(s string) (typeName, paramName string, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", "", false
+	}
+	for strings.HasPrefix(s, "[") {
+		end := balancedClose(s, '[', ']')
+		if end < 0 {
+			return "", "", false
+		}
+		s = strings.TrimSpace(s[end+1:])
+	}
+	lower := strings.ToLower(s)
+	for _, mod := range []string{"out ", "ref ", "in ", "params ", "this "} {
+		if strings.HasPrefix(lower, mod) {
+			s = strings.TrimSpace(s[len(mod):])
+			lower = strings.ToLower(s)
+			break
+		}
+	}
+	if eq := findTopLevelChar(s, '='); eq >= 0 {
+		s = strings.TrimSpace(s[:eq])
+	}
+	if strings.TrimSpace(s) == "" {
+		return "", "", false
+	}
+	re := regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*\s*$`)
+	loc := re.FindStringIndex(s)
+	if loc == nil {
+		return "", "", false
+	}
+	paramName = s[loc[0]:loc[1]]
+	typeName = strings.TrimSpace(s[:loc[0]])
+	if typeName == "" {
+		return "", "", false
+	}
+	return typeName, paramName, true
 }
 
 var keywords = map[string]bool{
