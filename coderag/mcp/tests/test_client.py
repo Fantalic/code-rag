@@ -117,6 +117,9 @@ class TestClientMethodsExist:
     def test_list_entities_by_type_exists(self):
         assert hasattr(LightRAGClient, "list_entities_by_type")
 
+    def test_get_nodes_exists(self):
+        assert hasattr(LightRAGClient, "get_nodes")
+
     def test_get_entities_in_file_exists(self):
         assert hasattr(LightRAGClient, "get_entities_in_file")
 

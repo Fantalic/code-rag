@@ -702,6 +702,19 @@ class ListEntitiesResponse(BaseModel):
     returned: int = Field(0, description="Entities returned in this response")
 
 
+class GetNodesResponse(BaseModel):
+    """Response model for get_nodes (filter-by-anything)."""
+
+    entities: list[EntityInfo] = Field(
+        default_factory=list, description="Matching entities"
+    )
+    total: int = Field(0, description="Total matches before pagination")
+    returned: int = Field(0, description="Entities returned in this page")
+    filters: dict[str, str] = Field(
+        default_factory=dict, description="Echo of non-empty filters applied"
+    )
+
+
 class SearchEntitiesRequest(BaseModel):
     """Request model for searching entities by pattern."""
 

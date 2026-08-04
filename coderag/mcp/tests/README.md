@@ -80,7 +80,7 @@ The test suite provides comprehensive coverage for:
 
 3. **Knowledge Graph Tools (6 tools exposed + 1 internal)**:
    - `get_knowledge_graph` - Retrieve knowledge graph
-   - `get_graph_labels` - Get graph labels *(internal; not exposed via MCP — see `nodes_by_type` / `node_neighbors`)*
+   - `get_graph_labels` - Get graph labels *(internal; not exposed via MCP — see `get_nodes` / `node_details`)*
    - `check_entity_exists` - Check entity existence
    - `update_entity` - Update entity
    - `update_relation` - Update relation

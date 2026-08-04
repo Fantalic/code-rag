@@ -262,6 +262,49 @@ except Exception as e:
     print(f'    (parse error: {e})')
 " 2>/dev/null || echo "    (raw): $nn_raw"
         fi
+
+        echo
+        echo "  get_nodes(entity_type=class):"
+        gn_raw=$(call_probe "get_nodes" '{"entity_type":"class"}')
+        if [ -n "$gn_raw" ]; then
+            printf '%s' "$gn_raw" | "$PY" -c "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"    ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        ents=r.get('entities',[]) or []
+        total=r.get('total',0)
+        names=[e.get('name','?') for e in ents]
+        print(f\"    total: {total}  returned: {len(ents)}\")
+        print(f\"    classes: {', '.join(names) if names else '(none)'}\")
+except Exception as e:
+    print(f'    (parse error: {e})')
+" 2>/dev/null || echo "    (raw): $gn_raw"
+        fi
+
+        echo
+        echo "  get_nodes(name=Order,entity_type=class):"
+        gnf_raw=$(call_probe "get_nodes" '{"name":"Order","entity_type":"class"}')
+        if [ -n "$gnf_raw" ]; then
+            printf '%s' "$gnf_raw" | "$PY" -c "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"    ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        ents=r.get('entities',[]) or []
+        total=r.get('total',0)
+        names=[e.get('name','?') for e in ents]
+        print(f\"    total: {total}  matches: {', '.join(names) if names else '(none)'}\")
+except Exception as e:
+    print(f'    (parse error: {e})')
+" 2>/dev/null || echo "    (raw): $gnf_raw"
+        fi
     fi
 fi
 

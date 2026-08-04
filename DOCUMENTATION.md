@@ -229,7 +229,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 | Tool | Description | Status |
 |------|-------------|--------|
 | `get_knowledge_graph` | Retrieve full KG (nodes + edges); `max_depth` (1=types, 2=+members, 3=all) | ✅ Working |
-| ~~`get_graph_labels`~~ | ~~Get all entity/relation label types~~ | ❌ Dropped (use `nodes_by_type` / `node_details`) |
+| ~~`get_graph_labels`~~ | ~~Get all entity/relation label types~~ | ❌ Dropped (use `get_nodes` / `node_details`) |
 | `check_entity_exists` | Check if entity exists by name | ✅ Working |
 | `add_note_to_entity` | Attach embedded note to entity | ⚠️ Creates note but reports failure |
 | `get_related_files` | Find files related to a query (semantic search) | ⚠️ Returns file paths only — no snippets |
@@ -257,7 +257,7 @@ opencode (stdio JSON-RPC) → coderag mcp (Go bridge) → SSE → Python MCP (Do
 |------|--------|-------|
 | `check_entity_exists` | Very Useful | Fast, reliable, boolean responses |
 | `get_knowledge_graph` | Very Useful | Returns full graph structure with nodes+edges |
-| ~~`get_graph_labels`~~ | ~~Useful~~ | ❌ Dropped (use `nodes_by_type` / `node_details`) |
+| ~~`get_graph_labels`~~ | ~~Useful~~ | ❌ Dropped (use `get_nodes` / `node_details`) |
 | `node_details` | Very Useful | Unified view: details, relations, neighbors (via `view` param) |
 | `search_entities` | Useful | Regex pattern matching on names/descriptions |
 | `query` (GET) | Moderately Useful | Natural language queries work; POST times out |

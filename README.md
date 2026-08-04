@@ -128,7 +128,7 @@ The MCP server exposes 18 curated tools. The **graph + file tools** are fast and
 | Agent intent | Tool |
 |---|---|
 | "Does X exist?" | `check_entity_exists` |
-| "Find entities matching X" | `nodes_by_type` |
+| "Find entities matching X" | `get_nodes` (filter by entity_type, name, file_path, connected_to) |
 | "Tell me about X" | `node_details` (view: details, relations, neighbors) |
 | "Codebase overview" | `get_knowledge_graph` |
 | "File ↔ entity bridge" | `get_entities_in_file`, `find_related_files`, `get_related_files` |

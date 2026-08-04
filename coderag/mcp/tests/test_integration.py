@@ -66,6 +66,13 @@ class TestServerFunctions:
 
         assert inspect.iscoroutinefunction(get_node_details)
 
+    def test_get_nodes_is_coroutine(self):
+        import inspect
+
+        from coderag_mcp.server import get_nodes
+
+        assert inspect.iscoroutinefunction(get_nodes)
+
 
 class TestMcpServerRegistration:
     """Test that tools are properly registered on the FastMCP server."""

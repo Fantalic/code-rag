@@ -143,9 +143,9 @@ async def get_graph_labels(
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    """Not exposed as MCP tool. Entity/relation type info is available via `nodes_by_type` and `node_details(view='neighbors'|'relations')`."""
+    """Not exposed as MCP tool. Entity/relation type info is available via `get_nodes` and `node_details(view='neighbors'|'relations')`."""
     raise NotImplementedError(
-        "codebase_types is not exposed. Use nodes_by_type(label) for a list of "
+        "codebase_types is not exposed. Use get_nodes(entity_type='class') for a list of "
         "entities of a given type, or node_details(view='neighbors'|'relations') "
         "for type information about a specific node's connections."
     )
@@ -221,27 +221,45 @@ async def get_node_details(
         return _error("get_node_details", e)
 
 
-@mcp_server.tool(name="nodes_by_type")
+# @mcp_server.tool()
 async def list_entities_by_type(
     entity_type: str,
     node: str = "",
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    """List nodes of a given type (class, method, interface, etc.) with optional pagination, optionally restricted to nodes connected to a given node. See `coderag --agent-help`."""
+    """Not exposed as MCP tool. Superseded by `get_nodes` (filter by anything)."""
+    raise NotImplementedError(
+        "nodes_by_type is not exposed. Use get_nodes(entity_type='class', "
+        "connected_to='Foo.Bar') instead — get_nodes combines type/name/file/connection filters."
+    )
+
+
+@mcp_server.tool(name="get_nodes")
+async def get_nodes(
+    entity_type: str = "",
+    name: str = "",
+    file_path: str = "",
+    connected_to: str = "",
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    """Filter nodes by any combination of: `entity_type` (e.g. "class"), `name` (substring), `file_path` (substring), `connected_to` (only nodes touching this one). Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset`. See `coderag --agent-help`."""
     client = _get_lightrag_client()
     try:
-        result = await client.list_entities_by_type(
-            entity_type,
-            node=node or None,
+        result = await client.get_nodes(
+            entity_type=entity_type,
+            name=name,
+            file_path=file_path,
+            connected_to=connected_to,
             limit=limit,
             offset=offset,
         )
         return _serialize(result)
     except LightRAGError as e:
-        return _error("list_entities_by_type", e)
+        return _error("get_nodes", e)
     except Exception as e:
-        return _error("list_entities_by_type", e)
+        return _error("get_nodes", e)
 
 
 @mcp_server.tool(name="nodes_in_file")
@@ -261,7 +279,7 @@ async def get_entities_in_file(file_path: str) -> dict:
 async def search_entities(
     pattern: str, entity_type: str = None, limit: int = 50
 ) -> dict:
-    """Not exposed as MCP tool yet — usefulness is TBD (use query_codebase or nodes_by_type instead)."""
+    """Not exposed as MCP tool yet — usefulness is TBD (use query_codebase or get_nodes instead)."""
     raise NotImplementedError(
         "search_entities is not exposed as an MCP tool. "
         "Use query_codebase or nodes_by_type instead."

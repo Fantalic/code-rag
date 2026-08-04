@@ -99,6 +99,9 @@ if [ -n "$PY" ]; then
     RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" node_details '{"entity_name":"TestApp.OrderService","view":"neighbors"}' 2>&1)
     echo "  node_details(view=neighbors) -> $RESP" | head -c 300
     echo
+    RESP=$($PY "$SCRIPT_DIR/mcp_probe.py" get_nodes '{"entity_type":"class"}' 2>&1)
+    echo "  get_nodes(entity_type=class) -> $RESP" | head -c 300
+    echo
 else
     echo "(no python, skipping)"
 fi

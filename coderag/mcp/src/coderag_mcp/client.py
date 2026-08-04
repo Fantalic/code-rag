@@ -27,6 +27,7 @@ from .models import (
     FileStatInfo,
     FileStatsResponse,
     GetEntitiesInFileResponse,
+    GetNodesResponse,
     GraphResponse,
     InsertResponse,
     InsertTextRequest,
@@ -805,6 +806,104 @@ class LightRAGClient:
             entities=paginated,
             total=total,
             returned=len(paginated),
+        )
+
+    async def get_nodes(
+        self,
+        entity_type: str = "",
+        name: str = "",
+        file_path: str = "",
+        connected_to: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> GetNodesResponse:
+        """Filter entities by any combination of: entity_type, name (substring),
+        file_path (substring), connected_to (graph connection). Empty/omitted
+        filters are no-ops. All filters AND-combine. Paginated via offset/limit.
+        """
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.error(f"Error fetching graph for get_nodes: {e}")
+            return GetNodesResponse(
+                entities=[],
+                total=0,
+                returned=0,
+                filters={
+                    k: v
+                    for k, v in {
+                        "entity_type": entity_type,
+                        "name": name,
+                        "file_path": file_path,
+                        "connected_to": connected_to,
+                    }.items()
+                    if v
+                },
+            )
+
+        etype_lower = entity_type.strip().lower()
+        name_lower = name.strip().lower()
+        fpath_lower = file_path.strip().lower().replace("\\", "/")
+        conn = connected_to.strip()
+
+        connected_names: Optional[set[str]] = None
+        if conn:
+            connected_names = set()
+            for edge in graph.edges:
+                src = edge.get("source") or edge.get("src_id") or ""
+                tgt = edge.get("target") or edge.get("tgt_id") or ""
+                if src == conn:
+                    connected_names.add(tgt)
+                elif tgt == conn:
+                    connected_names.add(src)
+
+        entities: list[EntityInfo] = []
+        for n in graph.nodes:
+            props = n.get("properties") or {}
+            node_id = n.get("id") or n.get("name") or ""
+            entity_name = props.get("entity_name") or n.get("name") or node_id or ""
+            node_type = props.get("entity_type", "")
+            node_fp = n.get("file_path") or props.get("file_path", "")
+            node_fp_clean = node_fp.lower().replace("\\", "/") if node_fp else ""
+
+            if etype_lower and node_type.lower() != etype_lower:
+                continue
+            if name_lower and name_lower not in entity_name.lower():
+                continue
+            if fpath_lower and fpath_lower not in node_fp_clean:
+                continue
+            if connected_names is not None:
+                candidates = {node_id, entity_name, props.get("name", "")}
+                if not (candidates & connected_names):
+                    continue
+
+            fallback_name = (
+                entity_name
+                or f"entity_{node_id or hashlib.md5(str(n).encode()).hexdigest()[:8]}"
+            )
+            entity_data = _safe_entity_data(n, fallback_name)
+            try:
+                entities.append(EntityInfo(**entity_data))
+            except Exception:
+                entity_data["name"] = fallback_name
+                entities.append(EntityInfo(**entity_data))
+
+        total = len(entities)
+        paginated = entities[offset : offset + limit]
+        return GetNodesResponse(
+            entities=paginated,
+            total=total,
+            returned=len(paginated),
+            filters={
+                k: v
+                for k, v in {
+                    "entity_type": entity_type,
+                    "name": name,
+                    "file_path": file_path,
+                    "connected_to": connected_to,
+                }.items()
+                if v
+            },
         )
 
     async def get_entities_in_file(self, file_path: str) -> GetEntitiesInFileResponse:
