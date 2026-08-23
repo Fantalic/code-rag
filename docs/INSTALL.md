@@ -11,7 +11,7 @@
 | Tool | Min version | Purpose |
 |------|-------------|---------|
 | **Go** | 1.25+ | Builds the `coderag` CLI + C# analyser (only needed to build) |
-| **Docker** | 24+ | Runs the LightRAG API (`:9621`) and MCP server (`:9622`) |
+| **Docker 24+ or Podman 4+** | | Runs the LightRAG API (`:9621`) and MCP server (`:9622`) |
 | **Ollama** | 0.3+ | Local LLM + embeddings (runs on the host) |
 | **Git** | any | The watcher uses `git diff HEAD` for change detection |
 
@@ -19,12 +19,19 @@ Check what you already have:
 
 ```bash
 go version        # go1.25.x or newer
-docker --version
+docker --version  # or: podman --version
 ollama --version
 ```
 
-> **Windows:** Docker Desktop must be running (WSL2 backend). PowerShell 5.1+ or
-> Git Bash both work. The C# analyser is a native `.exe` — no .NET runtime needed.
+> **Windows:** Docker Desktop or Podman Desktop must be installed and running
+> (WSL2 backend; for Podman also `podman machine start`). PowerShell 5.1+, cmd
+> (via `scripts\setup.cmd`), or Git Bash all work. The C# analyser is a native
+> `.exe` — no .NET runtime needed.
+>
+> **Podman:** `podman compose` needs a compose provider (Podman Desktop ships one;
+> otherwise `podman-compose` or `docker-compose` must be installed). Rootless
+> podman reaches host Ollama via `host.docker.internal` thanks to the
+> `extra_hosts: host-gateway` entry in `docker-compose.yml`.
 
 ## 2. Ollama models
 
@@ -71,27 +78,62 @@ bash scripts/setup.sh
 .\scripts\setup.ps1
 ```
 
-Both scripts do the same things:
+Both scripts are **interactive wizards** that walk you through:
 
-1. Install Go, Docker, and Ollama if missing.
-2. Pull the embeddings model — from `EMBEDDING_MODEL`, default `bge-m3:latest`.
-3. Build the `coderag` CLI and the C# analyser.
-4. Pre-build the Docker image (`docker compose build`).
-5. Add the repo folder to your `PATH`.
+1. **Container engine** — choose Docker (default) or Podman; the choice is saved
+   to `CODERAG_ENGINE` in the repo `.env` and honoured by the `coderag` CLI.
+2. **Prerequisite check** for Git, Go, the chosen engine, and Ollama — anything
+   missing is offered for installation; the engine daemon/compose provider is verified.
+3. **Ollama models** — pick the embedding model (default `bge-m3:latest`; the
+   matching `EMBEDDING_DIM` is filled in automatically for known models) and an
+   optional code LLM for `coderag query` (`none` by default, since the MCP tools
+   don't need one). Models are pulled, and the embedding model is pre-warmed so
+   the first scan doesn't hit LightRAG's worker timeout.
+4. **Build** — `coderag` CLI + C# analyser into the repo root, then the container
+   image via your chosen engine.
+5. **PATH** — the repo folder is added so `coderag` works from anywhere.
 
-Model pulls respect your env vars:
+Every question shows a `[default]`; pressing ENTER accepts it.
+
+### Unattended install (agents / CI / package managers)
+
+For scripted installs the wizard runs without any input, taking defaults for
+every question:
 
 ```bash
-# default: embeddings only — MCP usage needs no code LLM
-bash scripts/setup.sh
-
-# explicit embedding model + a code LLM for 'coderag query'
-EMBEDDING_MODEL=bge-m3:latest LLM_MODEL=qwen3-coder:480b-cloud bash scripts/setup.sh
+scripts\setup.cmd -CI        # Windows cmd  (aliases: -Yes | -Silent)
+.\scripts\setup.ps1 -CI      # Windows PowerShell
+bash scripts/setup.sh -y     # Linux / macOS (also: --yes | --silent | --ci)
 ```
 
-If `LLM_MODEL` is set, the setup script pulls that model too; otherwise it pulls
-only the embedding model (the default is "no query model" — the MCP tools don't
-need an LLM).
+Environment triggers work for all three: `CI=1` or `CODERAG_NONINTERACTIVE=1`
+(also auto-enabled when stdin is not a TTY on Linux/macOS).
+
+Behaviour in unattended mode:
+
+- Engine defaults to `docker`, models to `bge-m3:latest` + no code LLM.
+- Missing tools are installed automatically: **Chocolatey** is preferred when
+  present (run from an elevated shell), else **winget** (`--disable-interactivity`),
+  else official direct downloads. Existing installations are never removed.
+- The embedding model is pulled and pre-warmed; binaries are built into the repo
+  root; the image is built with the chosen engine; the repo folder is added to PATH.
+- Choices are written to the repo-root `.env` (see below).
+- Exit code `0` on success, non-zero on failure — safe to chain in install scripts.
+
+> If `go` still reports an old version after the install step, another Go copy is
+> shadowing the new one on your PATH. The wizard warns but never touches existing
+> installs -- fix PATH order manually or uninstall the old Go. For scripted runs,
+pass `-CI` (Windows) or set `CI=1` / run without a TTY (Linux/macOS) to take all
+defaults without prompting.
+
+All choices persist in the repo-root `.env`:
+
+```dotenv
+CODERAG_ENGINE=docker          # or podman — read by the coderag CLI
+EMBEDDING_MODEL=bge-m3:latest
+EMBEDDING_DIM=1024
+LLM_MODEL=phi3.5:latest        # only written when a code LLM was chosen
+```
 
 When it finishes:
 
@@ -99,7 +141,10 @@ When it finishes:
 coderag status
 ```
 
-If the services show `not running`, run `coderag start ./myproject` once to start them.
+If the services show `not running`, run `coderag start .` inside any project once.
+
+> The setup builds both binaries into the repo root — keep them together there
+> (`csharp_analyser` next to `coderag`) so scans work from any folder.
 
 ## 4. Manual install
 
@@ -188,6 +233,7 @@ re-download nothing once binaries and models are present.
 
 | Variable | Default | When to change |
 |----------|---------|----------------|
+| `CODERAG_ENGINE` | auto-detect (`docker` → `podman`) | Force the container engine the `coderag` CLI uses for start/stop/logs; set in `.env` by the setup wizard |
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` | Linux with host networking → `http://localhost:11434` |
 | `LLM_MODEL` | `phi3.5:latest` | Code LLM for `coderag query` / prose ingestion — any local model you pulled, or an Ollama cloud model (e.g. `qwen3-coder:480b-cloud`, free tokens) |
 | `EMBEDDING_MODEL` | `bge-m3:latest` | Keep unless you swap embedding models |
@@ -196,16 +242,23 @@ re-download nothing once binaries and models are present.
 | `DEBOUNCE_SECONDS` | `0.5` | Higher = fewer re-analyses, slower feedback |
 | `WATCHER_WORKERS` | `4` | Higher = faster scanning on big machines |
 
-Set them in your shell before running `coderag`, or in a `.env` file at the repo root
-(compose reads `OLLAMA_HOST`/`WORKSPACE` from the environment or `.env`).
+Set them in your shell before running `coderag`, or in a `.env` file at the repo
+root. The repo `.env` is read by the CLI (engine selection) and is copied next to
+the generated compose file, so compose picks up `OLLAMA_HOST`/model vars even when
+you call `coderag` from a different folder.
 
 ## 7. Troubleshooting
 
 ### Docker services won't start
 
 - **Docker Desktop not running** → start it, wait for the whale icon, retry.
+- **Podman machine not running (Windows/macOS)** → `podman machine start`, retry.
+- **`podman compose` not available** → install Podman Desktop (ships a compose
+  provider) or `pip install podman-compose`, then re-run.
 - **Ports 9621/9622 in use** → `netstat -ano | findstr 9621`; stop whatever owns them,
   or remap ports in `docker-compose.yml`.
+- **Wrong engine picked up** → check `CODERAG_ENGINE` in the repo `.env`
+  (`coderag` auto-detects docker first, then podman, when the key is absent).
 - **"Workspace mismatch"** → codeRAG restarts the stack with the right `WORKSPACE`
   automatically. If it keeps failing, `coderag stop` then `coderag start <dir>`.
 

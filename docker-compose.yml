@@ -11,12 +11,15 @@ services:
     volumes:
       - rag_data:/app/data
       - ./rag_input:/app/data/inputs
+    # host-gateway makes host.docker.internal resolve under rootless Podman too
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - LLM_BINDING_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - EMBEDDING_BINDING_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
-      - LLM_MODEL=phi3.5:latest
-      - EMBEDDING_MODEL=bge-m3:latest
-      - EMBEDDING_DIM=1024
+      - LLM_MODEL=${LLM_MODEL:-phi3.5:latest}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3:latest}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-1024}
       - WORKSPACE=${WORKSPACE:-}
       - WORKING_DIR=/app/data/rag_storage
       - INPUT_DIR=/app/data/inputs

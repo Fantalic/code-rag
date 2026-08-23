@@ -283,7 +283,7 @@ func RunCSharpAnalyser(sln string, outputDir string) ([]AnalyserResult, error) {
 		analyserExe = findCSharpAnalyser()
 	}
 	if analyserExe == "" {
-		return nil, fmt.Errorf("csharp_analyser not found")
+		return nil, fmt.Errorf("csharp_analyser not found; build it with 'cd coderag/cli/analysers/csharp && go build -o csharp_analyser.exe ./cmd/csharp_analyser/' or set CSHARP_ANALYSER_PATH")
 	}
 
 	if outputDir == "" {
@@ -357,25 +357,86 @@ func findSolutionFile(filePath string) string {
 }
 
 func findCSharpAnalyser() string {
-	paths := []string{
+	find := func(c string) string {
+		if c == "" {
+			return ""
+		}
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			return ""
+		}
+		if _, err := os.Stat(abs); err == nil {
+			return abs
+		}
+		return ""
+	}
+
+	names := func(dir string) []string {
+		return []string{
+			filepath.Join(dir, "csharp_analyser.exe"),
+			filepath.Join(dir, "csharp_analyser"),
+		}
+	}
+
+	for _, p := range []string{
 		"coderag/cli/analysers/csharp/csharp_analyser.exe",
 		"coderag/cli/analysers/csharp/csharp_analyser",
 		"./coderag/cli/analysers/csharp/csharp_analyser.exe",
 		"./coderag/cli/analysers/csharp/csharp_analyser",
 		"../coderag/cli/analysers/csharp/csharp_analyser.exe",
 		"../coderag/cli/analysers/csharp/csharp_analyser",
+	} {
+		if f := find(p); f != "" {
+			return f
+		}
 	}
-	exePath, err := os.Executable()
-	if err == nil {
-		exeDir := filepath.Dir(exePath)
-		paths = append(paths,
-			filepath.Join(exeDir, "analysers/csharp/csharp_analyser.exe"),
-			filepath.Join(exeDir, "analysers/csharp/csharp_analyser"),
-		)
+
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		for _, dir := range []string{
+			filepath.Join(exeDir, "analysers", "csharp"),
+			filepath.Join(exeDir, "coderag", "cli", "analysers", "csharp"),
+		} {
+			for _, c := range names(dir) {
+				if f := find(c); f != "" {
+					return f
+				}
+			}
+		}
 	}
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p
+
+	if repo := repoRoot(); repo != "" {
+		for _, c := range names(filepath.Join(repo, "coderag", "cli", "analysers", "csharp")) {
+			if f := find(c); f != "" {
+				return f
+			}
+		}
+	}
+
+	return ""
+}
+
+// repoRoot locates the codeRAG repository (containing the Dockerfile and
+// coderag/lightrag) by walking up from the working directory and the
+// executable directory.
+func repoRoot() string {
+	roots := []string{}
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots, wd)
+	}
+	if exe, err := os.Executable(); err == nil {
+		roots = append(roots, filepath.Dir(exe))
+	}
+	for _, start := range roots {
+		for d := start; ; d = filepath.Dir(d) {
+			if _, err := os.Stat(filepath.Join(d, "Dockerfile")); err == nil {
+				if _, err := os.Stat(filepath.Join(d, "coderag", "lightrag")); err == nil {
+					return d
+				}
+			}
+			if filepath.Dir(d) == d {
+				break
+			}
 		}
 	}
 	return ""

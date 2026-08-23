@@ -244,21 +244,22 @@ func ensureLightRAG(ctx context.Context, workspace string) error {
 
 	// Need to restart with the correct workspace
 	composeFile := findComposeFile()
+	if composeFile == "" {
+		return fmt.Errorf("docker-compose.yml not found; run coderag from the codeRAG repo root or set CODERAG_COMPOSE=<path>")
+	}
 
 	if !quietMode {
 		log.Printf("Starting Docker services with workspace '%s'...", workspace)
 	}
 
 	// Stop existing containers first (silently)
-	downCmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
+	downCmd := composeCmd(ctx, "-f", composeFile, "down")
 	downCmd.Stdout = nil
 	downCmd.Stderr = nil
 	_ = downCmd.Run()
 
 	// Start with the correct workspace (silently)
-	upCmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "up", "-d")
-	upCmd.Stdout = nil
-	upCmd.Stderr = nil
+	upCmd := composeCmd(ctx, "-f", composeFile, "up", "-d")
 	upCmd.Env = append(os.Environ(), "WORKSPACE="+workspace)
 	if err := upCmd.Run(); err != nil {
 		return fmt.Errorf("docker compose failed: %w", err)
@@ -304,21 +305,138 @@ func ensureLightRAG(ctx context.Context, workspace string) error {
 }
 
 func findComposeFile() string {
-	candidates := []string{
-		"docker-compose.yml",
-		"../docker-compose.yml",
-		"./docker-compose.yml",
-	}
-	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "docker-compose.yml"))
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			abs, _ := filepath.Abs(c)
+	if p := os.Getenv("CODERAG_COMPOSE"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			abs, _ := filepath.Abs(p)
 			return abs
 		}
 	}
-	return "docker-compose.yml"
+
+	find := func(c string) string {
+		if c == "" {
+			return ""
+		}
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			return ""
+		}
+		if _, err := os.Stat(abs); err == nil {
+			return abs
+		}
+		return ""
+	}
+
+	if f := find("docker-compose.yml"); f != "" {
+		return f
+	}
+	if f := find("../docker-compose.yml"); f != "" {
+		return f
+	}
+	if exe, err := os.Executable(); err == nil {
+		if f := find(filepath.Join(filepath.Dir(exe), "docker-compose.yml")); f != "" {
+			return f
+		}
+	}
+
+	walkUp := func(start string) string {
+		for d := start; ; d = filepath.Dir(d) {
+			if f := find(filepath.Join(d, "docker-compose.yml")); f != "" {
+				return f
+			}
+			if filepath.Dir(d) == d {
+				break
+			}
+		}
+		return ""
+	}
+	if wd, err := os.Getwd(); err == nil {
+		if f := walkUp(wd); f != "" {
+			return f
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if f := walkUp(filepath.Dir(exe)); f != "" {
+			return f
+		}
+	}
+
+	return materializeComposeFile()
+}
+
+// materializeComposeFile writes the embedded docker-compose.yml into a
+// per-user cache directory so coderag works from any working directory.
+func materializeComposeFile() string {
+	dir := userCacheDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	content := string(embeddedCompose)
+	if repo := repoRoot(); repo != "" {
+		content = strings.ReplaceAll(content, "context: .", "context: "+repo)
+		content = strings.ReplaceAll(content, "./rag_input", filepath.Join(repo, "rag_input"))
+	}
+	dst := filepath.Join(dir, "docker-compose.yml")
+	if cur, err := os.ReadFile(dst); err == nil && string(cur) == content {
+		syncRepoEnvFile(dir)
+		return dst
+	}
+	if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+		return ""
+	}
+	syncRepoEnvFile(dir)
+	return dst
+}
+
+// syncRepoEnvFile copies the repo-root .env next to the cached compose file so
+// ${VAR} substitution in docker-compose.yml keeps working when coderag runs
+// from any folder (compose reads .env from the project directory).
+func syncRepoEnvFile(composeDir string) {
+	root := repoRoot()
+	if root == "" {
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".env"))
+	if err != nil {
+		return // no repo .env; nothing to sync
+	}
+	dst := filepath.Join(composeDir, ".env")
+	if cur, err := os.ReadFile(dst); err == nil && string(cur) == string(data) {
+		return
+	}
+	_ = os.WriteFile(dst, data, 0o644)
+}
+
+func userCacheDir() string {
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, "coderag")
+	}
+	return filepath.Join(os.TempDir(), "coderag")
+}
+
+// repoRoot locates the codeRAG repository (containing the Dockerfile and
+// coderag/lightrag) by walking up from the working directory and the
+// executable directory.
+func repoRoot() string {
+	roots := []string{}
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots, wd)
+	}
+	if exe, err := os.Executable(); err == nil {
+		roots = append(roots, filepath.Dir(exe))
+	}
+	for _, start := range roots {
+		for d := start; ; d = filepath.Dir(d) {
+			if _, err := os.Stat(filepath.Join(d, "Dockerfile")); err == nil {
+				if _, err := os.Stat(filepath.Join(d, "coderag", "lightrag")); err == nil {
+					return d
+				}
+			}
+			if filepath.Dir(d) == d {
+				break
+			}
+		}
+	}
+	return ""
 }
 
 func inputDirOrDefault(c *cli.Context) string {
@@ -517,7 +635,10 @@ func statusCmd(c *cli.Context) error {
 
 func stopCmd(c *cli.Context) error {
 	composeFile := findComposeFile()
-	cmd := exec.Command("docker", "compose", "-f", composeFile, "down")
+	if composeFile == "" {
+		return fmt.Errorf("docker-compose.yml not found; run coderag from the codeRAG repo root or set CODERAG_COMPOSE=<path>")
+	}
+	cmd := composeCmd(context.Background(), "-f", composeFile, "down")
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
@@ -717,7 +838,10 @@ func captureDockerLogs(logsDir string) error {
 		return fmt.Errorf("create logs dir: %w", err)
 	}
 	composeFile := findComposeFile()
-	cmd := exec.Command("docker", "compose", "-f", composeFile, "logs", "--no-color", "--timestamps")
+	if composeFile == "" {
+		return fmt.Errorf("docker-compose.yml not found; run coderag from the codeRAG repo root or set CODERAG_COMPOSE=<path>")
+	}
+	cmd := composeCmd(context.Background(), "-f", composeFile, "logs", "--no-color", "--timestamps")
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("docker logs: %w", err)

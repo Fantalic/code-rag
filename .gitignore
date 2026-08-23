@@ -107,6 +107,7 @@ test-csharp-project/
 *.temp
 *~
 *.local
+.ai/
 memory-bank/
 mcp-server/
 TODO.md

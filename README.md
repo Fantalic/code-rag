@@ -9,7 +9,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/status-experimental-e94560?style=flat-square" alt="experimental"/>
   <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go"/>
-  <img src="https://img.shields.io/badge/Docker-24+-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker"/>
+  <img src="https://img.shields.io/badge/Docker%20%7C%20Podman-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker or Podman"/>
   <a href="https://github.com/Fantalic/code-rag/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-9b59b6?style=flat-square" alt="License"/></a>
 </p>
 
@@ -36,20 +36,53 @@ Built to explore what's possible when deterministic code analysis meets local LL
 
 ---
 
-## Try it
+## Setup
+
+One command, on either OS:
 
 ```bash
 git clone https://github.com/Fantalic/code-rag.git && cd code-rag
-bash scripts/setup.sh        # Windows: .\scripts\setup.ps1
+bash scripts/setup.sh          # Windows (PowerShell): .\scripts\setup.ps1  |  (cmd): scripts\setup.cmd
+```
 
-coderag start ./myproject    # spin up services + watcher
-coderag scan  ./myproject    # index your .sln
-coderag webui                # open graph explorer
-coderag mcp   ./myproject    # bridge for your AI agent
+The **interactive wizard** asks you a handful of questions (ENTER accepts the default):
+
+| Question | Default | What happens |
+|---|---|---|
+| Container engine? | `docker` | Pick `docker` or `podman` — saved to `.env`, honoured by the CLI |
+| Install missing tools? | yes | Checks Git, Go, your engine, Ollama; offers to install whatever is absent |
+| Embedding model? | `bge-m3:latest` | Pulled via Ollama; matching dimension auto-detected. Required — powers every graph operation |
+| Code LLM? | none | Optional, only for `coderag query` + prose ingestion (`phi3.5:latest`, an Ollama cloud model, or any local model) |
+
+Then it builds both Go binaries into the repo root, builds the container image with your chosen engine, adds `coderag` to your PATH, and pre-warms the embedding model so the first scan is fast.
+
+**Unattended install** (agents, CI, package managers) — no prompts, all defaults, exit code `0` on success:
+
+```bash
+scripts\setup.cmd -CI        # Windows cmd  (aliases: -Yes | -Silent)
+.\scripts\setup.ps1 -CI      # Windows PowerShell
+bash scripts/setup.sh -y     # Linux / macOS (also: CI=1 bash scripts/setup.sh)
+```
+
+Setting `CODERAG_NONINTERACTIVE=1` forces unattended mode for all three. On Windows the
+wizard installs missing tools via Chocolatey when present (run elevated), else winget,
+else direct downloads.
+
+---
+
+## Use it
+
+From **any folder** containing (or below) a C# solution:
+
+```bash
+coderag start .    # spin up services + live watcher
+coderag scan .     # index the .sln found here
+coderag webui      # open graph explorer
+coderag mcp .      # bridge for your AI agent
 coderag query "How does checkout work?"
 ```
 
-Requirements: Go 1.25+, Docker 24+, Ollama 0.3+.  
+Requirements: Go 1.25+, Docker 24+ or Podman 4+, Ollama 0.3+.  
 Full setup & troubleshooting → [`docs/INSTALL.md`](docs/INSTALL.md)
 
 ---
@@ -93,7 +126,7 @@ Deep dive → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 - **Go** — CLI, C# parser, file watcher, MCP bridge
 - **Python / LightRAG** — Knowledge graph engine
-- **Docker** — Containerized MCP server + graph backend
+- **Docker / Podman** — Containerized MCP server + graph backend
 - **Ollama** — Local LLM + embeddings
 
 Built on [LightRAG](https://github.com/HKUDS/LightRAG) (MIT) and [MCP](https://modelcontextprotocol.io/) (MIT).
