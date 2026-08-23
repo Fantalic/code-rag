@@ -13,14 +13,24 @@ echo "Deploy C# analyser (Windows)"
 copy coderag\cli\analysers\csharp\csharp_analyser.exe _dev_docs\analysers\csharp\
 ```
 
+The C# analyser uses tree-sitter. Its `go.mod` is a **nested module** at
+`coderag/cli/analysers/csharp` with cgo (`CGO_ENABLED=1` + gcc). Tree-sitter
+version pinning is intentional: `go-tree-sitter v0.25.0` + `tree-sitter-c-sharp
+v0.23.5`. Analytical format current version is **2** (`# FORMAT: 2` header),
+entity lines are `TYPE|Name|FilePath|StartLine|EndLine|Description`. Coverage
+diagnostics are emitted to `_coverage.txt` (parser → COVERAGE entities →
+`index_coverage` MCP tool). Per-file diffs on incremental scans append to
+`_changelog.txt` (parser → CHANGELOG entities → `what_changed` MCP tool).
+Canonical-file overrides for partial classes read `$WORKSPACE_ROOT/.coderag/duplicates.json` (`WORKSPACE_ROOT=...`).
+
 The `scripts/dev/runtime-test.sh` script (POSIX sh, cross-platform) automates the full runtime test:
 - Stop existing Docker services, rebuild image, restart with correct WORKSPACE
 - Wait for LightRAG health
 - Pre-warm the embedding model (avoids LightRAG's 60s worker timeout on cold load)
 - Re-scan testdata into LightRAG
 - Test CLI graph commands (`files|deps|cycles`)
-- Test MCP server tools (`get_file_*`) via `scripts/dev/mcp_probe.py` (Python SSE client)
-These scripts are useful for developing and verifying the new derived file-level query layer.
+- Test MCP server tools (`file_dependencies`, `detect_circular_dependencies`, `node_details`, `get_nodes`, `dead_code`, `list_notes`, `codebase_overview`, `index_coverage`, `what_changed`, `get_source`) via `scripts/dev/mcp_probe.py` (Python SSE client)
+These scripts are useful for developing and verifying the new derived file-level query layer, the practical-feedback fixes (notes round-trip, source span lookup, coverage + change sidecars) and the `get_source` workspace mount contract.
 ```bash
 # Linux / macOS / WSL / Git Bash
 sh scripts/dev/runtime-test.sh                          # stop, rebuild, restart, scan, test CLI + MCP

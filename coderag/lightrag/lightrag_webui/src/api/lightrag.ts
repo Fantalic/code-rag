@@ -831,3 +831,80 @@ export const getScanStatus = async (): Promise<ScanStatusSnapshot> => {
   const response = await axiosInstance.get('/coderag/status')
   return response.data
 }
+
+// ── CodeRAG project registry (coderag CLI → /coderag/projects) ─────────────
+
+export interface ProjectCounts {
+  files?: number
+  entities_created?: number
+  entities_updated?: number
+  entities_deleted?: number
+  relations_created?: number
+  relations_updated?: number
+  relations_deleted?: number
+  [key: string]: number | undefined
+}
+
+export interface ProjectInfo {
+  active: boolean
+  id: string
+  name: string
+  path: string
+  kind?: string
+  created_at: number
+  last_scan_at: number
+  last_status: 'idle' | 'scanning' | 'error' | string
+  last_message?: string
+  total_counts: ProjectCounts
+  errors_total: number
+  scan_count: number
+}
+
+export interface ProjectsListResponse {
+  projects: ProjectInfo[]
+  active_id: string | null
+}
+
+/**
+ * List every project the coderag CLI has ever scanned or watched, with
+ * the active marker (sorted newest-last-scan first).
+ */
+export const getProjects = async (): Promise<ProjectsListResponse> => {
+  const response = await axiosInstance.get('/coderag/projects')
+  return response.data
+}
+
+/**
+ * Get the currently focused/active project.
+ * Returns null when no project is focused.
+ */
+export const getActiveProject = async (): Promise<ProjectInfo | null> => {
+  try {
+    const response = await axiosInstance.get('/coderag/projects/active')
+    return response.data
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      return null
+    }
+    throw err
+  }
+}
+
+/**
+ * Set the focused project on the server (and host CLI registry).
+ */
+export const focusProject = async (projectId: string): Promise<ProjectInfo> => {
+  const response = await axiosInstance.post(`/coderag/projects/${projectId}/focus`)
+  return response.data.project
+}
+
+/**
+ * Request a knowledge-graph clear for the focused project.
+ * Today LightRAG's storage is global — see endpoint docs.
+ */
+export const clearFocusedProject = async (
+  projectId: string
+): Promise<{ ok: boolean; note: string; project: ProjectInfo }> => {
+  const response = await axiosInstance.post(`/coderag/projects/${projectId}/clear`)
+  return response.data
+}

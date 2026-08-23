@@ -788,6 +788,38 @@ def create_app(args):
     # CodeRAG scan-status: event ingest + snapshot for the WebUI Scan tab
     app.include_router(create_coderag_status_routes(api_key))
 
+    # Persist the last N events to disk so a page reload / container restart
+    # does not wipe history. Best-effort, silently disabled if the working
+    # dir is not writable.
+    try:
+        from lightrag.api.routers.coderag_status_routes import store as coderag_status_store
+
+        persist_path = os.path.join(args.working_dir, "coderag_events.json")
+        coderag_status_store.set_persist_path(persist_path)
+        logging.info("[coderag] persisting status events to %s", persist_path)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("[coderag] status persist setup failed: %s", exc)
+
+    # CodeRAG project registry mirror (host-CLI authoritative)
+    from lightrag.api.routers.coderag_projects_routes import (
+        create_coderag_projects_routes,
+        store as coderag_projects_store,
+    )
+
+    app.include_router(create_coderag_projects_routes(api_key))
+
+    # Hydrate the server-side project mirror from the host-CLI registry file
+    # on startup. Failures are logged but never block startup.
+    try:
+        n = coderag_projects_store.hydrate_from_host()
+        if n.get("loaded"):
+            logging.info(
+                "[coderag] hydrated %d project(s) from host registry",
+                n["loaded"],
+            )
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("[coderag] registry hydrate failed: %s", exc)
+
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag_proxy, top_k=args.top_k, api_key=api_key)
     app.include_router(ollama_api.router, prefix="/api")

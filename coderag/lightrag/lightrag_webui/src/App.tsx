@@ -13,8 +13,8 @@ import { InvalidApiKeyError, RequireApiKeError } from '@/api/lightrag'
 import GraphViewer from '@/features/GraphViewer'
 import DocumentManager from '@/features/DocumentManager'
 import RetrievalTesting from '@/features/RetrievalTesting'
-import ApiSite from '@/features/ApiSite'
 import PipelineMonitor from '@/features/PipelineMonitor'
+import { useProjectsStore } from '@/stores/projects'
 
 import { Tabs, TabsContent } from '@/components/ui/Tabs'
 
@@ -55,6 +55,14 @@ function App() {
   }, []);
 
   // Health check - can be disabled
+  useEffect(() => {
+    // Start polling the host-CLI project registry once the app is up.
+    useProjectsStore.getState().startPolling()
+    return () => {
+      useProjectsStore.getState().stopPolling()
+    }
+  }, [])
+
   useEffect(() => {
     // Health check function
     const performHealthCheck = async () => {
@@ -215,9 +223,6 @@ function App() {
                 </TabsContent>
                 <TabsContent value="retrieval" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
                   <RetrievalTesting />
-                </TabsContent>
-                <TabsContent value="api" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                  <ApiSite />
                 </TabsContent>
               </div>
             </Tabs>

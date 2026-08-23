@@ -1,13 +1,14 @@
 """
 CodeRAG scan-status routes.
 
-The host-side `coderag` CLI pushes pipeline events here (POST /coderag/status/event)
-so the WebUI can show the scan/watch process live (GET /coderag/status polling).
+The host-side `coderag` CLI pushes pipeline events here (POST /coderag/status/event
+so the WebUI can show the scan/watch process live (GET /coderag/status polling.
 
-State is kept in memory only: it resets when the server restarts, which is fine —
-the CLI reports fresh runs continuously while it works.
+State is kept in memory; optionally mirrored to disk so page reloads / container restarts keep the last few hundred events visible across reloads. The CLI is the source of truth — it will push new events continuously while a scan runs.
 """
 
+import json
+import os
 import threading
 import time
 from collections import deque
@@ -90,6 +91,44 @@ class _StatusStore:
         self._lock = threading.Lock()
         self._run = _RunState()
         self._events: deque = deque(maxlen=self.MAX_EVENTS)
+        # Optional on-disk mirror for surviving container restarts.
+        self._persist_path: Optional[str] = None
+
+    def set_persist_path(self, path: Optional[str]) -> None:
+        """Enable on-disk persistence. Call once on startup if desired."""
+        self._persist_path = path
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if isinstance(raw, list):
+                self._events.clear()
+                for ev in raw[-self.MAX_EVENTS :]:
+                    self._events.append(ev)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "status hydrate failed: %s", exc
+            )
+
+    def _write_persist_locked(self) -> None:
+        if not self._persist_path:
+            return
+        try:
+            tmp = self._persist_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(list(self._events), fh)
+            os.replace(tmp, self._persist_path)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "status persist failed: %s", exc
+            )
 
     def apply_event(self, ev: StatusEvent) -> Dict[str, Any]:
         """Merge one pushed event into the snapshot and ring buffer."""
@@ -127,6 +166,7 @@ class _StatusStore:
                 self._run.counts.update(ev.counts)
 
             self._events.append(stored)
+            self._write_persist_locked()
 
             return {
                 **self._snapshot_locked(),
@@ -146,6 +186,7 @@ class _StatusStore:
         with self._lock:
             self._run = _RunState()
             self._events.clear()
+            self._write_persist_locked()
 
     # Callers must hold self._lock.
     def _snapshot_locked(self) -> Dict[str, Any]:

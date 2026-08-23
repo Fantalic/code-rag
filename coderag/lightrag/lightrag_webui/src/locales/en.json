@@ -9,6 +9,12 @@
   },
   "scan": {
     "title": "Scan Monitor",
+    "intro": "This panel reflects pipeline events pushed by the host-side CodeRAG CLI. Run `coderag scan <dir>` for an end-to-end scan, or `coderag watch <dir>` for a live file watcher. Events are batched and posted every ~0.4 s. The page polls every 2 s and pauses when the tab is hidden.",
+    "terminalHint": "Add projects from the host:",
+    "currentRun": "Current run",
+    "refreshTooltip": "Refresh now",
+    "message": "Activity",
+    "detail": "Detail",
     "state": {
       "idle": "Idle",
       "scanning": "Scanning",
@@ -17,9 +23,10 @@
     "stage": "Stage",
     "lastUpdate": "Last update",
     "currentMessage": "Current activity",
-    "noActivity": "No scan activity yet. Run 'coderag scan' or start a watch session on the host to see live progress.",
+    "noActivity": "No scan activity yet. Run `coderag scan` or start a watch session on the host.",
     "eventsTitle": "Pipeline events",
     "noEvents": "No events recorded yet",
+    "noEventsHint": "Waiting for the host CLI to push progress. Start a scan with `coderag scan <dir>` on the host.",
     "counters": {
       "files": "Files",
       "entitiesCreated": "Entities +",
@@ -29,6 +36,18 @@
       "relationsUpdated": "Relations ~",
       "relationsDeleted": "Relations -"
     }
+  },
+  "projectSwitcher": {
+    "none": "No project",
+    "title": "Projects",
+    "active": "active",
+    "refresh": "Refresh",
+    "readonly": "Project registry unavailable on this server. Update your coderag build.",
+    "empty": "No projects yet.",
+    "hint": "Run `coderag scan <dir>` on the host to add one.",
+    "refreshing": "Refreshing…",
+    "terminalHint": "`coderag scan <dir>` to add. `coderag projects list|focus|forget` to manage.",
+    "focused": "Focused project"
   },
   "header": {
     "scan": "Scan",
