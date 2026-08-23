@@ -179,11 +179,11 @@ async def get_notes_for_node(node_name: str) -> dict:
 
 
 @mcp_server.tool(name="query_codebase")
-async def query_data(query: str, mode: str = "mix") -> dict:
-    """Semantic vector search over the codebase: the query is embedded with the configured embedding model and matched against the entity/relation/chunk vector stores — no LLM involved. Returns matching entities, relationships, chunks, and file references. `mode` picks the stores: mix=all (default), hybrid=entities+relations, local=entities only, global=relations only, naive=chunks only. See `coderag --agent-help`."""
+async def query_data(query: str) -> dict:
+    """Semantic vector search over the codebase: the query is embedded with the configured embedding model and matched against ALL vector stores (entities, relationships, source chunks) — no LLM involved. Returns matching entities, relationships, chunks, and file references. See `coderag --agent-help`."""
     client = _get_lightrag_client()
     try:
-        result = await client.query_data(query, mode=mode)
+        result = await client.query_data(query)
         return _serialize(result)
     except LightRAGError as e:
         return _error("query_data", e)

@@ -20,12 +20,14 @@ class DocStatus(str, Enum):
 
 
 class QueryMode(str, Enum):
-    """Query mode enumeration."""
+    """Query mode enumeration.
 
-    NAIVE = "naive"
-    LOCAL = "local"
-    GLOBAL = "global"
-    HYBRID = "hybrid"
+    Only "mix" is used by coderag: /query/data is LLM-free vector search and
+    "mix" matches the query against ALL vector stores (entities +
+    relationships + chunks); the other LightRAG modes are strict subsets.
+    """
+
+    MIX = "mix"
 
 
 class PipelineStatus(str, Enum):
@@ -130,7 +132,7 @@ class QueryRequest(BaseModel):
     """Request model for text queries."""
 
     query: str = Field(..., description="Query text")
-    mode: QueryMode = Field(QueryMode.HYBRID, description="Query mode")
+    mode: QueryMode = Field(QueryMode.MIX, description="Query mode")
     only_need_context: bool = Field(False, description="Whether to only return context")
     stream: bool = Field(False, description="Whether to stream results")
 
@@ -187,7 +189,7 @@ class RelatedFilesRequest(BaseModel):
     """Request model for getting related files."""
 
     query: str = Field(..., description="Query or keywords to find related files")
-    mode: QueryMode = Field(QueryMode.HYBRID, description="Query mode")
+    mode: QueryMode = Field(QueryMode.MIX, description="Query mode")
     limit: int = Field(
         10, ge=1, le=100, description="Maximum number of related files to return"
     )

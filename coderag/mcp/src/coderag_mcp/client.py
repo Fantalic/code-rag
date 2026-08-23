@@ -445,7 +445,7 @@ class LightRAGClient:
     # --- Related Files ---
 
     async def get_related_files(
-        self, query: str, mode: str = "hybrid", limit: int = 10
+        self, query: str, mode: str = "mix", limit: int = 10
     ) -> RelatedFilesResponse:
         """Get files related to a query or keywords.
 
@@ -581,14 +581,14 @@ class LightRAGClient:
     # --- Phase 22: Enhanced exploration tools ---
 
     async def query_data(
-        self, query: str, mode: str = "hybrid", only_need_context: bool = False
+        self, query: str, mode: str = "mix", only_need_context: bool = False
     ) -> QueryDataResponse:
         """Vector search using /query/data endpoint (LLM-free).
 
         The raw query is embedded with the server's embedding model and matched
-        against the entity/relationship/chunk vector stores. Returns entities,
-        relationships, chunks, and references without any LLM keyword
-        extraction or generation.
+        against ALL vector stores (entities/relationships/chunks — mode "mix").
+        Returns entities, relationships, chunks, and references without any LLM
+        keyword extraction or generation.
         """
         request_data = QueryRequest(
             query=query, mode=mode, only_need_context=only_need_context

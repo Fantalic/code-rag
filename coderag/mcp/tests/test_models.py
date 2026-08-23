@@ -59,10 +59,7 @@ class TestEnums:
 
     def test_query_mode_enum(self):
         """Test QueryMode enum values."""
-        assert QueryMode.NAIVE == "naive"
-        assert QueryMode.LOCAL == "local"
-        assert QueryMode.GLOBAL == "global"
-        assert QueryMode.HYBRID == "hybrid"
+        assert QueryMode.MIX == "mix"
 
     def test_pipeline_status_enum(self):
         """Test PipelineStatus enum values."""
@@ -188,13 +185,13 @@ class TestRequestModels:
         """Test valid QueryRequest creation."""
         request = QueryRequest(
             query="test query",
-            mode=QueryMode.HYBRID,
+            mode=QueryMode.MIX,
             only_need_context=True,
             stream=False,
         )
 
         assert request.query == "test query"
-        assert request.mode == QueryMode.HYBRID
+        assert request.mode == QueryMode.MIX
         assert request.only_need_context is True
         assert request.stream is False
 
@@ -203,7 +200,7 @@ class TestRequestModels:
         request = QueryRequest(query="test query")
 
         assert request.query == "test query"
-        assert request.mode == QueryMode.HYBRID
+        assert request.mode == QueryMode.MIX
         assert request.only_need_context is False
         assert request.stream is False
 
@@ -495,13 +492,13 @@ class TestModelSerialization:
     def test_query_request_dict_serialization(self):
         """Test QueryRequest serialization to dict."""
         request = QueryRequest(
-            query="test query", mode=QueryMode.HYBRID, only_need_context=True
+            query="test query", mode=QueryMode.MIX, only_need_context=True
         )
 
         request_dict = request.model_dump()
 
         assert request_dict["query"] == "test query"
-        assert request_dict["mode"] == "hybrid"  # Enum serialized as string
+        assert request_dict["mode"] == "mix"  # Enum serialized as string
         assert request_dict["only_need_context"] is True
         assert request_dict["stream"] is False  # Default value
 
@@ -592,8 +589,8 @@ class TestModelValidationEdgeCases:
     def test_enum_validation(self):
         """Test enum field validation."""
         # Valid enum value
-        request = QueryRequest(query="test", mode="hybrid")
-        assert request.mode == QueryMode.HYBRID
+        request = QueryRequest(query="test", mode="mix")
+        assert request.mode == QueryMode.MIX
 
         # Invalid enum value should raise validation error
         with pytest.raises(ValidationError) as exc_info:

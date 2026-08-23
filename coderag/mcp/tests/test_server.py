@@ -117,16 +117,18 @@ class TestServerToolNames:
 class TestQueryCodebaseTool:
     """`query_codebase` (MCP name) is LLM-free vector search via /query/data.
 
-    The tool must default to mode="mix" so the query is matched against ALL
-    vector stores (entities, relationships, chunks); no LLM-backed tool may be
+    The tool takes only a query — it always searches ALL vector stores
+    (mode "mix": entities, relationships, chunks); no LLM-backed tool may be
     registered.
     """
 
-    def test_default_mode_is_mix(self):
+    def test_tool_has_no_mode_parameter(self):
+        """Agents get no mode knob: search always covers all vector stores."""
         import inspect
 
         sig = inspect.signature(server_module.query_data)
-        assert sig.parameters["mode"].default == "mix"
+        assert "mode" not in sig.parameters
+        assert list(sig.parameters) == ["query"]
 
     def test_tool_docstring_documents_vector_search(self):
         tools_list = None
@@ -140,7 +142,7 @@ class TestQueryCodebaseTool:
         assert "vector" in by_name["query_codebase"].description.lower()
 
     @pytest.mark.asyncio
-    async def test_delegates_to_client_query_data_with_mode(self):
+    async def test_delegates_to_client_query_data_with_mix_mode(self):
         mock_client = MagicMock()
         mock_client.query_data = AsyncMock(
             return_value=MagicMock(
@@ -150,10 +152,8 @@ class TestQueryCodebaseTool:
         with patch.object(
             server_module, "_get_lightrag_client", return_value=mock_client
         ):
-            result = await server_module.query_data("how does auth work", mode="mix")
-        mock_client.query_data.assert_awaited_once_with(
-            "how does auth work", mode="mix"
-        )
+            result = await server_module.query_data("how does auth work")
+        mock_client.query_data.assert_awaited_once_with("how does auth work")
         assert result["status"] == "success"
 
     @pytest.mark.asyncio
