@@ -27,6 +27,7 @@ import (
 	"github.com/coderag/graph"
 	"github.com/coderag/pipeline"
 	"github.com/coderag/parser"
+	"github.com/coderag/status"
 	"github.com/coderag/watcher"
 )
 
@@ -475,6 +476,13 @@ func startCmd(c *cli.Context) error {
 		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
 	}
 
+	// Status reporter for the whole watch session (WebUI Scan tab live view)
+	rep := status.New(client.BaseURL)
+	defer rep.Close()
+	restoreRep := status.SetDefault(rep)
+	defer restoreRep()
+	rep.Stage("watch", "watch session started: %s", inputDir)
+
 	cfg := &watcher.Config{
 		InputDir:     inputDir,
 		DebounceSecs: 0.5,
@@ -562,6 +570,13 @@ func watchCmd(c *cli.Context) error {
 			Timeout: 30 * time.Second,
 		},
 	}
+
+	// Status reporter for the whole watch session (WebUI Scan tab live view)
+	rep := status.New(lightragURL)
+	defer rep.Close()
+	restoreRep := status.SetDefault(rep)
+	defer restoreRep()
+	rep.Stage("watch", "watch session started: %s", inputDir)
 
 	w, err := watcher.NewWatcher(cfg)
 	if err != nil {
@@ -891,6 +906,14 @@ func scanCmd(c *cli.Context) error {
 
 	client := crud.NewConfig()
 
+	// Install the process-wide status reporter so pipeline/watcher hooks
+	// report progress to the WebUI (no-op when CODERAG_STATUS_DISABLE=1)
+	rep := status.New(client.BaseURL)
+	defer rep.Close()
+	restoreRep := status.SetDefault(rep)
+	defer restoreRep()
+	rep.Stage("scan", "scan started: %s%s", inputDir, map[bool]string{true: " (--clean)", false: ""}[clean])
+
 	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
 	if err := client.SetWorkspace(ws); err != nil {
 		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
@@ -900,30 +923,38 @@ func scanCmd(c *cli.Context) error {
 
 	sln := findSolutionFile(inputDir)
 	if sln == "" {
+		rep.Error("scan", "no .sln file found in %s", inputDir)
 		return fmt.Errorf("no .sln file found in %s", inputDir)
 	}
 	log.Printf("Found solution: %s", sln)
+	rep.Detail("analyse", sln, "solution found")
 
 	log.Printf("Running C# analyser...")
 	results, err := pipeline.RunCSharpAnalyser(sln, analyserOut)
 	if err != nil {
+		rep.Error("analyse", "C# analyser failed: %v", err)
 		return fmt.Errorf("C# analyser failed: %w", err)
 	}
 	if len(results) == 0 {
+		rep.Error("analyse", "C# analyser produced no output for %s", sln)
 		return fmt.Errorf("C# analyser produced no output for %s", sln)
 	}
 	log.Printf("Analyser produced %d output files", len(results))
+	rep.Counts("analyse", map[string]int{"files": len(results)})
 
 	log.Printf("Applying results to knowledge graph...")
 	if err := applyScanResults(client, results); err != nil {
+		rep.Error("crud", "failed to apply scan results: %v", err)
 		return fmt.Errorf("failed to apply scan results: %w", err)
 	}
 
 	stats, err := client.GetAllEntities()
 	if err != nil {
 		log.Printf("Scan complete (could not get entity count: %v)", err)
+		rep.Done("scan complete")
 	} else {
 		log.Printf("Scan complete. Knowledge graph now contains %d entities", len(stats))
+		rep.Done("scan complete: knowledge graph now contains %d entities", len(stats))
 	}
 
 	return nil
@@ -1063,6 +1094,16 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 
 	log.Printf("Entities: created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
 	log.Printf("Relations: created=%d, updated=%d, deleted=%d", createdRels, updatedRels, deletedRels)
+
+	// Report scan totals to the WebUI status endpoint (no-op when disabled)
+	status.Default.Counts("crud", map[string]int{
+		"entities_created":  createdEntities,
+		"entities_updated":  updatedEntities,
+		"entities_deleted":  deletedEntities,
+		"relations_created": createdRels,
+		"relations_updated": updatedRels,
+		"relations_deleted": deletedRels,
+	})
 
 	return nil
 }

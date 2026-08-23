@@ -4,9 +4,34 @@
     "theme": "Theme",
     "light": "Light",
     "dark": "Dark",
-    "system": "System"
+    "system": "System",
+    "showDocumentManager": "Show Documents tab"
+  },
+  "scan": {
+    "title": "Scan Monitor",
+    "state": {
+      "idle": "Idle",
+      "scanning": "Scanning",
+      "error": "Error"
+    },
+    "stage": "Stage",
+    "lastUpdate": "Last update",
+    "currentMessage": "Current activity",
+    "noActivity": "No scan activity yet. Run 'coderag scan' or start a watch session on the host to see live progress.",
+    "eventsTitle": "Pipeline events",
+    "noEvents": "No events recorded yet",
+    "counters": {
+      "files": "Files",
+      "entitiesCreated": "Entities +",
+      "entitiesUpdated": "Entities ~",
+      "entitiesDeleted": "Entities -",
+      "relationsCreated": "Relations +",
+      "relationsUpdated": "Relations ~",
+      "relationsDeleted": "Relations -"
+    }
   },
   "header": {
+    "scan": "Scan",
     "documents": "Documents",
     "knowledgeGraph": "Knowledge Graph",
     "retrieval": "Retrieval",
@@ -173,7 +198,7 @@
   "graphPanel": {
     "dataIsTruncated": "Graph data is truncated to Max Nodes",
     "statusDialog": {
-      "title": "LightRAG Server Settings",
+      "title": "CodeRAG Server Settings",
       "description": "View current system status and connection information"
     },
     "legend": "Legend",

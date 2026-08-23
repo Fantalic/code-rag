@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover'
 import Button from '@/components/ui/Button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
+import Checkbox from '@/components/ui/Checkbox'
 import { useSettingsStore } from '@/stores/settings'
 import { PaletteIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -20,6 +21,9 @@ export default function AppSettings({ className }: AppSettingsProps) {
 
   const theme = useSettingsStore.use.theme()
   const setTheme = useSettingsStore.use.setTheme()
+
+  const showDocumentManager = useSettingsStore.use.showDocumentManager()
+  const setShowDocumentManager = useSettingsStore.use.setShowDocumentManager()
 
   const handleLanguageChange = useCallback((value: string) => {
     setLanguage(value as 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW')
@@ -66,6 +70,18 @@ export default function AppSettings({ className }: AppSettingsProps) {
                 <SelectItem value="system">{t('settings.system')}</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* CodeRAG: document manager is optional, hidden by default */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="show-document-manager"
+              checked={showDocumentManager}
+              onCheckedChange={(checked: boolean | 'indeterminate') => setShowDocumentManager(checked === true)}
+            />
+            <label htmlFor="show-document-manager" className="text-sm font-medium leading-none">
+              {t('settings.showDocumentManager')}
+            </label>
           </div>
         </div>
       </PopoverContent>

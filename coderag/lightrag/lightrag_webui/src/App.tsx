@@ -9,12 +9,12 @@ import { useSettingsStore } from '@/stores/settings'
 import { getAuthStatus } from '@/api/lightrag'
 import SiteHeader from '@/features/SiteHeader'
 import { InvalidApiKeyError, RequireApiKeError } from '@/api/lightrag'
-import { ZapIcon } from 'lucide-react'
 
 import GraphViewer from '@/features/GraphViewer'
 import DocumentManager from '@/features/DocumentManager'
 import RetrievalTesting from '@/features/RetrievalTesting'
 import ApiSite from '@/features/ApiSite'
+import PipelineMonitor from '@/features/PipelineMonitor'
 
 import { Tabs, TabsContent } from '@/components/ui/Tabs'
 
@@ -172,7 +172,7 @@ function App() {
             <header className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-10 w-full border-b px-4 backdrop-blur">
               <div className="min-w-[200px] w-auto flex items-center">
                 <a href={webuiPrefix} className="flex items-center gap-2">
-                  <ZapIcon className="size-4 text-emerald-400" aria-hidden="true" />
+                  <img src="logo-mark.svg" alt="" aria-hidden="true" className="size-5" />
                   <span className="font-bold md:inline-block">{SiteInfo.name}</span>
                 </a>
               </div>
@@ -204,6 +204,9 @@ function App() {
             >
               <SiteHeader />
               <div className="relative grow">
+                <TabsContent value="scan" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
+                  <PipelineMonitor />
+                </TabsContent>
                 <TabsContent value="documents" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
                   <DocumentManager />
                 </TabsContent>

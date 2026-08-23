@@ -4,9 +4,11 @@
     "theme": "主題",
     "light": "淺色",
     "dark": "深色",
-    "system": "系統"
+    "system": "系統",
+    "showDocumentManager": "顯示文件管理頁"
   },
   "header": {
+    "scan": "掃描",
     "documents": "文件",
     "knowledgeGraph": "知識圖譜",
     "retrieval": "檢索",
@@ -173,7 +175,7 @@
   "graphPanel": {
     "dataIsTruncated": "圖資料已截斷至最大回傳節點數",
     "statusDialog": {
-      "title": "LightRAG 伺服器設定",
+      "title": "CodeRAG 伺服器設定",
       "description": "查看目前系統狀態和連線資訊"
     },
     "legend": "圖例",

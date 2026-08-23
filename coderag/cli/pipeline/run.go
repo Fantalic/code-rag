@@ -16,6 +16,7 @@ import (
 	"github.com/coderag/filter"
 	"github.com/coderag/parser"
 	"github.com/coderag/router"
+	"github.com/coderag/status"
 )
 
 type dedupKey struct {
@@ -42,13 +43,16 @@ func Run(filePath string, client *crud.Config) error {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	analyser := router.GetAnalyser(ext)
 	if analyser == "" {
+		status.Default.Detail("route", filePath, "no analyser for %s, LLM fallback", ext)
 		return fallbackToLLM(filePath, client)
 	}
 
 	if analyser == "c_sharp" {
+		status.Default.Detail("route", filePath, "routed to C# analyser")
 		return runCSharpPipeline(filePath, client, nil)
 	}
 
+	status.Default.Detail("route", filePath, "no analyser for %s, LLM fallback", ext)
 	return fallbackToLLM(filePath, client)
 }
 
@@ -60,17 +64,28 @@ func RunEventWithChangeType(filePath string, client *crud.Config, results []Anal
 	ext := strings.ToLower(filepath.Ext(filePath))
 	analyser := router.GetAnalyser(ext)
 	if analyser == "" {
+		status.Default.Detail("route", filePath, "no analyser for %s, LLM fallback", ext)
 		return fallbackToLLM(filePath, client)
 	}
 
 	if analyser == "c_sharp" {
+		status.Default.Detail("route", filePath, "routed to C# analyser (%s)", changeTypeOrCreated(changeType))
 		if changeType == "modified" {
 			return runCSharpPipelineModified(filePath, client, results)
 		}
 		return runCSharpPipelineWithResults(filePath, client, results)
 	}
 
+	status.Default.Detail("route", filePath, "no analyser for %s, LLM fallback", ext)
 	return fallbackToLLM(filePath, client)
+}
+
+// changeTypeOrCreated normalizes an empty change type for status reporting.
+func changeTypeOrCreated(changeType string) string {
+	if changeType == "" {
+		return "created"
+	}
+	return changeType
 }
 
 func runCSharpPipeline(filePath string, client *crud.Config, results []AnalyserResult) error {
@@ -264,6 +279,21 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 	log.Printf("Entities (local): created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
 	log.Printf("Relations (local): created=%d, updated=%d, deleted=%d", createdRels, updatedRels, deletedRels)
 
+	// Report the batch result to the WebUI status endpoint (no-op when disabled)
+	status.Default.Counts("crud", map[string]int{
+		"files":             len(results),
+		"entities_created":  createdEntities,
+		"entities_updated":  updatedEntities,
+		"entities_deleted":  deletedEntities,
+		"relations_created": createdRels,
+		"relations_updated": updatedRels,
+		"relations_deleted": deletedRels,
+	})
+	status.Default.Detail("done", filePath,
+		"graph updated: %d entities (+%d/-%d/~%d), %d relations (+%d/-%d/~%d)",
+		len(entities), createdEntities, deletedEntities, updatedEntities,
+		len(relations), createdRels, deletedRels, updatedRels)
+
 	return nil
 }
 
@@ -274,6 +304,7 @@ func fallbackToLLM(filePath string, client *crud.Config) error {
 	}
 
 	versionedSource := getVersionedSource(filePath)
+	status.Default.Detail("llm", filePath, "ingesting via LLM pipeline")
 	return client.IngestText(string(content), versionedSource)
 }
 
@@ -311,7 +342,9 @@ func RunCSharpAnalyser(sln string, outputDir string) ([]AnalyserResult, error) {
 	cmd.Stderr = os.Stderr
 
 	log.Printf("Running C# analyser on %s -> %s", sln, outputDir)
+	status.Default.Stage("analyse", "running C# analyser")
 	if err := cmd.Run(); err != nil {
+		status.Default.Error("analyse", "C# analyser failed: %v", err)
 		return nil, fmt.Errorf("run analyser: %w", err)
 	}
 
@@ -337,6 +370,7 @@ func RunCSharpAnalyser(sln string, outputDir string) ([]AnalyserResult, error) {
 	}
 
 	log.Printf("Analyser produced %d output files", len(results))
+	status.Default.Counts("analyse", map[string]int{"files": len(results)})
 	return results, nil
 }
 

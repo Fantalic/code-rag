@@ -15,6 +15,7 @@ import (
 	"github.com/coderag/crud"
 	"github.com/coderag/pipeline"
 	"github.com/coderag/router"
+	"github.com/coderag/status"
 )
 
 type Config struct {
@@ -173,6 +174,7 @@ func (w *Watcher) initialSync() error {
 	}
 
 	log.Printf("Initial sync: %d file(s) changed since last commit", len(changedFiles))
+	status.Default.Stage("watch", "initial sync: %d changed file(s)", len(changedFiles))
 
 	solutions := w.groupFilesBySolution(changedFiles)
 	log.Printf("Initial sync: found %d solution(s) with changes", len(solutions))
@@ -628,7 +630,9 @@ func (w *Watcher) processEvent(ev Event) {
 	} else {
 		log.Printf("Processing %s: %s", ev.ChangeType, ev.Path)
 	}
+	status.Default.Detail("debounce", ev.Path, "processing %s change", ev.ChangeType)
 	if ev.ChangeType == "deleted" {
+		status.Default.Stage("crud", "removing entities of deleted file")
 		if err := w.config.LightRAGConfig.DeleteDocument(ev.Path); err != nil {
 			log.Printf("Delete document failed: %v", err)
 		}
@@ -640,11 +644,13 @@ func (w *Watcher) processEvent(ev Event) {
 	if ev.ChangeType == "modified" {
 		if err := pipeline.RunEventWithChangeType(ev.Path, w.config.LightRAGConfig, ev.Results, ev.ChangeType); err != nil {
 			log.Printf("Pipeline failed for %s: %v", ev.Path, err)
+			status.Default.Error("scan", "pipeline failed for %s: %v", ev.Path, err)
 		}
 		return
 	}
 	if err := pipeline.RunEvent(ev.Path, w.config.LightRAGConfig, ev.Results); err != nil {
 		log.Printf("Pipeline failed for %s: %v", ev.Path, err)
+		status.Default.Error("scan", "pipeline failed for %s: %v", ev.Path, err)
 	}
 }
 

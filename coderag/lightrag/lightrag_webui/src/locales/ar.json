@@ -4,9 +4,11 @@
     "theme": "السمة",
     "light": "فاتح",
     "dark": "داكن",
-    "system": "النظام"
+    "system": "النظام",
+    "showDocumentManager": "إظهار علامة تبويب المستندات"
   },
   "header": {
+    "scan": "المسح",
     "documents": "المستندات",
     "knowledgeGraph": "شبكة المعرفة",
     "retrieval": "الاسترجاع",
@@ -173,7 +175,7 @@
   "graphPanel": {
     "dataIsTruncated": "تم اقتصار بيانات الرسم البياني على الحد الأقصى للعقد",
     "statusDialog": {
-      "title": "إعدادات خادم LightRAG",
+      "title": "إعدادات خادم CodeRAG",
       "description": "عرض حالة النظام الحالية ومعلومات الاتصال"
     },
     "legend": "المفتاح",

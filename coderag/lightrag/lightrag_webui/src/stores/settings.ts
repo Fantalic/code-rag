@@ -6,12 +6,16 @@ import { Message, QueryRequest } from '@/api/lightrag'
 
 type Theme = 'dark' | 'light' | 'system'
 type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW'
-type Tab = 'documents' | 'knowledge-graph' | 'retrieval' | 'api'
+type Tab = 'scan' | 'documents' | 'knowledge-graph' | 'retrieval' | 'api'
 
 interface SettingsState {
   // Document manager settings
   showFileName: boolean
   setShowFileName: (show: boolean) => void
+
+  // CodeRAG: document manager is optional (graph-first product), off by default
+  showDocumentManager: boolean
+  setShowDocumentManager: (show: boolean) => void
 
   documentsPageSize: number
   setDocumentsPageSize: (size: number) => void
@@ -110,7 +114,8 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       apiKey: null,
 
-      currentTab: 'documents',
+      currentTab: 'scan',
+      showDocumentManager: false,
       showFileName: false,
       documentsPageSize: 10,
 
@@ -201,6 +206,7 @@ const useSettingsStoreBase = create<SettingsState>()(
       },
 
       setShowFileName: (show: boolean) => set({ showFileName: show }),
+      setShowDocumentManager: (show: boolean) => set({ showDocumentManager: show }),
       setShowLegend: (show: boolean) => set({ showLegend: show }),
       setDocumentsPageSize: (size: number) => set({ documentsPageSize: size }),
 
@@ -234,7 +240,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 18,
+      version: 19,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -330,6 +336,13 @@ const useSettingsStoreBase = create<SettingsState>()(
         if (version < 18) {
           // Add userPromptHistory field for older versions
           state.userPromptHistory = []
+        }
+        if (version < 19) {
+          // CodeRAG rebrand: scan tab is the new landing page, documents hidden by default
+          state.showDocumentManager = false
+          if (state.currentTab === 'documents') {
+            state.currentTab = 'scan'
+          }
         }
         return state
       }

@@ -798,3 +798,36 @@ export const getDocumentStatusCounts = async (): Promise<StatusCountsResponse> =
   const response = await axiosInstance.get('/documents/status_counts')
   return response.data
 }
+
+// ── CodeRAG scan status (coderag CLI → /coderag/status) ─────────────────────
+
+export interface ScanStatusEvent {
+  ts: number
+  run_id: string
+  stage: string
+  level: 'info' | 'warn' | 'error'
+  message: string
+  detail?: string
+}
+
+export interface ScanStatusSnapshot {
+  run_id: string | null
+  state: 'idle' | 'scanning' | 'error'
+  stage: string
+  message: string
+  detail: string
+  started_at: number
+  updated_at: number
+  counts: Record<string, number>
+  server_time: number
+  events: ScanStatusEvent[]
+}
+
+/**
+ * Get the current coderag scan/watch status snapshot (pipeline stage,
+ * counters, recent events). Pushed to by the host-side coderag CLI.
+ */
+export const getScanStatus = async (): Promise<ScanStatusSnapshot> => {
+  const response = await axiosInstance.get('/coderag/status')
+  return response.data
+}

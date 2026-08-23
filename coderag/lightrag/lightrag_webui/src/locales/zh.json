@@ -4,9 +4,11 @@
     "theme": "主题",
     "light": "浅色",
     "dark": "深色",
-    "system": "系统"
+    "system": "系统",
+    "showDocumentManager": "显示文档管理页"
   },
   "header": {
+    "scan": "扫描",
     "documents": "文档",
     "knowledgeGraph": "知识图谱",
     "retrieval": "检索",
@@ -173,7 +175,7 @@
   "graphPanel": {
     "dataIsTruncated": "图数据已截断至最大返回节点数",
     "statusDialog": {
-      "title": "LightRAG 服务器设置",
+      "title": "CodeRAG 服务器设置",
       "description": "查看当前系统状态和连接信息"
     },
     "legend": "图例",
