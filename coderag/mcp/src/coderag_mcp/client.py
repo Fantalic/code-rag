@@ -583,9 +583,12 @@ class LightRAGClient:
     async def query_data(
         self, query: str, mode: str = "hybrid", only_need_context: bool = False
     ) -> QueryDataResponse:
-        """Structured query using /query/data endpoint.
+        """Vector search using /query/data endpoint (LLM-free).
 
-        Returns entities, relationships, chunks, and references without LLM text.
+        The raw query is embedded with the server's embedding model and matched
+        against the entity/relationship/chunk vector stores. Returns entities,
+        relationships, chunks, and references without any LLM keyword
+        extraction or generation.
         """
         request_data = QueryRequest(
             query=query, mode=mode, only_need_context=only_need_context

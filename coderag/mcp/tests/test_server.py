@@ -2,6 +2,7 @@
 Unit tests for MCP server functionality.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -111,6 +112,57 @@ class TestServerToolNames:
         tools = await server_module.mcp_server.list_tools()
         names = {t.name for t in tools}
         assert "dead_code" in names
+
+
+class TestQueryCodebaseTool:
+    """`query_codebase` (MCP name) is LLM-free vector search via /query/data.
+
+    The tool must default to mode="mix" so the query is matched against ALL
+    vector stores (entities, relationships, chunks); no LLM-backed tool may be
+    registered.
+    """
+
+    def test_default_mode_is_mix(self):
+        import inspect
+
+        sig = inspect.signature(server_module.query_data)
+        assert sig.parameters["mode"].default == "mix"
+
+    def test_tool_docstring_documents_vector_search(self):
+        tools_list = None
+
+        async def _get():
+            return await server_module.mcp_server.list_tools()
+
+        tools_list = asyncio.run(_get())
+        by_name = {t.name: t for t in tools_list}
+        assert "no llm" in by_name["query_codebase"].description.lower()
+        assert "vector" in by_name["query_codebase"].description.lower()
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_client_query_data_with_mode(self):
+        mock_client = MagicMock()
+        mock_client.query_data = AsyncMock(
+            return_value=MagicMock(
+                model_dump=lambda: {"status": "success", "data": {}, "metadata": {}}
+            )
+        )
+        with patch.object(
+            server_module, "_get_lightrag_client", return_value=mock_client
+        ):
+            result = await server_module.query_data("how does auth work", mode="mix")
+        mock_client.query_data.assert_awaited_once_with(
+            "how does auth work", mode="mix"
+        )
+        assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_llm_backed_query_tool_not_registered(self):
+        """The LLM natural-language answer tool stays reserved for the CLI."""
+        tools = await server_module.mcp_server.list_tools()
+        names = {t.name for t in tools}
+        assert "query" not in names
+        assert "get_related_files" not in names
 
 
 class TestClientErrorClasses:

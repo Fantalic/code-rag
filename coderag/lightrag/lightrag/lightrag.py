@@ -2358,6 +2358,11 @@ class LightRAG:
         This function reuses the same logic as aquery but stops before LLM generation,
         returning the final processed entities, relationships, and chunks data that would be sent to LLM.
 
+        Retrieval itself is embedding-based (no LLM): unless the caller supplies
+        keywords, the raw query text is embedded with the configured embedding
+        model and searched directly against the entity/relation/chunk vector
+        stores.
+
         Args:
             query: Query text for retrieval.
             param: Query parameters controlling retrieval behavior (same as aquery).
@@ -2461,6 +2466,12 @@ class LightRAG:
         global_config = asdict(self)
 
         # Create a copy of param to avoid modifying the original
+        #
+        # Structured data retrieval is pure vector search: when the caller did
+        # not supply keywords, preset them with the raw query so
+        # get_keywords_from_query() short-circuits and never calls the LLM for
+        # keyword extraction. The vdb queries embed these strings with the
+        # configured embedding model (see _perform_kg_search).
         data_param = QueryParam(
             mode=param.mode,
             only_need_context=True,  # Skip LLM generation, only get context and data
@@ -2472,13 +2483,14 @@ class LightRAG:
             max_entity_tokens=param.max_entity_tokens,
             max_relation_tokens=param.max_relation_tokens,
             max_total_tokens=param.max_total_tokens,
-            hl_keywords=param.hl_keywords,
-            ll_keywords=param.ll_keywords,
+            hl_keywords=param.hl_keywords or [query.strip()],
+            ll_keywords=param.ll_keywords or [query.strip()],
             conversation_history=param.conversation_history,
             history_turns=param.history_turns,
             model_func=param.model_func,
             user_prompt=param.user_prompt,
-            enable_rerank=param.enable_rerank,
+            # Keep this path fully deterministic: no rerank model call.
+            enable_rerank=False,
         )
 
         query_result = None
