@@ -1169,21 +1169,36 @@ async def abatch_import(
     )
     graph_db_lock = get_graph_db_lock(enable_logging=False)
     async with graph_db_lock:
+        # Extra per-entity properties passed through from the analyser
+        # pipeline (source spans, canonicality marker). Anything outside
+        # this set is ignored to keep node payloads predictable.
+        passthrough_keys = ("start_line", "end_line", "canonical")
         entity_vdb_data = {}
         for item in entities:
             name = item["entity_name"]
             data = item["entity_data"]
+            now_ts = int(time.time())
             node_data = {
                 "entity_id": name,
                 "entity_type": data.get("entity_type", "UNKNOWN"),
                 "description": data.get("description", ""),
                 "source_id": data.get("source_id", "manual_creation"),
                 "file_path": data.get("file_path", "manual_creation"),
-                "created_at": int(time.time()),
+                "created_at": now_ts,
+                "updated_at": now_ts,
             }
+            # Preserve original creation time on re-import so timestamps
+            # stay meaningful (previously every refresh reset created_at,
+            # producing mixed/unreliable timestamp states).
+            existing = await chunk_entity_relation_graph.get_node(name)
+            if existing and existing.get("created_at"):
+                node_data["created_at"] = existing["created_at"]
+            for key in passthrough_keys:
+                if key in data:
+                    node_data[key] = data[key]
             await chunk_entity_relation_graph.upsert_node(name, node_data)
             entity_id = compute_mdhash_id(name, prefix="ent-")
-            entity_vdb_data[entity_id] = {
+            vdb_record = {
                 "content": name + "\n" + data.get("description", ""),
                 "entity_name": name,
                 "source_id": node_data["source_id"],
@@ -1191,12 +1206,29 @@ async def abatch_import(
                 "entity_type": node_data["entity_type"],
                 "file_path": node_data["file_path"],
             }
+            for key in passthrough_keys:
+                if key in node_data:
+                    vdb_record[key] = node_data[key]
+            entity_vdb_data[entity_id] = vdb_record
 
         relation_vdb_data = {}
+        skipped_edges = 0
         for item in relations:
             src = item["source_entity"]
             tgt = item["target_entity"]
             data = item["relation_data"]
+            # Skip edges whose endpoints don't exist anywhere (neither in
+            # this batch nor previously imported): networkx would otherwise
+            # auto-create empty phantom nodes that surface as type UNKNOWN.
+            if not await chunk_entity_relation_graph.has_node(src) or not (
+                await chunk_entity_relation_graph.has_node(tgt)
+            ):
+                skipped_edges += 1
+                logger.debug(
+                    f"BATCH IMPORT: skipping edge {src} -> {tgt} "
+                    "(missing endpoint node)"
+                )
+                continue
             edge_data = {
                 "description": data.get("description", ""),
                 "keywords": data.get("keywords", ""),
@@ -1234,5 +1266,6 @@ async def abatch_import(
     )
     return {
         "entities_created": len(entities),
-        "relations_created": len(relations),
+        "relations_created": len(relation_vdb_data),
+        "edges_skipped_missing_endpoint": skipped_edges,
     }

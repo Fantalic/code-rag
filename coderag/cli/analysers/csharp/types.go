@@ -12,6 +12,12 @@ const (
 	EntityStruct    EntityType = "STRUCT"
 	EntityEnum      EntityType = "ENUM"
 	EntityExports   EntityType = "EXPORTS"
+	// New with the tree-sitter walker: constructs the regex scanner could
+	// not see (or produced as noise). Downstream consumers treat unknown
+	// entity types generically.
+	EntityConstructor EntityType = "CONSTRUCTOR"
+	EntityField       EntityType = "FIELD"
+	EntityEnumMember  EntityType = "ENUM_MEMBER"
 )
 
 type Entity struct {
@@ -19,7 +25,8 @@ type Entity struct {
 	Type        EntityType
 	Description string
 	FilePath    string
-	LineNo      int
+	LineNo      int // 1-based declaration start line
+	EndLine     int // 1-based inclusive end line (closing brace line)
 	Visibility  string // "public" | "private" | "internal" | "protected" | "" (unknown)
 }
 

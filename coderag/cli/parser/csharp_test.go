@@ -1,6 +1,9 @@
 package parser
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -200,5 +203,145 @@ func TestParseCSharpOutputDedupRelations(t *testing.T) {
 	// Same (source, target, keywords) should be deduplicated
 	if len(relations) != 1 {
 		t.Fatalf("expected 1 deduplicated relation, got %d", len(relations))
+	}
+}
+
+func TestParseFormat2AndExtraTypes(t *testing.T) {
+	content := `# FORMAT: 2
+# EXPORTS: App.Service, App.Service.Run
+COVERAGE|App|"files":2,"missing":[]
+CLASS|App.Service|/path/Svc.cs|3|12|class Service [public]
+METHOD|App.Service.Run|/path/Svc.cs|5|8|Service.Run() -> RETURNS -> void [public]
+FIELD|App.Service.Logger|/path/Svc.cs|6|6|Service.Logger [private]
+CONSTRUCTOR|App.Service.Service|/path/Svc.cs|4|4|App.Service.Service() [public]
+ENUM_MEMBER|App.Color.Red|/path/Color.cs|2|2|Color.Red
+ENUM|App.Color|/path/Color.cs|1|4|enum Color
+RELATION|App.Service|App.Service.Run|method, defines|method, defines|/path/Svc.cs|1.0
+RELATION|App.Service|App.Service.Service|method, defines|method, defines|/path/Svc.cs|1.0
+RELATION|App.Service|App.Service.Logger|property, has|property, has|/path/Svc.cs|0.8
+`
+	entities, relations := ParseCSharpFile("Svc.cs.txt", content)
+	if len(entities) < 7 {
+		t.Fatalf("expected at least 7 entities (CLASS + COVERAGE + METHOD + FIELD + CONSTRUCTOR + ENUM + ENUM_MEMBER), got %d: %+v", len(entities), entities)
+	}
+	// 1) COVERAGE entity surfaces diagnostics.
+	var cov *Entity
+	for i := range entities {
+		if entities[i].EntityType == "COVERAGE" {
+			cov = &entities[i]
+		}
+	}
+	if cov == nil {
+		t.Fatal("expected a COVERAGE entity")
+	}
+	if !strings.HasPrefix(cov.Name, "COVERAGE:") {
+		t.Errorf("COVERAGE name = %q, expected COVERAGE:<project>", cov.Name)
+	}
+	// 2) Span preserved (v2).
+	var svc Entity
+	for _, e := range entities {
+		if e.Name == "App.Service" {
+			svc = e
+		}
+	}
+	if svc.StartLine != 3 || svc.EndLine != 12 {
+		t.Errorf("Service span = [%d,%d], want [3,12]", svc.StartLine, svc.EndLine)
+	}
+	// 3) CLASS description rebuilt from method/property totals (FIELD counts as property).
+	if !strings.Contains(svc.Description, "2 method") || !strings.Contains(svc.Description, "1 properties") {
+		t.Errorf("Service description = %q, expected method/property counts", svc.Description)
+	}
+	// 4) ENUM_MEMBER surfaces as its own entity.
+	foundEnumMember := false
+	for _, e := range entities {
+		if e.EntityType == "ENUM_MEMBER" && e.Name == "App.Color.Red" {
+			foundEnumMember = true
+		}
+	}
+	if !foundEnumMember {
+		t.Error("expected an ENUM_MEMBER entity App.Color.Red")
+	}
+	// Relations emitted.
+	if len(relations) < 2 {
+		t.Errorf("expected >=2 relations, got %d", len(relations))
+	}
+}
+
+func TestParseChangelog(t *testing.T) {
+	content := `CHANGELOG|src/App/Service.cs|{"file":"src/App/Service.cs","action":"added","symbol":"Service.Run","changed_at":1700000000}
+CHANGELOG|src/App/Service.cs|{"file":"src/App/Service.cs","action":"removed","symbol":"Service.Legacy","changed_at":1700000001}
+`
+	entities, _ := ParseCSharpFile("changelog.txt", content)
+	if len(entities) != 2 {
+		t.Fatalf("expected 2 CHANGELOG entities, got %d", len(entities))
+	}
+	addedSeen, removedSeen := false, false
+	for _, e := range entities {
+		if e.EntityType != "CHANGELOG" || !strings.HasPrefix(e.Name, "CHANGELOG:src/App/Service.cs") {
+			continue
+		}
+		if strings.Contains(e.Description, `"symbol":"Service.Run"`) &&
+			strings.Contains(e.Description, `"changed_at":1700000000`) {
+			addedSeen = true
+		}
+		if strings.Contains(e.Description, `"symbol":"Service.Legacy"`) &&
+			strings.Contains(e.Description, `"changed_at":1700000001`) {
+			removedSeen = true
+		}
+	}
+	if !addedSeen {
+		t.Error("expected CHANGELOG entry for Service.Run added at epoch 1700000000")
+	}
+	if !removedSeen {
+		t.Error("expected CHANGELOG entry for Service.Legacy removed at epoch 1700000001")
+	}
+}
+
+func TestParseCSharpOutputWithOverride(t *testing.T) {
+	results := []struct {
+		Filename string
+		Content  string
+	}{
+		{
+			Filename: "PartialA.cs.txt",
+			Content:  "CLASS|MyClass|/path/PartialA.cs|1|class MyClass partial A\n",
+		},
+		{
+			Filename: "PartialB.cs.txt",
+			Content:  "CLASS|MyClass|/path/PartialB.cs|1|class MyClass partial B\n",
+		},
+	}
+	config := DuplicatesConfig{"MyClass": "/path/PartialB.cs"}
+	entities, _ := ParseCSharpOutputWithConfig(results, config)
+	if len(entities) != 1 {
+		t.Fatalf("expected 1 dedup'd entity, got %d: %+v", len(entities), entities)
+	}
+	if entities[0].FilePath != "/path/PartialB.cs" {
+		t.Errorf("override should pick PartialB.cs, got %q", entities[0].FilePath)
+	}
+	// No override -> legacy name==basename heuristic picks PartialA.cs.
+	entities2, _ := ParseCSharpOutputWithConfig(results, nil)
+	if entities2[0].FilePath != "/path/PartialA.cs" {
+		t.Errorf("no-override should keep heuristic, got %q", entities2[0].FilePath)
+	}
+}
+
+func TestLoadDuplicatesConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".coderag")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"App.Service": "/proj/src/App/Service.Primary.cs"}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "duplicates.json"), []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadDuplicatesConfig(dir)
+	if got := cfg["App.Service"]; got != "/proj/src/App/Service.Primary.cs" {
+		t.Errorf("override = %q, want %q", got, "/proj/src/App/Service.Primary.cs")
+	}
+	// Missing dir returns empty config silently (no panic, no stderr noise).
+	if got := LoadDuplicatesConfig("/nonexistent-" + filepath.Join("path", "definitely-missing")); len(got) != 0 {
+		t.Errorf("missing dir should yield empty config, got %v", got)
 	}
 }

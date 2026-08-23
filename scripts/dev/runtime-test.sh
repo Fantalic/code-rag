@@ -372,6 +372,103 @@ try:
 except Exception as e:
     print(f'ERROR: parse: {e}')
 "
+
+    # --- Practicality-fix probes: notes round-trip, overview guards, query_codebase,
+    #     coverage + changelog sidecars, get_source. Loosely asserted: those tools
+    #     should respond OK and shape a useful summary. The runtime test is not
+    #     the unit-test bed for tool internals; it just asserts end-to-end wiring.
+
+    run_probe "add_note + list_notes round-trip" "list_notes" '{"entity_name":"TestApp.OrderService"}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    r=d.get('result',{})
+    if not d.get('ok'):
+        print(f\"ERROR: {d.get('error','unknown')}\")
+    else:
+        notes=r.get('notes',[]) or []
+        print(f'OK ({len(notes)} notes)')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
+
+    run_probe "codebase_overview(summary)" "codebase_overview" '{"view":"summary"}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        types=r.get('entity_type_counts',{}) or {}
+        print(f'OK ({sum(types.values())} entities across {len(types)} types)')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
+
+    run_probe "codebase_overview(graph,limit=20)" "codebase_overview" '{"view":"graph","limit":20,"offset":0}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        ents=len(r.get('entities',[]) or [])
+        truncated=r.get('truncated', False)
+        flag=' (truncated)' if truncated else ''
+        print(f'OK ({ents} nodes{flag})')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
+
+    run_probe "index_coverage" "index_coverage" '{}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"ERROR: {d.get('error','unknown')}\")
+    else:
+        r=d.get('result',{})
+        proj=len(r.get('projects',[]) or [])
+        skipped=r.get('total_skipped',0)
+        print(f'OK ({proj} projects, {skipped} skipped items)')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
+
+    run_probe "what_changed" "what_changed" '{"hours":168}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        print(f\"WARN: tooling requires watch-mode scans; {d.get('error','no scans')}\")
+    else:
+        r=d.get('result',{})
+        total=r.get('total',0)
+        items=len(r.get('changes',[]) or [])
+        print(f'OK ({items}/{total} recent changes)' if items else 'OK (no changes yet)')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
+
+    run_probe "get_source(enabled by SOURCE_ROOT)" "get_source" '{"entity_name":"TestApp.OrderService","max_lines":5}' "
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    if not d.get('ok'):
+        msg=str(d.get('error',''))
+        if 'SOURCE_ROOT' in msg or 'disabled' in msg:
+            print(f'OK (tool gated as expected: {msg[:60]})')
+        else:
+            print(f'ERROR: {msg}')
+    else:
+        r=d.get('result',{})
+        lines=len(r.get('lines',[]) or [])
+        print(f'OK ({lines} source lines)')
+except Exception as e:
+    print(f'ERROR: parse: {e}')
+"
 fi
 
 echo "[OK] Runtime test complete"

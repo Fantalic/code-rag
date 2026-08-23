@@ -123,6 +123,7 @@ _dev_docs/
 
 # Runtime output (scans write analyser results + logs here)
 .coderag/
+AGENTS.md
 
 *.exe
 mcp_err.txt

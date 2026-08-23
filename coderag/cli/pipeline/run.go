@@ -157,7 +157,7 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 		parserResults[i] = struct{ Filename string; Content string }{r.Filename, r.Content}
 	}
 
-	entities, relations := parser.ParseCSharpOutput(parserResults)
+	entities, relations := parser.ParseCSharpOutputWithConfig(parserResults, parser.LoadDuplicatesConfig(workspaceRoot()))
 
 	log.Printf("Analyser extracted %d entities, %d relations from %s",
 		len(entities), len(relations), filePath)
@@ -295,6 +295,17 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 		len(relations), createdRels, deletedRels, updatedRels)
 
 	return nil
+}
+
+// workspaceRoot returns the configured workspace directory, or the
+// scratch fallback when no env var is set. Used to locate per-project
+// .coderag/duplicates.json so operators can override canonical-file
+// selection without changing the binary.
+func workspaceRoot() string {
+	if v := os.Getenv("WORKSPACE_ROOT"); v != "" {
+		return v
+	}
+	return ""
 }
 
 func fallbackToLLM(filePath string, client *crud.Config) error {
@@ -503,12 +514,21 @@ func entitySliceToMap(entities []map[string]any) map[string]map[string]any {
 func parserEntitiesToMap(entities []parser.Entity) map[string]map[string]any {
 	m := make(map[string]map[string]any)
 	for _, e := range entities {
-		m[e.Name] = map[string]any{
+		row := map[string]any{
 			"entity_type": e.EntityType,
 			"description": e.Description,
 			"source_id":   e.SourceID,
 			"file_path":   e.FilePath,
 		}
+		// Spans are optional in legacy rows; abatch_import will pass them
+		// through only when both ends are present.
+		if e.StartLine > 0 {
+			row["start_line"] = e.StartLine
+		}
+		if e.EndLine > 0 {
+			row["end_line"] = e.EndLine
+		}
+		m[e.Name] = row
 	}
 	return m
 }

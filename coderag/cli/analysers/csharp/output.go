@@ -11,6 +11,13 @@ import (
 
 const headerPrefix = "# EXPORTS:"
 
+// OutputFormatVersion marks entity lines carrying an end-line column.
+// Format 1: TYPE|Name|FilePath|LineNo|Description
+// Format 2: TYPE|Name|FilePath|StartLine|EndLine|Description
+// The ingestion-side parser (cli/parser) reads the marker and stays
+// tolerant of old analyser outputs during upgrades.
+const OutputFormatVersion = 2
+
 func fileMTIME(filePath string) int64 {
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -49,6 +56,7 @@ func (oc *OutputConfig) WriteFileResult(fr *FileResult) (string, error) {
 	sort.Strings(fr.Exports)
 	sort.Strings(fr.Imports)
 
+	fmt.Fprintf(out, "# FORMAT: %d\n", OutputFormatVersion)
 	fmt.Fprintf(out, "# EXPORTS: %s\n", strings.Join(fr.Exports, ", "))
 	if mtime := fileMTIME(fr.FilePath); mtime > 0 {
 		fmt.Fprintf(out, "# MTIME: %d\n", mtime)
@@ -56,7 +64,11 @@ func (oc *OutputConfig) WriteFileResult(fr *FileResult) (string, error) {
 	fmt.Fprintf(out, "# IMPORTS: %s\n", strings.Join(fr.Imports, ", "))
 
 	for _, e := range fr.Entities {
-		fmt.Fprintf(out, "%s|%s|%s|%d|%s\n", e.Type, e.Name, e.FilePath, e.LineNo, e.Description)
+		endLine := e.EndLine
+		if endLine < e.LineNo {
+			endLine = e.LineNo
+		}
+		fmt.Fprintf(out, "%s|%s|%s|%d|%d|%s\n", e.Type, e.Name, e.FilePath, e.LineNo, endLine, e.Description)
 	}
 
 	for _, r := range fr.Relations {
@@ -67,6 +79,47 @@ func (oc *OutputConfig) WriteFileResult(fr *FileResult) (string, error) {
 		fmt.Fprintf(out, "CALL|%s|%s|%s|%s|%d\n", c.CallerFile, c.CallerMethod, c.CalleeName, c.CalleeClass, c.LineNo)
 	}
 
+	return outPath, nil
+}
+
+// WriteCoverageReport writes a per-project diagnostics sidecar in COVERAGE|
+// rows so the downstream parser can ingest it into COVERAGE entities.
+func (oc *OutputConfig) WriteCoverageReport(report CoverageReport) (string, error) {
+	if oc == nil {
+		return "", fmt.Errorf("nil output config")
+	}
+	if err := os.MkdirAll(oc.OutputDir, 0755); err != nil {
+		return "", fmt.Errorf("create output dir: %w", err)
+	}
+	outPath := filepath.Join(oc.OutputDir, "_coverage.txt")
+	out, err := os.Create(outPath)
+	if err != nil {
+		return "", fmt.Errorf("create coverage file: %w", err)
+	}
+	defer out.Close()
+
+	fmt.Fprintln(out, "# COVERAGE REPORT")
+	rels := make([]string, 0, len(report.Projects))
+	for i := range report.Projects {
+		rels = append(rels, report.Projects[i].CoverageKey(oc.SlnDir))
+	}
+	_ = rels
+	fmt.Fprintf(out, "# Total Projects: %d\n", len(report.Projects))
+
+	// Stable project-keyed rows: COVERAGE|<key>|<json-ish-fields>
+	// The description column holds a compact, machine-friendly summary that
+	// the parser keeps verbatim in the COVERAGE entity.
+	for _, p := range report.Projects {
+		key := p.CoverageKey(oc.SlnDir)
+		warnings := strings.Join(p.Warnings, ";")
+		if warnings == "" {
+			warnings = "-"
+		}
+		// Description column is JSON so the indexer can treat each project
+		// as a structured COVERAGE entity without per-tool parsers.
+		fmt.Fprintf(out, "COVERAGE|%s|{\"files\":%d,\"refs\":%d,\"warnings\":\"%s\"}\n",
+			key, len(p.SourceFiles), len(p.ProjectRefs), warnings)
+	}
 	return outPath, nil
 }
 
@@ -140,6 +193,62 @@ func ComputeDiff(oldLines, newLines []string) *DiffReport {
 	}
 
 	return report
+}
+
+// WriteChangeLog appends one CHANGELOG|...|{json} row per non-empty diff
+// action. The downstream parser turns these into CHANGELOG entities that the
+// MCP what_changed tool filters by timestamp.
+func (oc *OutputConfig) WriteChangeLog(filePath string, diff *DiffReport, ts int64) (string, error) {
+	if oc == nil {
+		return "", fmt.Errorf("nil output config")
+	}
+	if diff == nil || diff.IsEmpty() {
+		return "", nil // nothing to do; no sidecar touched
+	}
+	if err := os.MkdirAll(oc.OutputDir, 0755); err != nil {
+		return "", fmt.Errorf("create output dir: %w", err)
+	}
+	outPath := filepath.Join(oc.OutputDir, "_changelog.txt")
+	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return "", fmt.Errorf("open changelog: %w", err)
+	}
+	defer out.Close()
+
+	rows := ChangelogRows(filePath, diff, ts)
+	for _, row := range rows {
+		if _, err := fmt.Fprintln(out, row); err != nil {
+			return outPath, err
+		}
+	}
+	return outPath, nil
+}
+
+// ChangelogRows serialises a diff into CHANGELOG-stable rows. Exposed as a
+// pure function so tests can assert what gets written without touching disk.
+//
+// Format: CHANGELOG|<relative-file>|<json>
+func ChangelogRows(filePath string, diff *DiffReport, ts int64) []string {
+	rel := filePath
+	if rel == "" {
+		rel = "<unknown>"
+	}
+	var rows []string
+	for _, sym := range diff.AddedSymbols {
+		rows = append(rows, changelogRow(rel, "added", sym, ts))
+	}
+	for _, sym := range diff.RemovedSymbols {
+		rows = append(rows, changelogRow(rel, "removed", sym, ts))
+	}
+	return rows
+}
+
+func changelogRow(file, action, symbol string, ts int64) string {
+	// Description column is JSON so the MCP server can filter by changed_at
+	// without parse-by-prefix heuristics per series.
+	desc := fmt.Sprintf(`{"file":%q,"action":%q,"symbol":%q,"changed_at":%d}`,
+		file, action, symbol, ts)
+	return fmt.Sprintf("CHANGELOG|%s|%s", filepath.ToSlash(filepath.Clean(file)), desc)
 }
 
 func ReadOutputExports(outputPath string) ([]string, error) {

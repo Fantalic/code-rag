@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 
@@ -121,17 +121,34 @@ async def check_entity_exists(entity_name: str) -> dict:
 
 
 @mcp_server.tool(name="codebase_overview")
-async def get_knowledge_graph(max_depth: int = 1) -> dict:
-    """An overview of the codebase as a graph (nodes + edges); pass max_depth to go deeper than the default top-level view. See `coderag --agent-help`."""
-    # Default depth=1: top-level nodes only, fast orientation pass.
-    # Future: response may grow to include higher-level summaries (project
-    # structure, type counts, hotspots) so the agent doesn't have to walk the
-    # full graph just to orient. Will tune the default in action once we know
-    # what agents actually need.
+async def get_knowledge_graph(
+    max_depth: int = 1,
+    view: str = "summary",
+    limit: int = 200,
+    offset: int = 0,
+) -> dict:
+    """Overview of the codebase graph. `view="summary"` (default) returns counts only (nodes/edges by type, files indexed) — start here to size up the codebase. `view="graph"` returns one page of nodes+edges (`limit`/`offset`, hard cap 1000). `max_depth` 1=top-level types, 2=+members, 3=all. See `coderag --agent-help`."""
+    # Output guard: the full unpaginated dump exceeded 227 KB on a mid-size
+    # monorepo and burned agent context; summary-first + pagination keeps
+    # responses proportional to what was asked.
+    view_norm = (view or "summary").lower()
+    if view_norm not in ("summary", "graph"):
+        return _error(
+            "get_knowledge_graph",
+            ValueError(f"Invalid view '{view}'. Must be 'summary' or 'graph'"),
+        )
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+    depth = max(1, min(max_depth, 3))
+
     client = _get_lightrag_client()
     try:
-        result = await client.get_knowledge_graph(max_depth=max_depth)
-        return _serialize(result)
+        graph = await client.get_knowledge_graph(max_depth=depth)
+        if view_norm == "summary":
+            return _serialize(client.summarize_graph(graph, max_depth=depth))
+        return _serialize(
+            client.paginate_graph(graph, max_depth=depth, offset=offset, limit=limit)
+        )
     except LightRAGError as e:
         return _error("get_knowledge_graph", e)
     except Exception as e:
@@ -180,7 +197,7 @@ async def get_notes_for_node(node_name: str) -> dict:
 
 @mcp_server.tool(name="query_codebase")
 async def query_data(query: str) -> dict:
-    """Semantic vector search over the codebase: the query is embedded with the configured embedding model and matched against ALL vector stores (entities, relationships, source chunks) — no LLM involved. Returns matching entities, relationships, chunks, and file references. See `coderag --agent-help`."""
+    """Semantic vector search over the codebase — no LLM involved: the query is embedded with the configured embedding model and matched against entity/relationship vector stores. Returns matching entities (with source spans when known) and relationships. Note: text-chunk hits only exist for prose documents ingested via LLM ingestion — indexed source files live in the graph, not the chunk store; use get_source(entity_name) for exact code lines. See `coderag --agent-help`."""
     client = _get_lightrag_client()
     try:
         result = await client.query_data(query)
@@ -189,6 +206,139 @@ async def query_data(query: str) -> dict:
         return _error("query_data", e)
     except Exception as e:
         return _error("query_data", e)
+
+
+@mcp_server.tool(name="index_coverage")
+async def index_coverage() -> dict:
+    """Disclose what the indexer did and did NOT index: per-project file counts, skipped files with reasons, and scan timestamps — so silent coverage gaps become visible. Requires a scan with COVERAGE reporting (coderag >= current). See `coderag --agent-help`."""
+    client = _get_lightrag_client()
+    try:
+        graph = await client.get_knowledge_graph(label="*")
+    except LightRAGError as e:
+        return _error("index_coverage", e)
+    except Exception as e:
+        return _error("index_coverage", e)
+
+    projects: list[dict[str, Any]] = []
+    for node in graph.nodes:
+        props = node.get("properties") or {}
+        if (props.get("entity_type") or "").upper() != "COVERAGE":
+            continue
+        raw = props.get("description") or ""
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {"project": _node_name(node), "parse_error": raw[:200]}
+        projects.append(payload)
+    projects.sort(key=lambda p: str(p.get("project", "")))
+    total_skipped = sum(len(p.get("skipped") or []) for p in projects)
+    return {
+        "projects": projects,
+        "project_count": len(projects),
+        "total_files_skipped": total_skipped,
+        "hint": (
+            "No COVERAGE records found means the last scan predates coverage "
+            "reporting — re-run 'coderag scan' to populate."
+            if not projects
+            else "Files listed under 'skipped' are NOT in the graph."
+        ),
+    }
+
+
+@mcp_server.tool(name="what_changed")
+async def what_changed(hours: float = 24.0, since: str = "") -> dict:
+    """List recent index changes (added/removed/updated symbols per file) from CHANGELOG records written by watch-mode re-scans. `hours` windows back from now; `since` (ISO like 2026-08-23T10:00:00Z or epoch seconds) overrides `hours` when given. See `coderag --agent-help`."""
+    client = _get_lightrag_client()
+    try:
+        graph = await client.get_knowledge_graph(label="*")
+    except LightRAGError as e:
+        return _error("what_changed", e)
+    except Exception as e:
+        return _error("what_changed", e)
+
+    cutoff = _resolve_cutoff(hours=hours, since=since)
+    changes: list[dict[str, Any]] = []
+    for node in graph.nodes:
+        props = node.get("properties") or {}
+        if (props.get("entity_type") or "").upper() != "CHANGELOG":
+            continue
+        entry_ts = _entry_timestamp(props.get("description") or "")
+        if cutoff is not None and entry_ts is not None and entry_ts < cutoff:
+            continue
+        fp = node.get("file_path") or props.get("file_path", "")
+        try:
+            payload = json.loads(props.get("description") or "{}")
+        except json.JSONDecodeError:
+            payload = {"parse_error": (props.get("description") or "")[:200]}
+        changes.append(
+            {"file_path": fp, "changed_at": payload.get("changed_at"), **payload}
+        )
+    changes.sort(key=lambda c: str(c.get("changed_at") or ""), reverse=True)
+    return {
+        "changes": changes,
+        "total": len(changes),
+        "cutoff": since if since else (f"now-{hours}h" if cutoff else None),
+        "hint": (
+            "No CHANGELOG records yet — they are written by watch-mode "
+            "(coderag mcp) re-scans after this feature shipped."
+            if not changes
+            else ""
+        ),
+    }
+
+
+@mcp_server.tool(name="get_source")
+async def get_source(
+    entity_name: str = "",
+    file_path: str = "",
+    start_line: int = 0,
+    end_line: int = 0,
+    max_lines: int = 120,
+) -> dict:
+    """Read exact source lines for an entity using its indexed span — turns a graph hit into a surgical read without leaving coderag. Pass `entity_name` alone (span + file resolved from the graph), or `file_path` + optional explicit `start_line`/`end_line`. Requires SOURCE_ROOT to point at the analyzed workspace (bind-mount it into the container). See `coderag --agent-help`."""
+    root = os.getenv("SOURCE_ROOT", "").strip()
+    if not root:
+        return _error(
+            "get_source",
+            RuntimeError(
+                "SOURCE_ROOT is not configured. Bind-mount the analyzed repo "
+                "read-only into the MCP container and set SOURCE_ROOT to that "
+                "path (see docker-compose.yml example)."
+            ),
+        )
+    client = _get_lightrag_client()
+    try:
+        if entity_name and not (start_line and end_line):
+            graph = await client.get_knowledge_graph(label="*")
+            node = client.find_entity(graph, entity_name)
+            if node is None:
+                return _error(
+                    "get_source", LookupError(f"Entity '{entity_name}' not found")
+                )
+            props = node.get("properties") or {}
+            file_path = node.get("file_path") or props.get("file_path") or file_path
+            start_line = int(props.get("start_line") or 0)
+            end_line = int(props.get("end_line") or 0)
+    except LightRAGError as e:
+        return _error("get_source", e)
+    except Exception as e:
+        return _error("get_source", e)
+
+    if not file_path:
+        return _error("get_source", ValueError("No file_path available"))
+
+    try:
+        snippet = _read_source_lines(root, file_path, start_line, end_line, max_lines)
+    except (OSError, ValueError) as e:
+        return _error("get_source", e)
+    return {
+        "file_path": file_path,
+        "start_line": snippet["start"],
+        "end_line": snippet["end"],
+        "total_lines_in_file": snippet["total"],
+        "truncated": snippet["truncated"],
+        "content": snippet["content"],
+    }
 
 
 # @mcp_server.tool()
@@ -205,8 +355,13 @@ async def get_node_details(
     view: str = "details",
     relation_type: str = "",
     depth: int = 2,
+    limit: int = 50,
 ) -> dict:
-    """Unified node lookup. `view` selects the response shape: "details" (default; node + incoming + outgoing + 1-hop neighbors), "relations" (just edges, optionally filtered by `relation_type`), or "neighbors" (1-hop neighbor entities + connecting relations). See `coderag --agent-help`."""
+    """Unified node lookup with per-view response shapes: "details" (default; entity + incoming/outgoing relations, depth-filtered via structural keywords), "relations" (only edges touching the node, optional `relation_type` filter), "neighbors" (1-hop neighbor entities + connecting edges, capped by `limit`, totals + `truncated` flag included). Names resolve exactly first, then unique qualified suffix (e.g. "Snake.Tile" finds "Ns.Snake.Tile"). See `coderag --agent-help`."""
+    # Output guard: hub nodes (base classes referenced everywhere) used to
+    # return unbounded neighborhoods; `limit` caps each direction and the
+    # totals still reflect true counts.
+    limit = max(1, min(limit, 200))
     client = _get_lightrag_client()
     try:
         result = await client.get_node_details(
@@ -214,6 +369,7 @@ async def get_node_details(
             view=view,
             relation_type=relation_type,
             depth=depth,
+            limit=limit,
         )
         return _serialize(result)
     except LightRAGError as e:
@@ -242,10 +398,11 @@ async def get_nodes(
     name: str = "",
     file_path: str = "",
     connected_to: str = "",
+    file_match: str = "contains",
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    """Filter nodes by any combination of: `entity_type` (e.g. "class"), `name` (substring), `file_path` (substring), `connected_to` (only nodes touching this one). Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset`. See `coderag --agent-help`."""
+    """Filter nodes by any combination of: `entity_type` (e.g. "class"), `name` (substring), `file_path` (+ `file_match`: "contains" default or "exact" — use exact to avoid Snake matching Snake1/Snake2), `connected_to` (only nodes touching this one). Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset`. Entities include `start_line`/`end_line` source spans when known. See `coderag --agent-help`."""
     client = _get_lightrag_client()
     try:
         result = await client.get_nodes(
@@ -253,6 +410,7 @@ async def get_nodes(
             name=name,
             file_path=file_path,
             connected_to=connected_to,
+            file_match=file_match,
             limit=limit,
             offset=offset,
         )
@@ -366,8 +524,14 @@ async def _list_notes_for_node(
         src = edge.get("source") or edge.get("src_id") or ""
         tgt = edge.get("target") or edge.get("tgt_id") or ""
         kw = str(edge.get("properties", {}).get("keywords", "")).lower()
-        if tgt == node_name and "has_note" in kw:
+        if "has_note" not in kw:
+            continue
+        # attach_note_to_node creates  annotated --HAS_NOTE--> note ;
+        # accept the reverse direction too so legacy/other writers still list.
+        if tgt == node_name:
             note_names.add(src)
+        elif src == node_name:
+            note_names.add(tgt)
 
     notes: list[dict[str, Any]] = []
     by_name: dict[str, dict[str, Any]] = {}
@@ -431,6 +595,109 @@ async def get_interface_methods(interface_name: str) -> dict:
         "get_interface_methods is not exposed. Use node_details(view='details'|'neighbors') "
         "to inspect interface members and implementing classes."
     )
+
+
+def _node_name(node: dict[str, Any]) -> str:
+    """Display name of a graph node (entity_name > name > id)."""
+    props = node.get("properties") or {}
+    return props.get("entity_name") or node.get("name") or node.get("id") or ""
+
+
+def _resolve_cutoff(hours: float, since: str) -> Optional[float]:
+    """Epoch-seconds cutoff from an explicit `since` or an `hours` window."""
+    since = (since or "").strip()
+    if since:
+        # Epoch seconds first, then ISO-8601.
+        try:
+            return float(since)
+        except ValueError:
+            pass
+        try:
+            from datetime import datetime, timezone
+
+            iso = since.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(iso)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            raise ValueError(
+                f"Invalid since '{since}'. Use epoch seconds or ISO-8601 "
+                "(e.g. 2026-08-23T10:00:00Z)"
+            )
+    if hours and hours > 0:
+        return time.time() - hours * 3600.0
+    return None
+
+
+def _entry_timestamp(description: str) -> Optional[float]:
+    """Extract 'changed_at' epoch seconds from a CHANGELOG JSON description."""
+    try:
+        payload = json.loads(description)
+    except json.JSONDecodeError:
+        return None
+    raw = payload.get("changed_at")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        pass
+    try:
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except ValueError:
+        return None
+
+
+def _read_source_lines(
+    root: str,
+    file_path: str,
+    start_line: int,
+    end_line: int,
+    max_lines: int,
+) -> dict[str, Any]:
+    """Read a line range from a workspace file, guarded against path escape.
+
+    Line numbers are 1-based inclusive; when no span is given the head of the
+    file (up to max_lines) is returned so callers always get bounded output.
+    """
+    from pathlib import Path, PurePosixPath, PureWindowsPath
+
+    root_path = Path(root).resolve()
+    candidate = (
+        PureWindowsPath(file_path) if "\\" in file_path else PurePosixPath(file_path)
+    )
+    full = (root_path / str(candidate)).resolve()
+    if root_path != full and root_path not in full.parents:
+        raise ValueError(f"Refusing to read outside SOURCE_ROOT: {file_path}")
+    if not full.is_file():
+        raise FileNotFoundError(f"'{file_path}' not found under SOURCE_ROOT='{root}'")
+
+    text = full.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    total = len(lines)
+
+    lo = max(1, int(start_line or 1))
+    hi = min(total, int(end_line) if end_line else total)
+    hi = min(hi, lo + max_lines - 1)
+    truncated = (
+        (int(end_line or total)) > hi
+        or total > max_lines
+        and (int(start_line or 1) == 1 and int(end_line or 0) == 0)
+    )
+    content = "\n".join(lines[lo - 1 : hi])
+    return {
+        "start": lo,
+        "end": hi,
+        "total": total,
+        "truncated": truncated or hi < min(total, int(end_line or total)),
+        "content": content,
+    }
 
 
 def _serialize(result: Any) -> dict:

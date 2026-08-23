@@ -553,3 +553,203 @@ class TestFindDeadCode:
         client.get_knowledge_graph = AsyncMock(return_value=graph)
         resp = await client.find_dead_code()
         assert resp.total == 0
+
+
+class TestEntityResolution:
+    """Shared resolver: exact match first, then unique qualified suffix."""
+
+    @staticmethod
+    def _make_graph(nodes, edges=None):
+        return GraphResponse(nodes=nodes, edges=edges or [])
+
+    @staticmethod
+    def _node(name, etype="METHOD", fp="Ns/Snake.cs", **extra_props):
+        props = {"entity_type": etype, "entity_name": name, "file_path": fp}
+        props.update(extra_props)
+        return {"id": name, "name": name, "properties": props}
+
+    @pytest.mark.asyncio
+    async def test_exact_match_wins(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = self._make_graph([self._node("Website.Games.Snake.Snake.Tile")])
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.get_node_details("Website.Games.Snake.Snake.Tile")
+        assert resp.entity.name == "Website.Games.Snake.Snake.Tile"
+
+    @pytest.mark.asyncio
+    async def test_unique_suffix_resolves(self):
+        """Report F3: exists said yes while node_details missed the same name."""
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = self._make_graph(
+            [self._node("Website.Games.Snake.Snake.Tile", etype="PROPERTY")]
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.get_node_details("Snake.Tile")
+        assert resp.entity.name == "Website.Games.Snake.Snake.Tile"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_suffix_raises(self):
+        from coderag_mcp.client import LightRAGAPIError, LightRAGClient
+
+        client = LightRAGClient()
+        graph = self._make_graph(
+            [
+                self._node("A.Mod.Snake.Tile"),
+                self._node("B.Other.Snake.Tile"),
+            ]
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        with pytest.raises(LightRAGAPIError):
+            await client.get_node_details("Snake.Tile")
+
+
+class TestNeighborLimits:
+    """Output guards on node_details(view='neighbors') for hub nodes."""
+
+    @pytest.mark.asyncio
+    async def test_neighbors_capped_with_true_totals(self):
+        from coderag_mcp.client import LightRAGClient
+
+        hub = {
+            "id": "Hub",
+            "name": "Hub",
+            "properties": {
+                "entity_type": "CLASS",
+                "entity_name": "Hub",
+                "file_path": "h.cs",
+            },
+        }
+        nodes = [hub]
+        edges = []
+        for i in range(80):
+            child = f"Child{i}"
+            nodes.append(
+                {
+                    "id": child,
+                    "name": child,
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": child,
+                        "file_path": "c.cs",
+                    },
+                }
+            )
+            edges.append(
+                {
+                    "source": "Hub",
+                    "target": child,
+                    "properties": {"keywords": "inheritance, extends"},
+                }
+            )
+
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(
+            return_value=GraphResponse(nodes=nodes, edges=edges)
+        )
+
+        resp = await client.get_entity_neighbors("Hub", limit=10)
+        assert len(resp.outgoing_relations) == 10
+        assert resp.total_outgoing == 80
+        assert resp.total_incoming == 0
+        assert resp.truncated is True
+        assert resp.limit == 10
+
+
+class TestGetNodesFileMatch:
+    """file_match='exact' avoids substring false positives (Snake~Snake1)."""
+
+    @staticmethod
+    def _graph():
+        return GraphResponse(
+            nodes=[
+                {
+                    "id": "n1",
+                    "name": "n1",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Snake",
+                        "file_path": "Games/Snake.cs",
+                    },
+                },
+                {
+                    "id": "n2",
+                    "name": "n2",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Snake1",
+                        "file_path": "Monsters/Snake1.cs",
+                    },
+                },
+            ],
+            edges=[],
+        )
+
+    @pytest.mark.asyncio
+    async def test_contains_default_matches_related(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(return_value=self._graph())
+        resp = await client.get_nodes(file_path="Snake")
+        assert {e.name for e in resp.entities} == {"Snake", "Snake1"}
+
+    @pytest.mark.asyncio
+    async def test_exact_matches_only_requested_file(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(return_value=self._graph())
+        resp = await client.get_nodes(file_path="games/snake.cs", file_match="exact")
+        assert [e.name for e in resp.entities] == ["Snake"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_file_match_rejected(self):
+        from coderag_mcp.client import (
+            LightRAGClient,
+            LightRAGValidationError,
+        )
+
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(return_value=self._graph())
+        with pytest.raises(LightRAGValidationError):
+            await client.get_nodes(file_path="x", file_match="regex")
+
+
+class TestSpanLifting:
+    """start_line/end_line/canonical graph properties surface as fields."""
+
+    @pytest.mark.asyncio
+    async def test_spans_exposed_on_entities(self):
+        from coderag_mcp.client import LightRAGClient
+
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "Ns.C.Run",
+                    "name": "Ns.C.Run",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.C.Run",
+                        "file_path": "c.cs",
+                        "start_line": 12,
+                        "end_line": 48,
+                        "canonical": False,
+                    },
+                }
+            ],
+            edges=[],
+        )
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.get_nodes(entity_type="method")
+        e = resp.entities[0]
+        assert e.start_line == 12
+        assert e.end_line == 48
+        assert e.canonical is False

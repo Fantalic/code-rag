@@ -27,6 +27,8 @@ import (
 	"github.com/coderag/graph"
 	"github.com/coderag/pipeline"
 	"github.com/coderag/parser"
+	"github.com/coderag/projects"
+	"github.com/coderag/registry"
 	"github.com/coderag/status"
 	"github.com/coderag/watcher"
 )
@@ -147,6 +149,29 @@ func main() {
 						Usage:  "Detect dependency cycles between files",
 						Action: graphCyclesCmd,
 						Flags:  graphFlags(),
+					},
+				},
+			},
+			{
+				Name:  "projects",
+				Usage: "Manage the host-CLI project registry (list, focus, forget)",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "list",
+						Usage:  "List every project the CLI has ever scanned or watched",
+						Action: projectsListCmd,
+					},
+					{
+						Name:   "focus",
+						Usage:  "Set the focused project (path or id)",
+						Action: projectsFocusCmd,
+						Args:   true,
+					},
+					{
+						Name:   "forget",
+						Usage:  "Remove a project from the registry",
+						Action: projectsForgetCmd,
+						Args:   true,
 					},
 				},
 			},
@@ -577,6 +602,8 @@ func watchCmd(c *cli.Context) error {
 	restoreRep := status.SetDefault(rep)
 	defer restoreRep()
 	rep.Stage("watch", "watch session started: %s", inputDir)
+	wsName := projectName(inputDir)
+	pushProjectStart(inputDir, wsName, "csharp", lightragURL)
 
 	w, err := watcher.NewWatcher(cfg)
 	if err != nil {
@@ -869,6 +896,76 @@ func captureDockerLogs(logsDir string) error {
 	return nil
 }
 
+// ── Project registry helpers ──────────────────────────────────────────────
+//
+// Each scan/watch session upserts the project in the host-CLI registry
+// (persistent JSON file) AND mirrors it to the LightRAG server so the
+// WebUI shows the project in its switcher.
+
+func scanDeltaCounts(s scanStats) map[string]int {
+	return map[string]int{
+		"files":             s.Files,
+		"entities_created":  s.EntitiesCreated,
+		"entities_updated":  s.EntitiesUpdated,
+		"entities_deleted":  s.EntitiesDeleted,
+		"relations_created": s.RelationsCreated,
+		"relations_updated": s.RelationsUpdated,
+		"relations_deleted": s.RelationsDeleted,
+	}
+}
+
+func pushProjectStart(inputDir, ws, kind, baseURL string) {
+	reg := registry.New(registry.DefaultPath())
+	p := registry.Project{
+		Path:       inputDir,
+		Name:       ws,
+		Kind:       kind,
+		LastScanAt: time.Now().Unix(),
+		LastStatus: "scanning",
+	}
+	saved, err := reg.Upsert(p, nil)
+	if err != nil {
+		log.Printf("Warning: registry upsert failed: %v", err)
+		return
+	}
+	_ = reg.SetFocused(saved.ID)
+	pc := projects.New(baseURL)
+	defer pc.Close()
+	if err := pc.Push(saved, true); err != nil {
+		log.Printf("Warning: project push to server failed: %v", err)
+	}
+	if err := pc.FocusPOST(saved.ID); err != nil {
+		log.Printf("Warning: project focus push failed: %v", err)
+	}
+}
+
+// pushProjectDone publishes final project state to the host registry and
+// the LightRAG mirror. Safe to call multiple times (idempotent upserts).
+func pushProjectDone(ws, inputDir, kind, baseURL string, s scanStats, finalStatus, msg string) error {
+	reg := registry.New(registry.DefaultPath())
+	p := registry.Project{
+		Path:        inputDir,
+		Name:        ws,
+		Kind:        kind,
+		LastScanAt:  time.Now().Unix(),
+		LastStatus:  finalStatus,
+		LastMessage: msg,
+	}
+	if finalStatus == "error" {
+		p.ErrorsTotal = 1
+	}
+	saved, err := reg.Upsert(p, scanDeltaCounts(s))
+	if err != nil {
+		return err
+	}
+	pc := projects.New(baseURL)
+	defer pc.Close()
+	if err := pc.Push(saved, true); err != nil {
+		log.Printf("Warning: project done push failed: %v", err)
+	}
+	return nil
+}
+
 func scanCmd(c *cli.Context) error {
 	inputDir := inputDirOrDefault(c)
 	if _, err := os.Stat(inputDir); err != nil {
@@ -913,6 +1010,7 @@ func scanCmd(c *cli.Context) error {
 	restoreRep := status.SetDefault(rep)
 	defer restoreRep()
 	rep.Stage("scan", "scan started: %s%s", inputDir, map[bool]string{true: " (--clean)", false: ""}[clean])
+	pushProjectStart(inputDir, ws, "csharp", client.BaseURL)
 
 	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
 	if err := client.SetWorkspace(ws); err != nil {
@@ -943,7 +1041,8 @@ func scanCmd(c *cli.Context) error {
 	rep.Counts("analyse", map[string]int{"files": len(results)})
 
 	log.Printf("Applying results to knowledge graph...")
-	if err := applyScanResults(client, results); err != nil {
+	scan, err := applyScanResults(client, results)
+	if err != nil {
 		rep.Error("crud", "failed to apply scan results: %v", err)
 		return fmt.Errorf("failed to apply scan results: %w", err)
 	}
@@ -955,6 +1054,11 @@ func scanCmd(c *cli.Context) error {
 	} else {
 		log.Printf("Scan complete. Knowledge graph now contains %d entities", len(stats))
 		rep.Done("scan complete: knowledge graph now contains %d entities", len(stats))
+	}
+
+	// Push final project state to the host-CLI registry + the WebUI mirror
+	if err := pushProjectDone(ws, inputDir, "csharp", client.BaseURL, scan, "idle", fmt.Sprintf("scan complete: %d entities", len(stats))); err != nil {
+		log.Printf("Warning: failed to publish project state: %v", err)
 	}
 
 	return nil
@@ -976,7 +1080,17 @@ func findSolutionFile(inputDir string) string {
 	return ""
 }
 
-func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) error {
+type scanStats struct {
+	Files             int
+	EntitiesCreated   int
+	EntitiesUpdated   int
+	EntitiesDeleted   int
+	RelationsCreated  int
+	RelationsUpdated  int
+	RelationsDeleted  int
+}
+
+func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) (scanStats, error) {
 	parserResults := make([]struct{ Filename string; Content string }, len(results))
 	for i, r := range results {
 		parserResults[i] = struct{ Filename string; Content string }{r.Filename, r.Content}
@@ -1000,6 +1114,8 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 	deletedEntities := 0
 
 	var entityBatch []crud.BatchEntityItem
+	var stats scanStats
+	stats.Files = len(results)
 
 	for _, action := range entityActions {
 		switch action.Kind {
@@ -1095,17 +1211,27 @@ func applyScanResults(client *crud.Config, results []pipeline.AnalyserResult) er
 	log.Printf("Entities: created=%d, updated=%d, deleted=%d", createdEntities, updatedEntities, deletedEntities)
 	log.Printf("Relations: created=%d, updated=%d, deleted=%d", createdRels, updatedRels, deletedRels)
 
+	stats = scanStats{
+		Files:            len(results),
+		EntitiesCreated:  createdEntities,
+		EntitiesUpdated:  updatedEntities,
+		EntitiesDeleted:  deletedEntities,
+		RelationsCreated: createdRels,
+		RelationsUpdated: updatedRels,
+		RelationsDeleted: deletedRels,
+	}
+
 	// Report scan totals to the WebUI status endpoint (no-op when disabled)
 	status.Default.Counts("crud", map[string]int{
-		"entities_created":  createdEntities,
-		"entities_updated":  updatedEntities,
-		"entities_deleted":  deletedEntities,
-		"relations_created": createdRels,
-		"relations_updated": updatedRels,
-		"relations_deleted": deletedRels,
+		"entities_created":  stats.EntitiesCreated,
+		"entities_updated":  stats.EntitiesUpdated,
+		"entities_deleted":  stats.EntitiesDeleted,
+		"relations_created": stats.RelationsCreated,
+		"relations_updated": stats.RelationsUpdated,
+		"relations_deleted": stats.RelationsDeleted,
 	})
 
-	return nil
+	return stats, nil
 }
 
 func entitySliceToMapScan(entities []map[string]any) map[string]map[string]any {
@@ -1135,12 +1261,21 @@ func entitySliceToMapScan(entities []map[string]any) map[string]map[string]any {
 func parserEntitiesToMapScan(entities []parser.Entity) map[string]map[string]any {
 	m := make(map[string]map[string]any)
 	for _, e := range entities {
-		m[e.Name] = map[string]any{
+		row := map[string]any{
 			"entity_type": e.EntityType,
 			"description": e.Description,
 			"source_id":   e.SourceID,
 			"file_path":   e.FilePath,
 		}
+		// Spans are optional in legacy rows; abatch_import passes them
+		// through only when both ends are present.
+		if e.StartLine > 0 {
+			row["start_line"] = e.StartLine
+		}
+		if e.EndLine > 0 {
+			row["end_line"] = e.EndLine
+		}
+		m[e.Name] = row
 	}
 	return m
 }
@@ -1343,4 +1478,97 @@ func extractSessionID(messageURL string) string {
 		val = val[:amp]
 	}
 	return val
+}
+
+// ── projects subcommand ───────────────────────────────────────────────────
+
+func projectsListCmd(c *cli.Context) error {
+	reg := registry.New(registry.DefaultPath())
+	focused, _ := reg.Focused()
+	items := reg.List()
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tKIND\tSCANS\tLAST STATUS\tLAST SCAN\tPATH")
+	for _, p := range items {
+		last := time.Unix(p.LastScanAt, 0).Format("2006-01-02 15:04")
+		if p.LastScanAt == 0 {
+			last = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			p.ID, p.Name, p.Kind, p.ScanCount, p.LastStatus, last, p.Path)
+	}
+	w.Flush()
+	if focused.ID != "" {
+		fmt.Printf("\n* focused: %s (%s)\n", focused.Name, focused.ID)
+	} else {
+		fmt.Println("\n(no focused project; run `coderag projects focus <path|id>`)")
+	}
+	return nil
+}
+
+func projectsFocusCmd(c *cli.Context) error {
+	target := strings.TrimSpace(c.Args().First())
+	if target == "" {
+		return fmt.Errorf("usage: coderag projects focus <path-or-id>")
+	}
+	reg := registry.New(registry.DefaultPath())
+
+	// Resolve as path (derive id) or as existing id.
+	var id string
+	if existing, ok := reg.Get(target); ok {
+		id = existing.ID
+	} else if proj := findProjectByPath(reg, target); proj.ID != "" {
+		id = proj.ID
+	} else {
+		// Treat as path: derive id and create an unsaved entry only if needed.
+		id = registry.NewID(target)
+	}
+	if err := reg.SetFocused(id); err != nil {
+		return err
+	}
+	// Best-effort mirror push.
+	base := c.String("url")
+	if base == "" {
+		base = os.Getenv("LIGHTRAG_URL")
+	}
+	if base != "" {
+		pc := projects.New(base)
+		defer pc.Close()
+		if err := pc.FocusPOST(id); err != nil {
+			fmt.Printf("Warning: could not sync focus to server: %v\n", err)
+		}
+	}
+	proj, _ := reg.Get(id)
+	fmt.Printf("focused: %s (%s)\n", proj.Name, proj.ID)
+	return nil
+}
+
+func projectsForgetCmd(c *cli.Context) error {
+	target := strings.TrimSpace(c.Args().First())
+	if target == "" {
+		return fmt.Errorf("usage: coderag projects forget <path-or-id>")
+	}
+	reg := registry.New(registry.DefaultPath())
+	var id string
+	if proj, ok := reg.Get(target); ok {
+		id = proj.ID
+	} else if proj := findProjectByPath(reg, target); proj.ID != "" {
+		id = proj.ID
+	} else {
+		id = registry.NewID(target)
+	}
+	if err := reg.Forget(id); err != nil {
+		return err
+	}
+	fmt.Printf("forgot project %s\n", id)
+	return nil
+}
+
+func findProjectByPath(reg *registry.Registry, path string) registry.Project {
+	abs, _ := filepath.Abs(path)
+	want := registry.NewID(abs)
+	p, ok := reg.Get(want)
+	if ok {
+		return p
+	}
+	return registry.Project{}
 }

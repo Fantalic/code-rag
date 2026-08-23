@@ -3,6 +3,9 @@ package parser
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +17,8 @@ type Entity struct {
 	Description string
 	SourceID    string
 	FilePath    string
+	StartLine   int
+	EndLine     int
 	Methods     []string
 }
 
@@ -27,18 +32,75 @@ type Relation struct {
 	FilePath    string
 }
 
-// format: ENTITY_TYPE|Name|FilePath|LineNo|Description
+// DuplicatesConfig stores human-overridden canonical-file preferences for
+// ambiguous class definitions (e.g. partial classes / projects that emit
+// the same logical class multiple times). Keys are class names; values are
+// absolute file paths whose match wins the canonical-file selection step.
+type DuplicatesConfig map[string]string
+
+// LoadDuplicatesConfig reads `<dir>/.coderag/duplicates.json`, falling back
+// to `<home>/.coderag/duplicates.json` so per-project and global
+// overrides can coexist. Returns an empty config silently on missing
+// read — the caller's defaults stay in effect when no override file
+// exists.
+func LoadDuplicatesConfig(dir string) DuplicatesConfig {
+	cfg := DuplicatesConfig{}
+	for _, root := range duplicatesSearchRoots(dir) {
+		path := filepath.Join(root, ".coderag", "duplicates.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			// A malformed override file is a developer mistake; surface it via
+			// stderr so it's visible but never fatal.
+			fmt.Fprintf(os.Stderr, "warning: parse %s: %v\n", path, err)
+			return DuplicatesConfig{}
+		}
+		return cfg
+	}
+	return cfg
+}
+
+func duplicatesSearchRoots(dir string) []string {
+	var roots []string
+	if dir != "" {
+		roots = append(roots, dir)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		roots = append(roots, home)
+	}
+	return roots
+}
+//   - Legacy (v1): TYPE|Name|FilePath|LineNo|Description           (5 cols)
+//   - Current (v2): TYPE|Name|FilePath|StartLine|EndLine|Description (6 cols)
+// The output format emits a `# FORMAT: N` header so callers can be strict,
+// but we keep parsing tolerant because scans can mix new + old results
+// during a migration window.
 func parseEntityLine(line string) (Entity, bool) {
-	parts := strings.SplitN(line, "|", 5)
+	parts := strings.SplitN(line, "|", 6)
 	if len(parts) < 5 {
 		return Entity{}, false
 	}
 	entityType := parts[0]
 	name := parts[1]
 	filePath := parts[2]
-	desc := parts[4]
+	desc := ""
+	start, end := 0, 0
 
-	// Basic validation
+	switch len(parts) {
+	case 6:
+		// v2: ...|StartLine|EndLine|Description
+		start, _ = strconv.Atoi(strings.TrimSpace(parts[3]))
+		end, _ = strconv.Atoi(strings.TrimSpace(parts[4]))
+		desc = parts[5]
+	default:
+		// v1: ...|LineNo|Description
+		start, _ = strconv.Atoi(strings.TrimSpace(parts[3]))
+		end = start
+		desc = parts[4]
+	}
+
 	if name == "" || entityType == "" {
 		return Entity{}, false
 	}
@@ -48,6 +110,8 @@ func parseEntityLine(line string) (Entity, bool) {
 		EntityType:  entityType,
 		Description: desc,
 		FilePath:    filePath,
+		StartLine:   start,
+		EndLine:     end,
 	}, true
 }
 
@@ -110,7 +174,7 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 	content = strings.TrimLeft(content, "\ufeff")
 
 	// Track classes to populate Methods field
-	classMethods := make(map[string][]string)
+	classMembers := make(map[string][]string)
 	seenEntities := make(map[string]bool)
 
 	scanner := bufio.NewScanner(bytes.NewReader([]byte(content)))
@@ -121,13 +185,47 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 			continue
 		}
 
-		// Entity lines: CLASS|, INTERFACE|, STRUCT|, ENUM|, METHOD|, PROPERTY|
-		if trimmed[0] >= 'A' && trimmed[0] <= 'Z' {
+		// COVERAGE|<project-key>|<json-or-status> is consumed by the indexer,
+		// not by this parser — surface it as a synthetic entity carrying the
+		// full diagnostic for downstream debugging tools.
+		if strings.HasPrefix(trimmed, "COVERAGE|") {
+			parts := strings.SplitN(trimmed, "|", 3)
+			if len(parts) == 3 {
+				entities = append(entities, Entity{
+					Name:        "COVERAGE:" + parts[1],
+					EntityType:  "COVERAGE",
+					Description: parts[2],
+					SourceID:    filename,
+				})
+			}
+			continue
+		}
+
+		// CHANGELOG|<file>|<json> surfaces as a synthetic entity so the
+		// MCP what_changed tool can filter by timestamp without ad-hoc
+		// parsing per series.
+		if strings.HasPrefix(trimmed, "CHANGELOG|") {
+			parts := strings.SplitN(trimmed, "|", 3)
+			if len(parts) == 3 {
+				entities = append(entities, Entity{
+					Name:        "CHANGELOG:" + parts[1],
+					EntityType:  "CHANGELOG",
+					Description: parts[2],
+					SourceID:    filename,
+				})
+			}
+			continue
+		}
+
+		// Entity lines: CLASS|, INTERFACE|, STRUCT|, ENUM|, METHOD|, PROPERTY|, FIELD|, CONSTRUCTOR|, ENUM_MEMBER|, RECORD|, LOCAL_FUNCTION|
+		if len(trimmed) > 0 && trimmed[0] >= 'A' && trimmed[0] <= 'Z' {
 			colonIdx := strings.Index(trimmed, "|")
 			if colonIdx > 0 {
 				prefix := trimmed[:colonIdx]
 				switch prefix {
-				case "CLASS", "INTERFACE", "STRUCT", "ENUM", "METHOD", "PROPERTY", "EXPORTS":
+				case "CLASS", "INTERFACE", "STRUCT", "ENUM", "RECORD",
+					"METHOD", "PROPERTY", "FIELD", "CONSTRUCTOR", "ENUM_MEMBER",
+					"LOCAL_FUNCTION", "EXPORTS":
 					ent, ok := parseEntityLine(trimmed)
 					if ok {
 						ent.SourceID = filename
@@ -146,14 +244,14 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 						relations = append(relations, rel)
 					}
 					continue
-			case "RELATION":
-				rel, ok := parseRelationLine(trimmed)
-				if ok {
-					rel.SourceID = filename
-					relations = append(relations, rel)
-					// Track methods per class for the CLASS entity's Methods field
-						if rel.Keywords == "method, defines" {
-							classMethods[rel.Source] = append(classMethods[rel.Source], rel.Target)
+				case "RELATION":
+					rel, ok := parseRelationLine(trimmed)
+					if ok {
+						rel.SourceID = filename
+						relations = append(relations, rel)
+						// Track members per parent class for the aggregate description.
+						if rel.Keywords == "method, defines" || rel.Keywords == "property, has" {
+							classMembers[rel.Source] = append(classMembers[rel.Source], rel.Target)
 						}
 					}
 					continue
@@ -162,20 +260,30 @@ func ParseCSharpFile(filename string, content string) (entities []Entity, relati
 		}
 	}
 
-	// Populate Methods field on CLASS entities
+	// Populate Methods/Description on aggregate members (classes, structs, etc.).
 	for i, e := range entities {
-		if e.EntityType == "CLASS" {
-			if methods, ok := classMethods[e.Name]; ok {
-				entities[i].Methods = methods
-				// Update description with method/property count
-				propCount := 0
-				for _, rel := range relations {
-					if rel.Source == e.Name && rel.Keywords == "property, has" {
-						propCount++
-					}
-				}
-				entities[i].Description = e.Name + " with " + itoa(len(methods)) + " method(s), " + itoa(propCount) + " properties"
+		if e.EntityType != "CLASS" && e.EntityType != "INTERFACE" && e.EntityType != "STRUCT" && e.EntityType != "RECORD" {
+			continue
+		}
+		// Methods field carries only callables (matches legacy semantics).
+		var methods []string
+		propCount := 0
+		methodCount := 0
+		for _, rel := range relations {
+			if rel.Source != e.Name {
+				continue
 			}
+			switch rel.Keywords {
+			case "method, defines":
+				methods = append(methods, rel.Target)
+				methodCount++
+			case "property, has":
+				propCount++
+			}
+		}
+		if len(methods) > 0 || propCount > 0 {
+			entities[i].Methods = methods
+			entities[i].Description = e.Name + " with " + itoa(methodCount) + " method(s), " + itoa(propCount) + " properties"
 		}
 	}
 
@@ -186,6 +294,18 @@ func ParseCSharpOutput(results []struct {
 	Filename string
 	Content  string
 }) (allEntities []Entity, allRelations []Relation) {
+	return ParseCSharpOutputWithConfig(results, nil)
+}
+
+// ParseCSharpOutputWithConfig is the merge step used by the pipeline. It
+// collapses duplicates of the same class — by default picking the file whose
+// base name matches the class — and lets a DuplicatesConfig override that
+// pick when a project keeps partials of the same class in several files.
+func ParseCSharpOutputWithConfig(results []struct {
+	Filename string
+	Content  string
+}, override DuplicatesConfig,
+) (allEntities []Entity, allRelations []Relation) {
 	entityMap := make(map[string][]Entity)
 	seenRelations := make(map[string]bool)
 
@@ -203,13 +323,27 @@ func ParseCSharpOutput(results []struct {
 		}
 	}
 
-	// Build map of canonical filePath per class
+	// Build map of canonical filePath per class. Operator overrides (loaded
+	// from .coderag/duplicates.json) win when they match a candidate.
 	canonicalClassFile := make(map[string]string)
 	for name, candidates := range entityMap {
 		if len(candidates) == 0 || candidates[0].EntityType != "CLASS" {
 			continue
 		}
 		canonical := candidates[0].FilePath
+		if override != nil {
+			if want, ok := override[name]; ok && want != "" {
+				for _, c := range candidates {
+					if c.FilePath == want {
+						canonical = c.FilePath
+						goto decided
+					}
+				}
+			}
+		}
+		// Default to "file base name == class name" (one file per class).
+		// Fall through to keep `canonical = candidates[0].FilePath` if no
+		// candidate matches the heuristic, matching the legacy behaviour.
 		for _, c := range candidates {
 			base := strings.TrimSuffix(filepath.Base(c.FilePath), ".cs")
 			if base == c.Name {
@@ -217,6 +351,7 @@ func ParseCSharpOutput(results []struct {
 				break
 			}
 		}
+	decided:
 		canonicalClassFile[name] = canonical
 	}
 
@@ -235,7 +370,21 @@ func ParseCSharpOutput(results []struct {
 		}
 		chosen := candidates[0]
 		if len(candidates) > 1 {
+			// Honour the operator override (or the legacy heuristic result
+			// captured in canonicalClassFile) before falling back to
+			// "first candidate" — otherwise override selections are silently
+			// lost when no candidate's basename matches the class name.
 			if candidates[0].EntityType == "CLASS" {
+				if fp, ok := canonicalClassFile[name]; ok && fp != "" {
+					for _, c := range candidates {
+						if c.FilePath == fp {
+							chosen = c
+							goto classChosen
+						}
+					}
+				}
+				// Fallback: legacy base==name heuristic for projects that
+				// do not ship a duplicates.json.
 				for _, c := range candidates {
 					base := strings.TrimSuffix(filepath.Base(c.FilePath), ".cs")
 					if base == c.Name {
@@ -243,6 +392,7 @@ func ParseCSharpOutput(results []struct {
 						break
 					}
 				}
+			classChosen:
 			} else {
 				if parent, ok := parentClass[name]; ok {
 					if fp, ok := canonicalClassFile[parent]; ok && fp != "" {

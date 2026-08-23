@@ -195,13 +195,10 @@ class RelatedFilesRequest(BaseModel):
     )
 
 
-class RelatedFilesResponse(BaseModel):
-    """Response model for related files."""
-
-    related_files: list["DocumentInfo"] = Field(
-        default_factory=list, description="List of related document info"
-    )
-    query: str = Field(..., description="Original query")
+# NOTE: there used to be a legacy `RelatedFilesResponse` schema here, but
+# callers only ever receive the schema at the bottom of this file
+# (Python rebinds the late-bound class with the same name). It was removed
+# so static analysers agree with runtime.
     total_found: int = Field(0, description="Total number of related files found")
 
 
@@ -398,6 +395,12 @@ class EntityInfo(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # Source spans (1-based, inclusive) when the analyser provided them;
+    # lets agents read exactly the relevant lines instead of whole files.
+    start_line: Optional[int] = Field(None, ge=1)
+    end_line: Optional[int] = Field(None, ge=1)
+    # False when this entity's file is a non-canonical duplicate copy.
+    canonical: Optional[bool] = None
 
 
 class RelationInfo(BaseModel):
@@ -665,6 +668,49 @@ class EntityNeighborsResponse(BaseModel):
     total_neighbors: int = Field(0, description="Total neighbor count")
     total_incoming: int = Field(0, description="Total incoming relation count")
     total_outgoing: int = Field(0, description="Total outgoing relation count")
+    truncated: bool = Field(
+        False, description="True when results were capped by the limit parameter"
+    )
+    limit: Optional[int] = Field(None, description="Limit applied to this response")
+
+
+class GraphSummaryResponse(BaseModel):
+    """Counts-first codebase overview (default `codebase_overview` view).
+
+    Gives the agent the size/shape of the graph without dumping nodes, so it
+    can decide which filters to apply instead of burning context.
+    """
+
+    mode: str = Field("summary", description="Always 'summary' for this response")
+    max_depth: int = Field(..., description="Depth filter that was applied")
+    total_nodes: int = Field(0, description="Nodes visible at this depth")
+    total_edges: int = Field(0, description="Edges between visible nodes")
+    nodes_by_type: dict[str, int] = Field(
+        default_factory=dict, description="Node counts keyed by entity_type"
+    )
+    edges_by_keyword: dict[str, int] = Field(
+        default_factory=dict,
+        description="Edge counts keyed by relation keywords (top 20)",
+    )
+    files_indexed: int = Field(
+        0, description="Distinct file_path values across visible nodes"
+    )
+    hint: str = Field(
+        "", description="How to fetch actual entities (get_nodes/node_details)"
+    )
+
+
+class GraphPageResponse(BaseModel):
+    """Paginated slice of the knowledge graph for `codebase_overview(view='graph')`."""
+
+    mode: str = Field("graph", description="Always 'graph' for this response")
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+    total_nodes: int = Field(0, description="Nodes visible at this depth (unpaginated)")
+    total_edges: int = Field(0, description="Edges between visible nodes")
+    offset: int = Field(0, description="Offset used for this page")
+    limit: int = Field(0, description="Max nodes returned in this page")
+    truncated: bool = Field(False, description="True when more pages remain")
 
 
 class EntityDetailsResponse(BaseModel):

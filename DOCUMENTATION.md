@@ -236,7 +236,7 @@ coderag watch --workers 8 ./x        # tune worker pool (default 4)
 
 ---
 
-## 6. MCP tools reference (10)
+## 6. MCP tools reference (15)
 
 Every tool is deterministic. Responses use a common envelope:
 `{"tool": "<name>", "ok": true, "result": {...}, "error": null}`.
@@ -244,25 +244,37 @@ Every tool is deterministic. Responses use a common envelope:
 | Tool | Arguments | What it returns |
 |------|-----------|-----------------|
 | `exists_in_codebase` | `entity_name` | True/false by qualified name (`MyApp.OrderService.PlaceOrder`) |
-| `get_nodes` | `entity_type`, `name`, `file_path`, `connected_to`, `limit=100`, `offset=0` | Filtered nodes (filters AND-combine, substring match, paginated) |
-| `node_details` | `entity_name`, `view="details"`, `relation_type`, `depth=2` | `details` = node + incoming/outgoing + 1-hop neighbors · `relations` = just edges (optionally filtered) · `neighbors` = 1-hop entities + connecting relations |
-| `codebase_overview` | `max_depth=1` | Top-level graph (nodes + edges) for orientation |
+| `get_nodes` | `entity_type`, `name`, `file_path` (with `file_match` = `contains`\|`exact`), `connected_to`, `limit=100`, `offset=0` | Filtered nodes (filters AND-combine, paginated) |
+| `node_details` | `entity_name`, `view` (`details`\|`relations`\|`neighbors`), `relation_type`, `depth=2`, `limit` | `details` = node + incoming/outgoing · `relations` = just edges (optionally filtered) · `neighbors` = 1-hop entities + connecting relations (capped at `limit`) |
+| `codebase_overview` | `view` (`summary`\|`graph`), `limit`, `offset` | `summary` = type counts + totals · `graph` = paginated nodes + edges (capped) |
 | `file_dependencies` | `file_path` | Files that reference this file and files it depends on |
 | `detect_circular_dependencies` | — | File dependency cycles (Tarjan SCC) |
 | `dead_code` | `min_age_days=0`, `entity_type` | Unreferenced + non-exported symbols; optional age filter, type filter (`CLASS`/`METHOD`/`PROPERTY`) |
-| `query_codebase` | `query`, `mode="hybrid"` | Structured retrieval: entities, relations, chunks, file references |
+| `query_codebase` | `query`, `mode="hybrid"` | Structured retrieval: entities, relations, chunks, file references (chunk matches only exist for prose ingested via LLM — code lives in the graph) |
 | `attach_note_to_node` | `entity_name`, `note_text` | Attaches a note (creates a NOTE node + edge) |
-| `get_notes` | `node_name` | All notes on a node, most recent first |
+| `get_notes` | `node_name` | All notes on a node, most recent first (direction-tolerant) |
+| `index_coverage` | — | Per-project scan coverage — file counts, reference counts, warnings per project — so silent scan gaps become visible |
+| `what_changed` | `hours=24`, `since=<iso or epoch>` | Symbol-level diffs captured by watch-mode re-scans (added/removed per file within the time window) |
+| `get_source` | `entity_name` *or* `file_path`+`start_line`+`end_line`, `max_lines` | Reads exact source lines using indexed spans. **Requires `SOURCE_ROOT`** (mount the analyzed workspace into the MCP container). Refuses paths that escape `SOURCE_ROOT`. |
+| `add_note` | `entity_name`, `note_text` | Convenience synonym for `attach_note_to_node` |
+| `list_notes` | `entity_name` | Convenience synonym for `get_notes` |
 
 **Notes for agents:**
 
 - Names are **fully qualified** (`TestApp.OrderService.PlaceOrder`), except where a tool
   says otherwise.
-- `file_path` filtering uses substring matching — pass `OrderService.cs`, not a full
-  Windows path.
+- `file_path` filtering in `get_nodes` defaults to **substring** matching — pass
+  `OrderService.cs`, not a full Windows path. Pass `file_match="exact"` when ambiguity
+  matters (e.g. `Snake` vs `Snake1`/`Snake2`).
+- Every `EntityInfo` carries `start_line` / `end_line` (when known) — drive
+  `get_source` off them for precise reads.
 - `dead_code` reports **unreferenced** symbols that are also `private`/`internal` or
   *not in their file's export list*. Public methods are always exported, so expect
   mostly properties and non-exported classes.
+- `get_source` returns a clean `LookupError` when `SOURCE_ROOT` is unset — bind
+  the analyzed repo into the **mcp** container (`docker-compose.yml`) and set
+  `SOURCE_ROOT=/workspace` (default) to enable it. The tool refuses any path that
+  escapes `SOURCE_ROOT`, so a misconfigured mount cannot exfiltrate host files.
 
 ---
 
@@ -282,11 +294,36 @@ Environment variables (all optional; defaults shown):
 | `WATCHER_WORKERS` | `4` | Watcher worker pool size |
 | `LIGHTRAG_TIMEOUT` | `30.0` | MCP → LightRAG request timeout (seconds) |
 | `LIGHTRAG_API_KEY` | unset | Optional auth header; unused in local mode |
+| `SOURCE_ROOT` | unset | In-container absolute path to the analyzed workspace; enables the MCP `get_source` tool. Bind-mount the repo into the `mcp` service and set `SOURCE_ROOT=/workspace` so agents can read exact source lines. |
+| `WORKSPACE_ROOT` | unset | CLI hint pointing at the on-disk project root, used to locate `<project>/.coderag/duplicates.json` for canonical-file overrides (see [Canonical-file conflicts](#canonical-file-conflicts)) |
 
 > **Model consistency:** set `LLM_MODEL` to a model your Ollama can actually serve —
 > a local model you pulled (e.g. `phi3.5:latest`) or a cloud model registered in your
 > Ollama account (e.g. `qwen3-coder:480b-cloud`). Switching models is just an env var:
 > `export LLM_MODEL=qwen3-coder:480b-cloud` before `coderag start`, or in the repo `.env`.
+
+---
+
+## 7a. Canonical-file conflicts
+
+Projects that use **partial classes** (or otherwise emit the same fully-qualified
+class from multiple files) end up with multiple `CLASS` entities holding the same
+name. The pipeline picks a canonical file by default using a "filename without
+extension matches the class name" heuristic. When the heuristic isn't enough (or
+picks the wrong partial), drop a small overrides file:
+
+```jsonc
+// .coderag/duplicates.json
+{
+    "TestApp.OrderService": "src/Services/OrderService.Primary.cs",
+    "TestApp.Money":        "src/Shared/Money.cs"
+}
+```
+
+The CLI looks in `$WORKSPACE_ROOT/.coderag/duplicates.json` first, then falls
+back to `~/.coderag/duplicates.json` for global preferences (per-project wins).
+Keys are fully-qualified class names; values are absolute paths that must match
+one of the candidate files from the scan.
 
 ---
 

@@ -10,6 +10,7 @@ import pytest
 from coderag_mcp import server as server_module
 from coderag_mcp.client import (
     LightRAGAPIError,
+    LightRAGClient,
     LightRAGConnectionError,
     LightRAGError,
     LightRAGValidationError,
@@ -183,3 +184,70 @@ class TestClientErrorClasses:
     def test_lightrag_api_error(self):
         err = LightRAGAPIError("api failed", status_code=400)
         assert isinstance(err, LightRAGError)
+
+
+class TestListNotesDirection:
+    """Report F8: attach creates annotated --HAS_NOTE--> note; get_notes must
+    accept that direction (and legacy note --HAS_NOTE--> annotated)."""
+
+    @staticmethod
+    def _graph(src, tgt):
+        from coderag_mcp.client import GraphResponse
+
+        return GraphResponse(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "name": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "f.cs",
+                    },
+                },
+                {
+                    "id": "note:123:abc",
+                    "name": "note:123:abc",
+                    "properties": {
+                        "entity_type": "NOTE",
+                        "entity_name": "note:123:abc",
+                        "description": "[agent annotation @ 2026-08-23T00:00:00Z] hi",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": src,
+                    "target": tgt,
+                    "properties": {"keywords": "has_note,annotation"},
+                }
+            ],
+        )
+
+    @pytest.mark.asyncio
+    async def test_lists_notes_for_annotated_node(self):
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(
+            return_value=self._graph("Ns.Foo", "note:123:abc")
+        )
+        notes = await server_module._list_notes_for_node(client, "Ns.Foo")
+        assert len(notes) == 1
+        assert notes[0]["note_entity_name"] == "note:123:abc"
+
+    @pytest.mark.asyncio
+    async def test_lists_notes_legacy_direction(self):
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(
+            return_value=self._graph("note:123:abc", "Ns.Foo")
+        )
+        notes = await server_module._list_notes_for_node(client, "Ns.Foo")
+        assert len(notes) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_notes_for_unrelated_node(self):
+        client = LightRAGClient()
+        client.get_knowledge_graph = AsyncMock(
+            return_value=self._graph("Ns.Foo", "note:123:abc")
+        )
+        notes = await server_module._list_notes_for_node(client, "Other.Node")
+        assert notes == []

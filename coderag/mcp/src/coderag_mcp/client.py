@@ -31,7 +31,9 @@ from .models import (
     FileStatsResponse,
     GetEntitiesInFileResponse,
     GetNodesResponse,
+    GraphPageResponse,
     GraphResponse,
+    GraphSummaryResponse,
     InsertResponse,
     InsertTextRequest,
     InterfaceMethodInfo,
@@ -81,7 +83,67 @@ def _safe_entity_data(node: dict[str, Any], fallback_name: str) -> dict[str, Any
         "name": name,
         "type": props.get("entity_type"),
         "properties": props,
+        # Source span / canonicality are stored as graph properties; lift the
+        # known ones to first-class fields so agents get them without digging.
+        "start_line": _as_int(props.get("start_line")),
+        "end_line": _as_int(props.get("end_line")),
+        "canonical": props.get("canonical") if "canonical" in props else None,
     }
+
+
+def _as_int(value: Any) -> Optional[int]:
+    """Best-effort int conversion for graph property values (None on failure)."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _node_display_name(node: dict[str, Any]) -> str:
+    """Canonical display name of a graph node (entity_name > name > id)."""
+    return (
+        node.get("properties", {}).get("entity_name")
+        or node.get("name")
+        or node.get("id")
+        or ""
+    )
+
+
+def _find_entity_node(graph: GraphResponse, entity_name: str) -> Optional[dict]:
+    """Single source of truth for entity lookup across tools.
+
+    Resolution order:
+      1. exact match on node id or entity_name,
+      2. unique qualified-suffix match (e.g. 'Snake.Tile' -> 'Ns.Snake.Tile').
+    Returns the raw node dict or None. All user-facing lookups should go
+    through this so `exists`, `get_nodes`, and `node_details` agree.
+    """
+    wanted = (entity_name or "").strip()
+    if not wanted:
+        return None
+    suffix = "." + wanted
+    suffix_matches: list[dict] = []
+    for node in graph.nodes:
+        node_id = node.get("id") or node.get("name") or ""
+        display = _node_display_name(node)
+        if wanted in (node_id, display):
+            return node
+        if node_id.endswith(suffix) or display.endswith(suffix):
+            suffix_matches.append(node)
+    # Only accept an ambiguous-suffix match when it is unambiguous.
+    distinct = {(_find_entity_node_key(n)) for n in suffix_matches}
+    if len(distinct) == 1:
+        return suffix_matches[0]
+    return None
+
+
+def _find_entity_node_key(node: dict[str, Any]) -> str:
+    """Dedup key for suffix-match candidates (file_path + name)."""
+    props = node.get("properties") or {}
+    fp = node.get("file_path") or props.get("file_path", "")
+    return f"{fp}|{_node_display_name(node)}"
 
 
 # Custom Exception Hierarchy
@@ -320,6 +382,80 @@ class LightRAGClient:
         result.is_truncated = len(filtered_nodes) < len(result.nodes)
         return result
 
+    def summarize_graph(
+        self, graph: GraphResponse, max_depth: int
+    ) -> "GraphSummaryResponse":
+        """Counts-first view of a (already depth-filtered) graph.
+
+        Lets agents size up the codebase without receiving every node.
+        """
+        nodes_by_type: dict[str, int] = {}
+        files_indexed: set[str] = set()
+        for node in graph.nodes:
+            props = node.get("properties") or {}
+            ntype = props.get("entity_type") or "UNKNOWN"
+            nodes_by_type[ntype] = nodes_by_type.get(ntype, 0) + 1
+            fp = node.get("file_path") or props.get("file_path", "")
+            if fp:
+                files_indexed.add(fp)
+
+        edges_by_keyword: dict[str, int] = {}
+        visible = {n.get("id") or n.get("name", "") for n in graph.nodes}
+        edge_count = 0
+        for edge in graph.edges:
+            src = edge.get("source") or edge.get("src_id") or ""
+            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            if src not in visible or tgt not in visible:
+                continue
+            edge_count += 1
+            kw = (edge.get("properties", {}).get("keywords") or "").strip()
+            key = kw if kw else "untyped"
+            edges_by_keyword[key] = edges_by_keyword.get(key, 0) + 1
+        # Keep the top keyword buckets so the summary stays small.
+        top_keywords = dict(
+            sorted(edges_by_keyword.items(), key=lambda kv: -kv[1])[:20]
+        )
+
+        return GraphSummaryResponse(
+            mode="summary",
+            max_depth=max_depth,
+            total_nodes=len(graph.nodes),
+            total_edges=edge_count,
+            nodes_by_type=dict(sorted(nodes_by_type.items())),
+            edges_by_keyword=top_keywords,
+            files_indexed=len(files_indexed),
+            hint=(
+                "Use get_nodes(entity_type=..., file_path=..., name=...) to list "
+                "entities, node_details(entity_name) to inspect one, "
+                "codebase_overview(view='graph', limit=..., offset=...) for a "
+                "paginated node slice."
+            ),
+        )
+
+    def paginate_graph(
+        self, graph: GraphResponse, max_depth: int, offset: int = 0, limit: int = 200
+    ) -> "GraphPageResponse":
+        """Return one page of nodes (and their internal edges) from a
+        depth-filtered graph, with true totals and truncation flag."""
+        page_nodes = graph.nodes[offset : offset + limit]
+        page_ids = {n.get("id") or n.get("name", "") for n in page_nodes}
+        page_edges = [
+            e
+            for e in graph.edges
+            if (e.get("source") or e.get("src_id") or "") in page_ids
+            and (e.get("target") or e.get("tgt_id") or "") in page_ids
+        ]
+        return GraphPageResponse(
+            mode="graph",
+            nodes=page_nodes,
+            edges=page_edges,
+            total_nodes=len(graph.nodes),
+            total_edges=len(graph.edges),
+            offset=offset,
+            limit=limit,
+            truncated=(offset + limit) < len(graph.nodes),
+        )
+
     async def get_graph_labels(
         self,
         node: Optional[str] = None,
@@ -379,13 +515,41 @@ class LightRAGClient:
             relation_labels_total=relation_total,
         )
 
+    def find_entity(self, graph: GraphResponse, entity_name: str) -> Optional[dict]:
+        """Public resolver: exact entity_name/id match, then unique qualified
+        suffix. Shared by exists/get_nodes/node_details/get_source so all
+        tools answer identically."""
+        return _find_entity_node(graph, entity_name)
+
     async def check_entity_exists(self, entity_name: str) -> EntityExistsResponse:
-        """Check if an entity exists in the knowledge graph."""
+        """Check if an entity exists in the knowledge graph.
+
+        Falls back to the shared graph resolver (exact + unique qualified
+        suffix) when the server-side exact check misses, so `exists` never
+        contradicts `node_details`/`get_nodes` for the same name.
+        """
         params = {"name": entity_name}
         response_data = await self._make_request(
             "GET", "/graph/entity/exists", params=params
         )
-        return EntityExistsResponse(**response_data)
+        result = EntityExistsResponse(**response_data)
+        if result.exists:
+            return result
+
+        try:
+            graph = await self.get_knowledge_graph(label="*")
+        except Exception as e:
+            self.logger.debug(f"Resolver fallback skipped (graph fetch failed): {e}")
+            return result
+        node = _find_entity_node(graph, entity_name)
+        if node is not None:
+            resolved = _node_display_name(node) or node.get("id") or entity_name
+            return EntityExistsResponse(
+                exists=True,
+                entity_name=resolved,
+                entity_id=node.get("id"),
+            )
+        return result
 
     async def create_entity(
         self, entity_name: str, entity_data: dict[str, Any]
@@ -598,16 +762,62 @@ class LightRAGClient:
         )
         return QueryDataResponse(**response_data)
 
-    async def get_entity_neighbors(self, entity_name: str) -> EntityNeighborsResponse:
-        """Get all entities directly connected to an entity (1-hop neighbors)."""
+    async def get_entity_neighbors(
+        self, entity_name: str, limit: int = 50
+    ) -> EntityNeighborsResponse:
+        """Get entities directly connected to an entity (1-hop), capped by `limit`.
+
+        Hub nodes (e.g. a base class every game references) previously returned
+        their entire neighborhood unbounded; totals always reflect the true
+        counts and `truncated` signals when the cap engaged.
+        """
         graph = await self.get_knowledge_graph(label="*")
+        node = _find_entity_node(graph, entity_name)
+        if node is None:
+            raise LightRAGAPIError(f"Entity '{entity_name}' not found")
+
+        # Edges may reference either the raw node id or its display name.
+        endpoint_names = {
+            n for n in {node.get("id") or "", _node_display_name(node)} if n
+        }
+
+        nodes_by_id: dict[str, dict] = {}
+        for n in graph.nodes:
+            for key in {n.get("id") or "", _node_display_name(n)}:
+                if key:
+                    nodes_by_id[key] = n
+
         neighbors: list[EntityInfo] = []
+        seen_neighbor_keys: set[str] = set()
         incoming: list[RelationInfo] = []
         outgoing: list[RelationInfo] = []
+        total_incoming = 0
+        total_outgoing = 0
+
+        def _build_neighbor(target_key: str) -> None:
+            """Append the neighbor node for an edge endpoint, deduped."""
+            neighbor = nodes_by_id.get(target_key)
+            if neighbor is None:
+                return
+            key = _find_entity_node_key(neighbor)
+            if key in seen_neighbor_keys:
+                return
+            seen_neighbor_keys.add(key)
+            fallback = f"neighbor_{target_key}" if target_key else "neighbor_unknown"
+            data = _safe_entity_data(neighbor, fallback)
+            try:
+                neighbors.append(EntityInfo(**data))
+            except Exception:
+                data["name"] = fallback
+                neighbors.append(EntityInfo(**data))
 
         for edge in graph.edges:
             src = edge.get("source") or edge.get("src_id") or ""
             tgt = edge.get("target") or edge.get("tgt_id") or ""
+            is_source = src in endpoint_names
+            is_target = tgt in endpoint_names
+            if not (is_source or is_target):
+                continue
 
             rel_data = {
                 "id": edge.get("id", f"{src}-{tgt}"),
@@ -619,53 +829,30 @@ class LightRAGClient:
             }
             rel = RelationInfo(**rel_data)
 
-            if src == entity_name:
-                outgoing.append(rel)
-                for node in graph.nodes:
-                    node_id = node.get("id") or node.get("name") or ""
-                    if node_id == tgt:
-                        fallback_name = (
-                            f"neighbor_{node_id}"
-                            if node_id
-                            else f"neighbor_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
-                        )
-                        entity_data = _safe_entity_data(node, fallback_name)
-                        try:
-                            neighbors.append(EntityInfo(**entity_data))
-                        except Exception:
-                            entity_data["name"] = fallback_name
-                            neighbors.append(EntityInfo(**entity_data))
-                        break
-            elif tgt == entity_name:
-                incoming.append(rel)
-                for node in graph.nodes:
-                    node_id = node.get("id") or node.get("name") or ""
-                    if node_id == src:
-                        fallback_name = (
-                            f"neighbor_{node_id}"
-                            if node_id
-                            else f"neighbor_{hashlib.md5(str(node).encode()).hexdigest()[:8]}"
-                        )
-                        entity_data = _safe_entity_data(node, fallback_name)
-                        try:
-                            neighbors.append(EntityInfo(**entity_data))
-                        except Exception:
-                            entity_data["name"] = fallback_name
-                            neighbors.append(EntityInfo(**entity_data))
-                        break
+            if is_source:
+                total_outgoing += 1
+                if len(outgoing) < limit:
+                    outgoing.append(rel)
+                    _build_neighbor(tgt)
+            if is_target:
+                total_incoming += 1
+                if len(incoming) < limit:
+                    incoming.append(rel)
+                    _build_neighbor(src)
 
-        unique_neighbors: dict[str, EntityInfo] = {}
-        for n in neighbors:
-            unique_neighbors[n.name] = n
-
+        truncated = (
+            total_incoming > len(incoming) or total_outgoing > len(outgoing) or False
+        )
         return EntityNeighborsResponse(
-            entity_name=entity_name,
-            neighbors=list(unique_neighbors.values()),
+            entity_name=_node_display_name(node) or entity_name,
+            neighbors=neighbors,
             incoming_relations=incoming,
             outgoing_relations=outgoing,
-            total_neighbors=len(unique_neighbors),
-            total_incoming=len(incoming),
-            total_outgoing=len(outgoing),
+            total_neighbors=len(seen_neighbor_keys),
+            total_incoming=total_incoming,
+            total_outgoing=total_outgoing,
+            truncated=truncated,
+            limit=limit,
         )
 
     async def get_entity_details(
@@ -678,21 +865,20 @@ class LightRAGClient:
             depth: Detail level — 1=entity only, 2=structural, 3=full (default)
         """
         graph = await self.get_knowledge_graph(label="*")
-        entity_info: Optional[EntityInfo] = None
-
-        for node in graph.nodes:
-            node_id = node.get("id") or node.get("name") or ""
-            if node_id == entity_name:
-                entity_data = _safe_entity_data(node, entity_name)
-                try:
-                    entity_info = EntityInfo(**entity_data)
-                except Exception:
-                    entity_data["name"] = entity_name
-                    entity_info = EntityInfo(**entity_data)
-                break
-
-        if entity_info is None:
+        node = _find_entity_node(graph, entity_name)
+        if node is None:
             raise LightRAGAPIError(f"Entity '{entity_name}' not found")
+
+        entity_data = _safe_entity_data(node, entity_name)
+        try:
+            entity_info = EntityInfo(**entity_data)
+        except Exception:
+            entity_data["name"] = entity_name
+            entity_info = EntityInfo(**entity_data)
+
+        # Edges may reference either the raw node id or its display name.
+        resolved_name = _node_display_name(node) or entity_name
+        endpoint_names = {n for n in {node.get("id") or "", resolved_name} if n}
 
         incoming: list[RelationInfo] = []
         outgoing: list[RelationInfo] = []
@@ -701,6 +887,10 @@ class LightRAGClient:
         for edge in graph.edges:
             src = edge.get("source") or edge.get("src_id") or ""
             tgt = edge.get("target") or edge.get("tgt_id") or ""
+            is_source = src in endpoint_names
+            is_target = tgt in endpoint_names
+            if not (is_source or is_target):
+                continue
 
             rel_data = {
                 "id": edge.get("id", f"{src}-{tgt}"),
@@ -712,11 +902,10 @@ class LightRAGClient:
             }
             rel = RelationInfo(**rel_data)
 
-            if src == entity_name or tgt == entity_name:
-                all_relations.append(rel)
-            if tgt == entity_name:
+            all_relations.append(rel)
+            if is_target:
                 incoming.append(rel)
-            if src == entity_name:
+            if is_source:
                 outgoing.append(rel)
 
         # Filter by depth
@@ -820,12 +1009,17 @@ class LightRAGClient:
         name: str = "",
         file_path: str = "",
         connected_to: str = "",
+        file_match: str = "contains",
         limit: int = 100,
         offset: int = 0,
     ) -> GetNodesResponse:
         """Filter entities by any combination of: entity_type, name (substring),
-        file_path (substring), connected_to (graph connection). Empty/omitted
-        filters are no-ops. All filters AND-combine. Paginated via offset/limit.
+        file_path, connected_to (graph connection). Empty/omitted filters are
+        no-ops. All filters AND-combine. Paginated via offset/limit.
+
+        `file_match` controls how `file_path` compares: "contains" (default,
+        substring) or "exact" (normalized path equality — use this to avoid
+        Snake matching Snake1/Snake2-style false positives).
         """
         try:
             graph = await self.get_knowledge_graph(label="*")
@@ -841,6 +1035,7 @@ class LightRAGClient:
                         "entity_type": entity_type,
                         "name": name,
                         "file_path": file_path,
+                        "file_match": file_match if file_path else "",
                         "connected_to": connected_to,
                     }.items()
                     if v
@@ -850,6 +1045,11 @@ class LightRAGClient:
         etype_lower = entity_type.strip().lower()
         name_lower = name.strip().lower()
         fpath_lower = file_path.strip().lower().replace("\\", "/")
+        match_mode = (file_match or "contains").strip().lower()
+        if match_mode not in ("contains", "exact"):
+            raise LightRAGValidationError(
+                f"Invalid file_match '{file_match}'. Must be 'contains' or 'exact'"
+            )
         conn = connected_to.strip()
 
         connected_names: Optional[set[str]] = None
@@ -876,8 +1076,12 @@ class LightRAGClient:
                 continue
             if name_lower and name_lower not in entity_name.lower():
                 continue
-            if fpath_lower and fpath_lower not in node_fp_clean:
-                continue
+            if fpath_lower:
+                if match_mode == "exact":
+                    if node_fp_clean != fpath_lower:
+                        continue
+                elif fpath_lower not in node_fp_clean:
+                    continue
             if connected_names is not None:
                 candidates = {node_id, entity_name, props.get("name", "")}
                 if not (candidates & connected_names):
@@ -906,6 +1110,7 @@ class LightRAGClient:
                     "entity_type": entity_type,
                     "name": name,
                     "file_path": file_path,
+                    "file_match": match_mode if file_path else "",
                     "connected_to": connected_to,
                 }.items()
                 if v
@@ -1056,11 +1261,13 @@ class LightRAGClient:
         view: str = "details",
         relation_type: str = "",
         depth: int = 2,
+        limit: int = 50,
     ):
         """Unified node lookup. `view` selects the response shape:
-        - "details"   : node + incoming + outgoing + neighbors (depth-filtered)
+        - "details"   : entity + incoming + outgoing relations (depth-filtered)
         - "relations" : relations involving the node (optionally filtered)
         - "neighbors" : 1-hop neighbor entities + connecting relations
+                        (capped by `limit`; totals stay true, truncated flag set)
         """
         view_norm = (view or "details").lower()
         if view_norm == "relations":
@@ -1068,7 +1275,7 @@ class LightRAGClient:
                 entity_name=entity_name, relation_type=relation_type
             )
         if view_norm == "neighbors":
-            return await self.get_entity_neighbors(entity_name=entity_name)
+            return await self.get_entity_neighbors(entity_name=entity_name, limit=limit)
         return await self.get_entity_details(entity_name=entity_name, depth=depth)
 
     async def find_related_files(self, entity_or_file: str) -> RelatedFilesResponse:

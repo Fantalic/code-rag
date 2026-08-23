@@ -110,19 +110,61 @@ func ParseProject(csprojPath string) (*ProjectFiles, error) {
 	return result, nil
 }
 
+// ProjectCoverage is the diagnostic record emitted per project. It captures
+// what we did (and didn't) process so callers can surface coverage gaps.
+type ProjectCoverage struct {
+	ProjectPath string   // absolute path to .csproj (relative to solution dir in output)
+	SourceFiles []string // files collected (absolute paths)
+	ProjectRefs []string // <=Project> refs collected
+	Warnings    []string // non-fatal problems (bad reads, missing globs, unparseable csproj, ...)
+}
+
+// CoverageReport aggregates diagnostics across the whole solution.
+type CoverageReport struct {
+	Projects []ProjectCoverage
+}
+
+// CoverageKeys surfaces the canonical human-friendly id used in COVERAGE|
+// records: project file basename without extension.
+func (c ProjectCoverage) CoverageKey(slnDir string) string {
+	if rel, err := filepath.Rel(slnDir, c.ProjectPath); err == nil {
+		rel = strings.TrimSuffix(rel, ".csproj")
+		return filepath.ToSlash(filepath.Join("[project]", rel))
+	}
+	base := filepath.Base(c.ProjectPath)
+	return strings.TrimSuffix(base, ".csproj")
+}
+
 func CollectSourceFiles(slnPath string) ([]string, error) {
+	files, _, err := CollectSourceFilesWithCoverage(slnPath)
+	return files, err
+}
+
+// CollectSourceFilesWithCoverage returns the same file list as
+// CollectSourceFiles plus a per-project diagnostic record. Both outputs share
+// the same iteration order so coverage rows can be matched 1:1 with files.
+func CollectSourceFilesWithCoverage(slnPath string) ([]string, CoverageReport, error) {
 	sln, err := ParseSolution(slnPath)
 	if err != nil {
-		return nil, err
+		return nil, CoverageReport{}, err
 	}
 
 	var allFiles []string
 	seen := make(map[string]bool)
+	var report CoverageReport
 
 	for _, projPath := range sln.ProjectPaths {
 		pf, err := ParseProject(projPath)
 		if err != nil {
+			report.Projects = append(report.Projects, ProjectCoverage{
+				ProjectPath: projPath,
+				Warnings:    []string{"parse_error: " + err.Error()},
+			})
 			continue
+		}
+		cov := ProjectCoverage{
+			ProjectPath: pf.ProjectDir,
+			ProjectRefs: pf.ProjectRefs,
 		}
 		for _, f := range pf.SourceFiles {
 			abs, _ := filepath.Abs(f)
@@ -130,8 +172,13 @@ func CollectSourceFiles(slnPath string) ([]string, error) {
 				seen[abs] = true
 				allFiles = append(allFiles, abs)
 			}
+			cov.SourceFiles = append(cov.SourceFiles, abs)
 		}
+		if len(pf.SourceFiles) == 0 {
+			cov.Warnings = append(cov.Warnings, "no_source_files_found")
+		}
+		report.Projects = append(report.Projects, cov)
 	}
 
-	return allFiles, nil
+	return allFiles, report, nil
 }

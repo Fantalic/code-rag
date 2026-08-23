@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type CLIConfig struct {
@@ -83,14 +84,13 @@ func Run(cfg *CLIConfig) error {
 }
 
 func runScan(slnPath string, outputCfg *OutputConfig) error {
-	files, err := CollectSourceFiles(slnPath)
+	files, coverage, err := CollectSourceFilesWithCoverage(slnPath)
 	if err != nil {
 		return fmt.Errorf("collect source files: %w", err)
 	}
 
 	if len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "warning: no .cs files found in solution %s\n", slnPath)
-		return nil
 	}
 
 	idxBuilder := NewIndexBuilder()
@@ -118,6 +118,14 @@ func runScan(slnPath string, outputCfg *OutputConfig) error {
 		fmt.Fprintf(os.Stderr, "warning: write index: %v\n", err)
 	} else {
 		fmt.Fprintf(os.Stderr, "wrote %s\n", idxPath)
+	}
+
+	// Coverage sidecar: written even when no files were collected so the
+	// pipeline/MCP can surface project-level gaps instead of disappearing.
+	if covPath, err := outputCfg.WriteCoverageReport(coverage); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: write coverage: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "wrote %s\n", covPath)
 	}
 
 	fmt.Printf("OK: scanned %d files\n", len(files))
@@ -191,6 +199,11 @@ func runUpdate(slnPath string, outputCfg *OutputConfig, changed string) error {
 		diff := ComputeDiff(oldExports, fr.Exports)
 		if !diff.IsEmpty() {
 			fmt.Print(diff.String())
+			// Persist a structured record the MCP what_changed tool can
+			// filter by timestamp without per-tool parsers.
+			if _, err := outputCfg.WriteChangeLog(relPath, diff, time.Now().Unix()); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: write changelog for %s: %v\n", cf, err)
+			}
 		}
 	}
 

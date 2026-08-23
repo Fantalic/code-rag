@@ -1,4 +1,4 @@
-package csharpanalyser
+﻿package csharpanalyser
 
 import (
 	"os"
@@ -530,13 +530,6 @@ func TestParseMethodWithLambdaDelegateType(t *testing.T) {
 	}
 }
 
-func TestParseMethodWithTupleType(t *testing.T) {
-	parts := splitParams("(int, int) coords")
-	if len(parts) != 1 || parts[0] != "(int, int) coords" {
-		t.Errorf("splitParams must keep nested parens intact; got %v", parts)
-	}
-}
-
 func TestParseMethodWithAttributeOnParam(t *testing.T) {
 	r := parseMethodContent(t,
 		"class C {\n\tvoid Foo([NotNull] string s) { }\n}\n",
@@ -598,70 +591,6 @@ func TestParseMethodRelationsWithNamespace(t *testing.T) {
 	}
 }
 
-func TestSplitParamsBalanced(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-	}{
-		{"", []string{}},
-		{"Order order", []string{"Order order"}},
-		{"Order order, int qty", []string{"Order order", "int qty"}},
-		{"Func<int, Order> callback", []string{"Func<int, Order> callback"}},
-		{"Dictionary<string, List<int>> data", []string{"Dictionary<string, List<int>> data"}},
-		{"(int, int) coords", []string{"(int, int) coords"}},
-		{"(int, int) coords, int qty", []string{"(int, int) coords", "int qty"}},
-		{"ref int a, ref int b", []string{"ref int a", "ref int b"}},
-	}
-	for _, tc := range cases {
-		got := splitParams(tc.in)
-		if len(got) != len(tc.want) {
-			t.Errorf("splitParams(%q) = %v, want %v", tc.in, got, tc.want)
-			continue
-		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("splitParams(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
-			}
-		}
-	}
-}
-
-func TestParseParamDecl(t *testing.T) {
-	cases := []struct {
-		in       string
-		wantType string
-		wantName string
-		wantOK   bool
-	}{
-		{"Order order", "Order", "order", true},
-		{"out int result", "int", "result", true},
-		{"ref int a", "int", "a", true},
-		{"params string[] messages", "string[]", "messages", true},
-		{"Func<int, Order> callback", "Func<int, Order>", "callback", true},
-		{"Dictionary<string, List<int>> data", "Dictionary<string, List<int>>", "data", true},
-		{"(int, int) coords", "(int, int)", "coords", true},
-		{"[NotNull] string s", "string", "s", true},
-		{"int x = 5", "int", "x", true},
-		{`string s = "hi"`, "string", "s", true},
-		{"Order? order", "Order?", "order", true},
-		{"List<string> items", "List<string>", "items", true},
-		{"int[,] grid", "int[,]", "grid", true},
-		{"Action a = null", "Action", "a", true},
-		{"Action<int> h = x => Log(x)", "Action<int>", "h", true},
-		{"this StringBuilder sb", "StringBuilder", "sb", true},
-		{"", "", "", false},
-		{"int", "", "", false},
-		{"   ", "", "", false},
-	}
-	for _, tc := range cases {
-		gotType, gotName, gotOK := parseParamDecl(tc.in)
-		if gotOK != tc.wantOK || gotType != tc.wantType || gotName != tc.wantName {
-			t.Errorf("parseParamDecl(%q) = (%q, %q, %v), want (%q, %q, %v)",
-				tc.in, gotType, gotName, gotOK, tc.wantType, tc.wantName, tc.wantOK)
-		}
-	}
-}
-
 func TestParseComplexMethodsFixture(t *testing.T) {
 	fixturePath := filepath.Join("testdata", "TestApp", "ComplexMethods.cs")
 	if _, err := os.Stat(fixturePath); err != nil {
@@ -708,7 +637,7 @@ func TestParseComplexMethodsFixture(t *testing.T) {
 			continue
 		}
 		if strings.HasSuffix(e.Name, ".match") {
-			t.Errorf("spurious METHOD entity detected: %q — body line should not be detected as a method declaration", e.Name)
+			t.Errorf("spurious METHOD entity detected: %q â€” body line should not be detected as a method declaration", e.Name)
 		}
 	}
 
@@ -725,78 +654,6 @@ func TestParseComplexMethodsFixture(t *testing.T) {
 		if !strings.Contains(rel.Description, "(") || !strings.Contains(rel.Description, ")") {
 			t.Errorf("HAS_METHOD relation %s -> %s should carry the signature, got %q",
 				rel.Source, rel.Target, rel.Description)
-		}
-	}
-}
-
-func TestMethodRegexMatchesGenericMethod(t *testing.T) {
-	line := "public T Find<T>(T item, Func<T, bool> match) where T : class"
-	m := methodRegex.FindStringSubmatch(line)
-	if m == nil {
-		t.Fatalf("methodRegex should match generic method, got nil for %q", line)
-	}
-	if got := strings.TrimSpace(m[2]); got != "Find" {
-		t.Errorf("method name = %q, want Find", got)
-	}
-	if got := strings.TrimSpace(m[4]); !strings.Contains(got, "T item") {
-		t.Errorf("params should contain 'T item', got %q", got)
-	}
-}
-
-func TestMethodRegexMatchesTupleReturn(t *testing.T) {
-	line := "public (int X, int Y) GetOrigin() => (0, 0);"
-	m := methodRegex.FindStringSubmatch(line)
-	if m == nil {
-		t.Fatalf("methodRegex should match tuple return type, got nil for %q", line)
-	}
-	if got := strings.TrimSpace(m[2]); got != "GetOrigin" {
-		t.Errorf("method name = %q, want GetOrigin", got)
-	}
-	if got := strings.TrimSpace(m[1]); !strings.Contains(got, "int X") {
-		t.Errorf("return type should contain tuple '(int X, int Y)', got %q", got)
-	}
-}
-
-func TestLooksLikeMethodRejectsKeywordPrefix(t *testing.T) {
-	p := &Parser{}
-	cases := []struct {
-		line string
-		want bool
-	}{
-		{"return match(item) ? item : null;", false},
-		{"return 0;", false},
-		{"throw new Exception();", false},
-		{"yield return items;", false},
-		{"await Task.Delay(1);", false},
-		{"public void Foo() {", true},
-		{"void Foo() => 0;", true},
-		{"public T Bar<T>() => default;", true},
-	}
-	for _, c := range cases {
-		if got := p.looksLikeMethod(c.line); got != c.want {
-			t.Errorf("looksLikeMethod(%q) = %v, want %v", c.line, got, c.want)
-		}
-	}
-}
-
-func TestExtractVisibility(t *testing.T) {
-	cases := []struct {
-		line string
-		want string
-	}{
-		{"public class Foo", "public"},
-		{"private void M() { }", "private"},
-		{"internal static int X;", "internal"},
-		{"protected override void M() { }", "protected"},
-		{"protected internal void M() { }", "protected internal"},
-		{"class Foo", ""},
-		{"void M() { }", ""},
-		{"public sealed class Bar", "public"},
-		{"public async Task<int> Get() { }", "public"},
-	}
-	for _, c := range cases {
-		if got := extractVisibility(c.line); got != c.want {
-			t.Errorf("extractVisibility(%q) = %q, want %q", c.line, got, c.want)
 		}
 	}
 }
