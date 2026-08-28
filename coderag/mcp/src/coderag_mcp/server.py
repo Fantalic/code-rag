@@ -195,6 +195,19 @@ async def get_notes_for_node(node_name: str) -> dict:
         return _error("get_notes", e)
 
 
+# Thin aliases with agent-friendly names; they call the same handlers.
+@mcp_server.tool(name="add_note")
+async def add_note_alias(entity_name: str, note_text: str) -> dict:
+    """Alias of attach_note_to_node. See `coderag --agent-help`."""
+    return await add_note_to_entity(entity_name, note_text)
+
+
+@mcp_server.tool(name="list_notes")
+async def list_notes_alias(entity_name: str) -> dict:
+    """Alias of get_notes. See `coderag --agent-help`."""
+    return await get_notes_for_node(entity_name)
+
+
 @mcp_server.tool(name="query_codebase")
 async def query_data(query: str) -> dict:
     """Semantic vector search over the codebase — no LLM involved: the query is embedded with the configured embedding model and matched against entity/relationship vector stores. Returns matching entities (with source spans when known) and relationships. Note: text-chunk hits only exist for prose documents ingested via LLM ingestion — indexed source files live in the graph, not the chunk store; use get_source(entity_name) for exact code lines. See `coderag --agent-help`."""

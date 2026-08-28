@@ -36,18 +36,16 @@ services:
       - "9622:9622"
     depends_on:
       - lightrag
-    volumes:
-      # SOURCE_ROOT: bind-mount the host workspace so the MCP get_source
-      # tool can read source files referenced from the graph. If unset
-      # the tool stays disabled (safer default), but consumers that want
-      # source spans to be useful should mount the workspace here and
-      # set SOURCE_ROOT to the in-container path.
-      - ${WORKSPACE:-./rag_input}:/workspace:ro
+    # No default workspace mount: get_source is gated on operator-supplied
+    # SOURCE_ROOT. Override via docker-compose.override.yml:
+    #   volumes:
+    #     - ${WORKSPACE_BIND}:/workspace:ro
+    #   environment:
+    #     - SOURCE_ROOT=/workspace
     environment:
       - LIGHTRAG_URL=http://lightrag:9621
       - MCP_HOST=0.0.0.0
       - MCP_PORT=9622
-      - SOURCE_ROOT=${SOURCE_ROOT:-/workspace}
     command: ["python", "-m", "coderag_mcp.sse_server"]
     restart: unless-stopped
 

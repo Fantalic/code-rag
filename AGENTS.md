@@ -7,10 +7,16 @@ if you can not figure out something on you own or have some missing information,
 ## Development Commands
 
 ```bash
-# Building C# analyser
-cd coderag/cli/analysers/csharp && go build -o csharp_analyser.exe ./cmd/csharp_analyser/ && cd ../../..
-echo "Deploy C# analyser (Windows)"
-copy coderag\cli\analysers\csharp\csharp_analyser.exe _dev_docs\analysers\csharp\
+# Building C# analyser (canonical location, already on the .gitignore list).
+# The pipeline/run.go lookups find this path automatically; no extra copy.
+cd coderag/cli/analysers/csharp && go build -o csharp_analyser.exe ./cmd/csharp_analyser/
+# Optional convenience copy the setup scripts also do:
+cd coderag/cli/analysers/csharp && cp csharp_analyser.exe ../../../        # repo root
+```
+
+DO NOT copy the analyser binary into `_dev_docs/` — that folder is for developer
+documentation only, not for build artefacts. Set `CSHARP_ANALYSER_PATH` to a
+non-canonical install location instead.
 ```
 
 The C# analyser uses tree-sitter. Its `go.mod` is a **nested module** at

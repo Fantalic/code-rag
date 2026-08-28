@@ -145,10 +145,20 @@ EW=$(date +%s)
 echo "[OK] pre-warm took $((EW - SW))s"
 
 # --- 5. Scan --------------------------------------------------------------
-echo "[..] Scanning $PROJECT_DIR ..."
+# coderag.exe is a Windows binary; POSIX paths must be converted first,
+# otherwise MSYS/WSL mangles them (E:\mnt\e\... was observed).
+SCAN_PROJECT_DIR="$PROJECT_DIR"
+if [ "${CODERAG_BIN%.exe}" != "$CODERAG_BIN" ]; then
+    if command -v cygpath >/dev/null 2>&1; then
+        SCAN_PROJECT_DIR=$(cygpath -w "$PROJECT_DIR")
+    elif command -v wslpath >/dev/null 2>&1; then
+        SCAN_PROJECT_DIR=$(wslpath -w "$PROJECT_DIR")
+    fi
+fi
+echo "[..] Scanning $SCAN_PROJECT_DIR ..."
 SCAN_ARGS="scan"
 [ "$CLEAN" = "1" ] && SCAN_ARGS="$SCAN_ARGS --clean"
-SCAN_ARGS="$SCAN_ARGS $PROJECT_DIR"
+SCAN_ARGS="$SCAN_ARGS $SCAN_PROJECT_DIR"
 
 SCAN_LOG="${SCAN_LOG:-/tmp/coderag-scan.log}"
 mkdir -p "$(dirname "$SCAN_LOG")" 2>/dev/null || SCAN_LOG="$ROOT/.coderag-scan.log"
@@ -378,7 +388,9 @@ except Exception as e:
     #     should respond OK and shape a useful summary. The runtime test is not
     #     the unit-test bed for tool internals; it just asserts end-to-end wiring.
 
-    run_probe "add_note + list_notes round-trip" "list_notes" '{"entity_name":"TestApp.OrderService"}' "
+    # Attach a note first, then list — a real round-trip, not an empty read.
+    call_probe "attach_note_to_node" '{"entity_name":"TestApp.OrderService","note_text":"runtime-test probe note"}' >/dev/null 2>&1 || true
+    run_probe "attach_note + get_notes round-trip" "get_notes" '{"node_name":"TestApp.OrderService"}' "
 import json,sys
 try:
     d=json.loads(sys.stdin.read())
@@ -387,7 +399,8 @@ try:
         print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         notes=r.get('notes',[]) or []
-        print(f'OK ({len(notes)} notes)')
+        hit=any('runtime-test probe note' in str(n) for n in notes)
+        print(f'OK ({len(notes)} notes, probe note found={hit})')
 except Exception as e:
     print(f'ERROR: parse: {e}')
 "
@@ -400,8 +413,9 @@ try:
         print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
-        types=r.get('entity_type_counts',{}) or {}
-        print(f'OK ({sum(types.values())} entities across {len(types)} types)')
+        types=r.get('nodes_by_type',{}) or {}
+        total=r.get('total_nodes',0)
+        print(f'OK ({total} entities across {len(types)} types)')
 except Exception as e:
     print(f'ERROR: parse: {e}')
 "
@@ -414,10 +428,11 @@ try:
         print(f\"ERROR: {d.get('error','unknown')}\")
     else:
         r=d.get('result',{})
-        ents=len(r.get('entities',[]) or [])
+        nodes=len(r.get('nodes',[]) or [])
+        total=r.get('total_nodes',0)
         truncated=r.get('truncated', False)
         flag=' (truncated)' if truncated else ''
-        print(f'OK ({ents} nodes{flag})')
+        print(f'OK ({nodes}/{total} nodes{flag})')
 except Exception as e:
     print(f'ERROR: parse: {e}')
 "
