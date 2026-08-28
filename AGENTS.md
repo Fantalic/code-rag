@@ -29,6 +29,34 @@ diagnostics are emitted to `_coverage.txt` (parser → COVERAGE entities →
 `_changelog.txt` (parser → CHANGELOG entities → `what_changed` MCP tool).
 Canonical-file overrides for partial classes read `$WORKSPACE_ROOT/.coderag/duplicates.json` (`WORKSPACE_ROOT=...`).
 
+```bash
+# Building Zig analyser (canonical location, already on the .gitignore list).
+# Same lookup contract as the C# binary; no extra copy required.
+cd coderag/cli/analysers/zig && go build -o zig_analyser.exe ./cmd/zig_analyser/
+# Set ZIG_ANALYSER_PATH for non-canonical installs.
+```
+
+The Zig analyser mirrors the C# analyser exactly: nested module at
+`coderag/cli/analysers/zig` with cgo (`CGO_ENABLED=1` + gcc), tree-sitter
+v0.25.0 + `tree-sitter-grammars/tree-sitter-zig v1.1.2`. Output format is **2**
+with the same headers, sidecars, and entity/relation schemas as C#. There is
+no `.sln`/`.csproj` analogue — pass `--dir <project>` to `zig_analyser scan`;
+the pipeline walks up from the changed `.zig` file looking for a `build.zig`
+to use as the project root. Coverage + changelog sidecars and the
+`index_coverage`/`what_changed` MCP tools work the same way as for C#.
+Visibility is the `pub` keyword; only pub symbols populate the EXPORTS header.
+Test bodies do NOT produce CALL relations (avoids noise from
+verification scaffolding).
+
+```bash
+# Production flow: the single `coderag` CLI dispatches by project type.
+#   *.sln    -> C# path: RunCSharpAnalyser + applyScanResults
+#   build.zig -> Zig path: RunZigAnalyser     + ApplyZigScanResults
+# No separate `zig_ingest` binary is needed in production.
+coderag scan E:\_dev\_Projects\raylib\IsoEngine        # auto-detects build.zig
+coderag scan E:\_dev\_Projects\TestApp                 # auto-detects *.sln
+```
+
 The `scripts/dev/runtime-test.sh` script (POSIX sh, cross-platform) automates the full runtime test:
 - Stop existing Docker services, rebuild image, restart with correct WORKSPACE
 - Wait for LightRAG health

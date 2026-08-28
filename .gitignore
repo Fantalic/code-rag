@@ -97,6 +97,11 @@ neo4jWorkDir/
 analysers/c_sharp/
 /coderag/cli/analysers/csharp/csharp_analyser.exe
 
+# Zig Analyser
+/coderag/cli/analysers/zig/zig_analyser.exe
+/coderag/cli/analysers/zig/ast_dump.exe
+/coderag/cli/analysers/zig/dumper.exe
+
 # Moved outside repo
 test-csharp-project/
 

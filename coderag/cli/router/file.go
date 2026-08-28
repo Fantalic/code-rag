@@ -6,7 +6,8 @@ import (
 )
 
 var extensionMap = map[string]string{
-	".cs": "c_sharp",
+	".cs":  "c_sharp",
+	".zig": "zig",
 }
 
 func GetAnalyser(extension string) string {

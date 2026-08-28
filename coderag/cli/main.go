@@ -1009,7 +1009,29 @@ func scanCmd(c *cli.Context) error {
 	defer rep.Close()
 	restoreRep := status.SetDefault(rep)
 	defer restoreRep()
-	rep.Stage("scan", "scan started: %s%s", inputDir, map[bool]string{true: " (--clean)", false: ""}[clean])
+
+	// Dispatch by project type: .sln → C#, build.zig → Zig. The whole
+	// scan path (analyser invocation, parser, LightRAG ingest) flows
+	// through the `coderag` CLI binary — no separate executables need
+	// to be invoked by the user.
+	sln := findSolutionFile(inputDir)
+	if sln != "" {
+		return scanCSharpProject(inputDir, ws, sln, analyserOut, clean, client, rep)
+	}
+
+	zigRoot := findZigBuildFile(inputDir)
+	if zigRoot != "" {
+		return scanZigProject(inputDir, ws, zigRoot, analyserOut, clean, client, rep)
+	}
+
+	rep.Error("scan", "no .sln or build.zig found in %s", inputDir)
+	return fmt.Errorf("no .sln or build.zig found in %s — codeRAG supports C# solutions and Zig projects (build.zig)", inputDir)
+}
+
+// scanCSharpProject is the original C# scan path: one .sln → one
+// RunCSharpAnalyser call → one applyScanResults call.
+func scanCSharpProject(inputDir, ws, sln, analyserOut string, clean bool, client *crud.Config, rep *status.Reporter) error {
+	rep.Stage("scan", "scan started (csharp): %s%s", inputDir, map[bool]string{true: " (--clean)", false: ""}[clean])
 	pushProjectStart(inputDir, ws, "csharp", client.BaseURL)
 
 	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
@@ -1017,13 +1039,6 @@ func scanCmd(c *cli.Context) error {
 		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
 	}
 
-	log.Printf("Scanning %s for C# solution files...", inputDir)
-
-	sln := findSolutionFile(inputDir)
-	if sln == "" {
-		rep.Error("scan", "no .sln file found in %s", inputDir)
-		return fmt.Errorf("no .sln file found in %s", inputDir)
-	}
 	log.Printf("Found solution: %s", sln)
 	rep.Detail("analyse", sln, "solution found")
 
@@ -1056,8 +1071,63 @@ func scanCmd(c *cli.Context) error {
 		rep.Done("scan complete: knowledge graph now contains %d entities", len(stats))
 	}
 
-	// Push final project state to the host-CLI registry + the WebUI mirror
 	if err := pushProjectDone(ws, inputDir, "csharp", client.BaseURL, scan, "idle", fmt.Sprintf("scan complete: %d entities", len(stats))); err != nil {
+		log.Printf("Warning: failed to publish project state: %v", err)
+	}
+
+	return nil
+}
+
+// scanZigProject is the Zig scan path: build.zig marks the project root
+// → one RunZigAnalyser call walks the whole project → one
+// applyZigResults call ingests all .txt sidecars into LightRAG.
+func scanZigProject(inputDir, ws, projectDir, analyserOut string, clean bool, client *crud.Config, rep *status.Reporter) error {
+	rep.Stage("scan", "scan started (zig): %s%s", inputDir, map[bool]string{true: " (--clean)", false: ""}[clean])
+	pushProjectStart(inputDir, ws, "zig", client.BaseURL)
+
+	log.Printf("Setting workspace to '%s' for project %s", ws, inputDir)
+	if err := client.SetWorkspace(ws); err != nil {
+		log.Printf("Warning: failed to set workspace: %v (continuing with default)", err)
+	}
+
+	log.Printf("Found Zig project root: %s", projectDir)
+	rep.Detail("analyse", projectDir, "Zig project root")
+
+	log.Printf("Running Zig analyser...")
+	results, err := pipeline.RunZigAnalyser(projectDir, analyserOut)
+	if err != nil {
+		rep.Error("analyse", "Zig analyser failed: %v", err)
+		return fmt.Errorf("Zig analyser failed: %w", err)
+	}
+	if len(results) == 0 {
+		rep.Error("analyse", "Zig analyser produced no output for %s", projectDir)
+		return fmt.Errorf("Zig analyser produced no output for %s", projectDir)
+	}
+	log.Printf("Zig analyser produced %d output files", len(results))
+	rep.Counts("analyse", map[string]int{"files": len(results)})
+
+	log.Printf("Applying results to knowledge graph...")
+	if err := pipeline.ApplyZigScanResults(client, projectDir, results); err != nil {
+		rep.Error("crud", "failed to apply Zig scan results: %v", err)
+		return fmt.Errorf("failed to apply Zig scan results: %w", err)
+	}
+
+	stats, err := client.GetAllEntities()
+	if err != nil {
+		log.Printf("Scan complete (could not get entity count: %v)", err)
+		rep.Done("scan complete")
+	} else {
+		log.Printf("Scan complete. Knowledge graph now contains %d entities", len(stats))
+		rep.Done("scan complete: knowledge graph now contains %d entities", len(stats))
+	}
+
+	// Build a minimal scanStats for the project registry (counts come
+	// from the analyse/apply logs above).
+	scan := scanStats{
+		Files:           len(results),
+		EntitiesCreated: len(stats),
+	}
+	if err := pushProjectDone(ws, inputDir, "zig", client.BaseURL, scan, "idle", fmt.Sprintf("scan complete: %d entities", len(stats))); err != nil {
 		log.Printf("Warning: failed to publish project state: %v", err)
 	}
 
@@ -1070,6 +1140,25 @@ func findSolutionFile(inputDir string) string {
 		matches, _ := filepath.Glob(filepath.Join(dir, "*.sln"))
 		if len(matches) > 0 {
 			return matches[0]
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+// findZigBuildFile walks up from inputDir looking for a build.zig
+// marker that identifies the Zig project root. Returns "" if none
+// found within 10 levels.
+func findZigBuildFile(inputDir string) string {
+	dir := inputDir
+	for i := 0; i < 10; i++ {
+		matches, _ := filepath.Glob(filepath.Join(dir, "build.zig"))
+		if len(matches) > 0 {
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
