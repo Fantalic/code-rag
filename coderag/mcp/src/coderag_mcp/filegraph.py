@@ -127,11 +127,62 @@ class FileGraph:
         return sorted(cycles, key=lambda c: c[0])
 
 
+def _resolve_import_file(
+    importer_file: str, import_path: str, known_files: list[str]
+) -> str | None:
+    """Resolve a Zig `@import("…")` target to a known project file.
+
+    The import target is relative to the importing file's directory (Zig
+    resolves import paths relative to the importing file) and usually
+    omits the `.zig` extension. Returns the canonical known file path on
+    an exact match, falling back to a unique basename match.
+    """
+    importer_dir = importer_file.replace("\\", "/").rsplit("/", 1)[0]
+    target = import_path.strip().strip('"')
+    if not target:
+        return None
+    # Skip std-lib / package imports ("std", "raylib", "raygui") that
+    # never resolve to a project file.
+    if "/" not in target and "." not in target:
+        return None
+    if not target.endswith(".zig"):
+        target += ".zig"
+    combined = target if target.startswith("/") else f"{importer_dir}/{target}"
+    # Normalize "." and ".." segments without filesystem access.
+    segments: list[str] = []
+    for part in combined.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if segments:
+                segments.pop()
+            continue
+        segments.append(part)
+    norm = "/".join(segments)
+
+    known_norm = {f.replace("\\", "/"): f for f in known_files}
+    if norm in known_norm:
+        return known_norm[norm]
+    # Fallback: unique basename match (handles path-prefix differences).
+    base = norm.rsplit("/", 1)[-1]
+    candidates = [f for f in known_files if f.replace("\\", "/").rsplit("/", 1)[-1] == base]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
 def build_file_graph(
     nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
 ) -> FileGraph:
-    """Build a FileGraph from raw LightRAG graph nodes and edges."""
+    """Build a FileGraph from raw LightRAG graph nodes and edges.
+
+    Cross-file references come from two sources:
+      1. relation edges between entities in different files, and
+      2. IMPORT entities (Zig `@import` / `usingnamespace`), which are
+         nodes rather than edges — resolved via `_resolve_import_file`.
+    """
     fg = FileGraph()
+    importer_by_name: dict[str, str] = {}
     for node in nodes:
         node_id = _node_id(node)
         file_path = _node_file_path(node)
@@ -139,17 +190,33 @@ def build_file_graph(
             continue
         fg.entity_file[node_id] = file_path
         fg.file_entities[file_path].append(node_id)
+        props = node.get("properties") or {}
+        if (props.get("entity_type") or "").upper() == "IMPORT":
+            importer_by_name[node_id] = file_path
 
-    for edge in edges:
-        src, tgt = _edge_endpoints(edge)
-        file_src = fg.entity_file.get(src)
-        file_tgt = fg.entity_file.get(tgt)
+    fg.files = sorted(fg.file_entities.keys())
+
+    def _add_ref(file_src: str, file_tgt: str) -> None:
         if not file_src or not file_tgt or file_src == file_tgt:
-            continue
+            return
         if file_tgt not in fg.refs[file_src]:
             fg.refs[file_src].append(file_tgt)
         if file_src not in fg.deps[file_tgt]:
             fg.deps[file_tgt].append(file_src)
 
-    fg.files = sorted(fg.file_entities.keys())
+    for edge in edges:
+        src, tgt = _edge_endpoints(edge)
+        _add_ref(fg.entity_file.get(src, ""), fg.entity_file.get(tgt, ""))
+
+    # Resolve IMPORT entities into file references. The import name is
+    # stored as "import:<path>"; the entity's own file_path is the
+    # importing file.
+    for name, importer_file in importer_by_name.items():
+        target = name
+        if target.lower().startswith("import:"):
+            target = target[len("import:"):]
+        target_file = _resolve_import_file(importer_file, target, fg.files)
+        if target_file:
+            _add_ref(importer_file, target_file)
+
     return fg

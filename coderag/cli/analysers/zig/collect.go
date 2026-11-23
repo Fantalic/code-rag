@@ -23,6 +23,12 @@ type ProjectCoverage struct {
 	ProjectDir  string
 	SourceFiles []string
 	Warnings    []string
+	// Skipped holds per-file skip entries of the form "path: reason"
+	// (parse failures etc.). Empty when every discovered file parsed.
+	Skipped []string
+	// ScannedAt is the unix timestamp of the scan that produced this
+	// report, so `index_coverage` can surface freshness.
+	ScannedAt int64
 }
 
 // CoverageKey is the stable identifier written into COVERAGE rows.

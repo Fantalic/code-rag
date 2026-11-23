@@ -753,3 +753,80 @@ class TestSpanLifting:
         assert e.start_line == 12
         assert e.end_line == 48
         assert e.canonical is False
+
+
+class TestGraphLanguage:
+    """Language detection + language-aware type vocabularies."""
+
+    def test_graph_language_detection(self):
+        from coderag_mcp.client import _graph_language
+
+        zig_nodes = [
+            {"properties": {"entity_type": "FUNCTION"}},
+            {"properties": {"entity_type": "STRUCT"}},
+        ]
+        assert _graph_language(zig_nodes) == "zig"
+        csharp_nodes = [
+            {"properties": {"entity_type": "CLASS"}},
+            {"properties": {"entity_type": "METHOD"}},
+            {"properties": {"entity_type": "ENUM"}},
+        ]
+        assert _graph_language(csharp_nodes) == "csharp"
+        assert _graph_language([]) == "csharp"
+
+    def test_type_vocabularies(self):
+        from coderag_mcp.client import _member_types, _top_level_types
+
+        zig_top = _top_level_types("zig")
+        assert "UNION" in zig_top and "OPAQUE" in zig_top and "ERROR_SET" in zig_top
+        assert "CLASS" not in zig_top
+        zig_members = _member_types("zig")
+        assert "FUNCTION" in zig_members and "CONST" in zig_members
+        assert "METHOD" not in zig_members
+
+    @pytest.mark.asyncio
+    async def test_zig_dead_code(self):
+        # A Zig function with no `[pub]` suffix is private by construction
+        # and should be reported as dead when unreferenced + unexported.
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "AtomSim.internal",
+                    "name": "AtomSim.internal",
+                    "properties": {
+                        "entity_type": "FUNCTION",
+                        "entity_name": "AtomSim.internal",
+                        "file_path": "src/atom_sim.zig",
+                        "description": "fn internal",
+                    },
+                },
+                {
+                    "id": "AtomSim.pub",
+                    "name": "AtomSim.pub",
+                    "properties": {
+                        "entity_type": "FUNCTION",
+                        "entity_name": "AtomSim.pub",
+                        "file_path": "src/atom_sim.zig",
+                        "description": "fn pub [pub]",
+                    },
+                },
+                {
+                    "id": "atom_sim:EXPORTS",
+                    "name": "atom_sim:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "src/atom_sim.zig",
+                        "description": "AtomSim.pub [MTIME=1700000000]",
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        names = {e.name for e in resp.entities}
+        # private (no [pub]) + not exported -> dead
+        assert "AtomSim.internal" in names
+        # pub + exported -> alive
+        assert "AtomSim.pub" not in names

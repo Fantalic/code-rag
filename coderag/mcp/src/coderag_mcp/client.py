@@ -146,6 +146,71 @@ def _find_entity_node_key(node: dict[str, Any]) -> str:
     return f"{fp}|{_node_display_name(node)}"
 
 
+# Entity-type vocabularies per language. The C# analyser and the Zig
+# analyser store different `entity_type` strings for the same concept,
+# so depth filtering and type documentation must be language-aware.
+
+_ZIG_ONLY_TYPES = frozenset(
+    {
+        "FUNCTION",
+        "CONST",
+        "VAR",
+        "ERROR_SET",
+        "UNION",
+        "OPAQUE",
+        "ENUM_MEMBER",
+        "EXPORTS",
+        "IMPORT",
+        "TEST",
+    }
+)
+_CSHARP_ONLY_TYPES = frozenset(
+    {"CLASS", "NAMESPACE", "METHOD", "PROPERTY", "INTERFACE"}
+)
+
+# Entity types that are not code symbols — metadata emitted alongside the
+# real entities. `dead_code` ignores them so COVERAGE reports, imports,
+# test declarations, and agent notes don't show up as "dead symbols".
+_NON_SYMBOL_TYPES = frozenset(
+    {"EXPORTS", "COVERAGE", "CHANGELOG", "IMPORT", "USING", "TEST", "NOTE"}
+)
+
+
+def _graph_language(nodes: list[dict[str, Any]]) -> str:
+    """Infer the analysed language from the entity types present.
+
+    A workspace holds one project at a time, so a graph is either C# or
+    Zig; STRUCT/ENUM are shared, but each language has signature types
+    that never appear in the other. Returns "zig" or "csharp" (the
+    latter is the fallback for an empty/unknown graph).
+    """
+    zig = 0
+    csharp = 0
+    for node in nodes:
+        ntype = ((node.get("properties") or {}).get("entity_type") or "").upper()
+        if ntype in _ZIG_ONLY_TYPES:
+            zig += 1
+        elif ntype in _CSHARP_ONLY_TYPES:
+            csharp += 1
+    if zig > csharp:
+        return "zig"
+    return "csharp"
+
+
+def _top_level_types(lang: str) -> set[str]:
+    """Container/type entities for a given language (depth-1 view)."""
+    if lang == "zig":
+        return {"STRUCT", "ENUM", "UNION", "OPAQUE", "ERROR_SET"}
+    return {"CLASS", "INTERFACE", "STRUCT", "ENUM", "NAMESPACE"}
+
+
+def _member_types(lang: str) -> set[str]:
+    """Member entities for a given language (added at depth-2)."""
+    if lang == "zig":
+        return {"FUNCTION", "CONST", "VAR", "ENUM_MEMBER"}
+    return {"METHOD", "PROPERTY"}
+
+
 # Custom Exception Hierarchy
 class LightRAGError(Exception):
     """Base exception for LightRAG client errors."""
@@ -351,8 +416,9 @@ class LightRAGClient:
         if max_depth >= 3:
             return result
 
-        top_level_types = {"CLASS", "INTERFACE", "STRUCT", "ENUM", "NAMESPACE"}
-        member_types = {"METHOD", "PROPERTY"}
+        lang = _graph_language(result.nodes)
+        top_level_types = _top_level_types(lang)
+        member_types = _member_types(lang)
 
         if max_depth == 1:
             keep_types = top_level_types
@@ -383,21 +449,35 @@ class LightRAGClient:
         return result
 
     def summarize_graph(
-        self, graph: GraphResponse, max_depth: int
+        self,
+        graph: GraphResponse,
+        max_depth: int,
+        all_nodes: Optional[list[dict[str, Any]]] = None,
     ) -> "GraphSummaryResponse":
         """Counts-first view of a (already depth-filtered) graph.
 
         Lets agents size up the codebase without receiving every node.
+        `all_nodes` (the unfiltered node list) is used when available so
+        `files_indexed` reflects every source file with any entity, not
+        just the depth-visible ones.
         """
         nodes_by_type: dict[str, int] = {}
         files_indexed: set[str] = set()
-        for node in graph.nodes:
+        for node in (all_nodes if all_nodes is not None else graph.nodes):
             props = node.get("properties") or {}
             ntype = props.get("entity_type") or "UNKNOWN"
-            nodes_by_type[ntype] = nodes_by_type.get(ntype, 0) + 1
+            # Node counts stay scoped to the depth-filtered graph; only
+            # the file tally runs over the full set.
+            if all_nodes is None:
+                nodes_by_type[ntype] = nodes_by_type.get(ntype, 0) + 1
             fp = node.get("file_path") or props.get("file_path", "")
             if fp:
                 files_indexed.add(fp)
+        if all_nodes is not None:
+            for node in graph.nodes:
+                props = node.get("properties") or {}
+                ntype = props.get("entity_type") or "UNKNOWN"
+                nodes_by_type[ntype] = nodes_by_type.get(ntype, 0) + 1
 
         edges_by_keyword: dict[str, int] = {}
         visible = {n.get("id") or n.get("name", "") for n in graph.nodes}
@@ -1388,7 +1468,7 @@ class LightRAGClient:
         )
 
     _VIS_SUFFIX_RE = re.compile(
-        r"\[(public|private|internal|protected|protected internal)\]\s*$"
+        r"\[(public|private|internal|protected|protected internal|pub)\]\s*$"
     )
 
     async def find_dead_code(
@@ -1435,9 +1515,10 @@ class LightRAGClient:
             )
 
         etype_filter = entity_type.strip().lower()
+        lang = _graph_language(graph.nodes)
 
         # Build per-file EXPORTS map and per-file mtime map from the
-        # EXPORTS metadata entities emitted by the C# walker.
+        # EXPORTS metadata entities emitted by the C#/Zig walker.
         exports_by_file: dict[str, set[str]] = {}
         mtime_by_file: dict[str, int] = {}
         for n in graph.nodes:
@@ -1450,17 +1531,15 @@ class LightRAGClient:
             if not fp:
                 continue
             desc = props.get("description") or n.get("description") or ""
-            exports = {
-                name.strip()
-                for name in desc.split(",")
-                if name.strip() and "[MTIME=" not in name
-            }
-            # Strip the [MTIME=...] tail that may be glued onto the
-            # last export name.
-            exports = {
-                re.sub(r"\s*\[MTIME=\d+\]\s*$", "", name).strip() for name in exports
-            }
-            exports_by_file[fp] = {x for x in exports if x}
+            # Split the export list and strip the [MTIME=...] tail that
+            # is glued onto the last name BEFORE filtering, so a file
+            # whose only export is that last entry doesn't lose it.
+            exports = set()
+            for name in desc.split(","):
+                name = re.sub(r"\s*\[MTIME=\d+\]\s*$", "", name).strip()
+                if name:
+                    exports.add(name)
+            exports_by_file[fp] = exports
             m = re.search(r"\[MTIME=(\d+)\]", desc)
             if m:
                 try:
@@ -1518,7 +1597,7 @@ class LightRAGClient:
         for n in graph.nodes:
             props = n.get("properties") or {}
             node_type = props.get("entity_type") or ""
-            if node_type.upper() == "EXPORTS":
+            if node_type.upper() in _NON_SYMBOL_TYPES:
                 continue
             if etype_filter and node_type.lower() != etype_filter:
                 continue
@@ -1537,7 +1616,11 @@ class LightRAGClient:
 
             vis_match = self._VIS_SUFFIX_RE.search(description)
             visibility = vis_match.group(1) if vis_match else ""
-            if not visibility:
+            if lang == "zig":
+                # Zig public-ness is the `pub` keyword only; a symbol
+                # without a `[pub]` suffix is private by construction.
+                visibility = "public" if visibility == "pub" else "private"
+            elif not visibility:
                 # Unknown visibility -> exclude (safer than guessing).
                 continue
 

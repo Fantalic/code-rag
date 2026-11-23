@@ -118,45 +118,50 @@ bodies, suppressing call edges from verification scaffolding.
 
 ## Cross-file Call Resolution
 
-Cross-file call resolution uses a `GlobalIndex` built up while files are
-parsed in parallel:
+Cross-file call resolution uses a `GlobalIndex` built up front from every
+file (types + free functions + methods). Zig method dispatch needs type
+information the index does not track, so resolution is deliberately
+conservative and only emits edges whose target is a real, fully-qualified
+node:
 
-1. After every file is parsed, `IndexBuilder.AddFile` registers its
-   exports under the basename (e.g. `place` → `OrderService.place`).
-2. While walking the next file, when a `field_expression`
-   (`svc.place`) is encountered, the parser looks up `place` in
-   `index.SimpleNames` and picks the candidate whose owner matches
-   the local identifier `svc`. Candidates without a matching owner
-   fall back to the first hit (or are dropped if disambiguation
-   fails).
-3. The call edge is emitted as
-   `CALL|file|method|callee|owner|line`.
+1. `foo(...)` — a bare identifier. Resolved only when `foo` is a unique
+   file-scope free function (owner == "").
+2. `Type.foo(...)` — a field access whose object is a simple identifier
+   naming a KNOWN type in the index. Resolved to `Type.foo` when that
+   method exists.
+3. `alias.foo(...)` — a field access whose object is not a type but a
+   module alias (`const m = @import(...)`). Resolved to `foo` when `foo`
+   is a unique free function (`solver.applyLinearDamping(...)`).
+4. Everything else — local-variable/parameter receivers (`world.step()`,
+   `svc.place()`), chained receivers (`self.cells.deinit()`), test bodies —
+   is dropped. Guessing here produced spurious cross-file edges (e.g. a
+   bare `deinit` call resolving to an unrelated free `deinit` in another
+   file).
 
-Simple-name resolution works for the common "one function name per
-project" case but cannot disambiguate shadowed names across distinct
-owners without first parsing the receiving field. That's the same
-limit the C# analyser has — both rely on per-file cross-checks at
-the language-layer downstream.
+The **qualified** callee name is written into the `CALL` row so the
+resulting relation target always matches an actual entity node. `CALL`
+rows are `CALL|CallerFile|CallerMethod|QualifiedCallee|OwnerType|LineNo`
+and reify into `Relation{Source: CallerMethod, Target: QualifiedCallee,
+Keywords: "calls"}`.
 
 ## Coverage Sidecar
 
 Every scan writes `_coverage.txt` next to the per-file `.txt`
-sidecars. The format matches the C# analyser's:
+sidecars. One JSON per project:
 
 ```
-# COVERAGE
-project_dir=/path/to/ZigApp
-files_visited=4
-files_with_warnings=0
-files_failed=0
-files=src/main.zig,src/order.zig,src/inventory.zig,src/order_service.zig
-warnings_per_file=
-summary={"files":4,"warnings":"-"}
+COVERAGE|.|{"files":4,"skipped":["src/broken.zig: parse error: ..."],"scanned_at":1788012683,"warnings":"-"}
 ```
+
+`files` is the discovered source-file count, `skipped` lists per-file
+skips with reasons (parse/write failures — empty when every file was
+indexed), and `scanned_at` is the unix timestamp of the scan. The
+`index_coverage` MCP tool reads these COVERAGE entities and surfaces the
+skip list + a readable `scanned_at_utc`, so silent coverage gaps become
+visible instead of reporting "skipped: 0".
 
 `parser.ParseZigFile` reads `COVERAGE|<key>|<json>` lines and emits
-`COVERAGE:<key>` entities so the `index_coverage` MCP tool can list
-parser gaps without grepping the sidecar directly.
+`COVERAGE:<key>` entities without per-tool parsers.
 
 ## Changelog Sidecar
 

@@ -137,11 +137,16 @@ func (p *Parser) emitFileMetadata() {
 }
 
 // fileExportsEntityName is the stable canonical name for the per-file
-// EXPORTS entity: "<basename-no-ext>:EXPORTS".
+// EXPORTS entity. The slash-normalised full path is used (not the bare
+// basename) so two files that share a basename under different
+// directories — e.g. src/world.zig vs src/physics/world.zig — do NOT
+// collapse into a single EXPORTS metadata entity during the per-name
+// merge step. The downstream `dead_code` tool keys these by `file_path`,
+// not by name, so the longer name is invisible to consumers.
 func fileExportsEntityName(filePath string) string {
-	base := filepath.Base(filePath)
-	base = strings.TrimSuffix(base, filepath.Ext(base))
-	return base + ":EXPORTS"
+	p := filepath.ToSlash(filePath)
+	p = strings.TrimSuffix(p, filepath.Ext(p))
+	return p + ":EXPORTS"
 }
 
 func (p *Parser) addEntity(e Entity) {

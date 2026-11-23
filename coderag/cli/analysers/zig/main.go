@@ -93,14 +93,25 @@ func runScan(projectDir string, outputCfg *OutputConfig) error {
 		return fmt.Errorf("build index: %w", err)
 	}
 
+	// Record the scan timestamp and any per-file parse failures into the
+	// coverage report so `index_coverage` can surface them instead of
+	// silently claiming "skipped: 0".
+	coverage.Projects[0].ScannedAt = nowUnix()
+
 	for _, fp := range files {
 		fr, err := ParseFile(fp, index)
 		if err != nil {
+			rel, _ := filepath.Rel(projectDir, fp)
+			coverage.Projects[0].Skipped = append(
+				coverage.Projects[0].Skipped, rel+": "+err.Error())
 			fmt.Fprintf(os.Stderr, "warning: parse %s: %v\n", fp, err)
 			continue
 		}
 		path, err := outputCfg.WriteFileResult(fr)
 		if err != nil {
+			rel, _ := filepath.Rel(projectDir, fp)
+			coverage.Projects[0].Skipped = append(
+				coverage.Projects[0].Skipped, rel+": write failed: "+err.Error())
 			fmt.Fprintf(os.Stderr, "warning: write %s: %v\n", fp, err)
 			continue
 		}

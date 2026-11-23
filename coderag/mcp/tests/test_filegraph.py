@@ -109,3 +109,39 @@ def test_resolve_file():
     assert fg.resolve_file("OrderService") == "OrderService.cs"
     assert fg.resolve_file("Service.cs") == "OrderService.cs"
     assert fg.resolve_file("Missing.cs") is None
+
+
+def _import_node(importer: str, target: str) -> dict:
+    return {
+        "id": f"import:{target}",
+        "name": f"import:{target}",
+        "properties": {
+            "entity_id": f"import:{target}",
+            "entity_type": "IMPORT",
+            "description": f'@import("{target}")',
+            "file_path": importer,
+        },
+    }
+
+
+def test_import_entities_become_file_refs():
+    # Zig @import statements are IMPORT entities, not edges; the file
+    # graph must resolve them into file -> file references.
+    nodes = [
+        _node("World", "src/world.zig"),
+        _node("VoxelModel", "src/voxel_model.zig"),
+        _node("AtomSim", "src/atom/atom_sim.zig"),
+        _import_node("src/atom/atom_sim.zig", "../world.zig"),
+        _import_node("src/atom/atom_sim.zig", "world.zig"),
+        _import_node("src/atom/atom_sim.zig", "../voxel_model.zig"),
+        _import_node("src/atom/atom_sim.zig", "std"),
+    ]
+    fg = build_file_graph(nodes, [])
+    # std (package, no path/extension) and the mismatched "world.zig"
+    # (relative to src/atom, which is not a real file) do not resolve.
+    assert fg.references("src/atom/atom_sim.zig") == [
+        "src/voxel_model.zig",
+        "src/world.zig",
+    ]
+    assert fg.dependents("src/world.zig") == ["src/atom/atom_sim.zig"]
+    assert fg.dependents("src/voxel_model.zig") == ["src/atom/atom_sim.zig"]

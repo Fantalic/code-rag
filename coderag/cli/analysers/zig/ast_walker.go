@@ -197,6 +197,13 @@ func (p *Parser) handleVariable(n *sitter.Node, parentType string) string {
 		} else {
 			p.handleInlineTypeDecl(inlineType, qualified, vis)
 		}
+	} else if p.hasImportInitializer(n) {
+		// `const X = @import("...")` / `.Foo` is a name binding, not a
+		// definition: the import itself is captured as an IMPORT entity
+		// by the RHS walk below. Emitting a CONST here would create a
+		// duplicate "X" that collides with the real type defined in the
+		// imported file (e.g. `const Builder = @import("model_sdk.zig")
+		// .Builder` shadowing the `Builder` struct).
 	} else {
 		p.addEntity(Entity{
 			Name:        qualified,
@@ -273,6 +280,55 @@ func isInlineTypeKind(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// hasImportInitializer reports whether a variable_declaration's RHS is
+// an `@import` binding (`const X = @import("foo")[...]`), whose name is
+// a module alias rather than a real definition.
+func (p *Parser) hasImportInitializer(vd *sitter.Node) bool {
+	sawIdent := false
+	for i := uint(0); i < vd.NamedChildCount(); i++ {
+		c := vd.NamedChild(i)
+		if c == nil {
+			continue
+		}
+		if !sawIdent {
+			if c.Kind() == "identifier" {
+				sawIdent = true
+			}
+			continue
+		}
+		return p.exprRootedInImport(c)
+	}
+	return false
+}
+
+// exprRootedInImport returns true when an expression is an @import
+// builtin, possibly followed by field accesses (`.Foo`).
+func (p *Parser) exprRootedInImport(expr *sitter.Node) bool {
+	for expr != nil {
+		switch expr.Kind() {
+		case "builtin_function":
+			return p.builtinName(expr) == "import"
+		case "field_expression":
+			expr = p.field(expr, "object")
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// builtinName returns the identifier of a builtin_function (e.g.
+// "@import" -> "import"), or "".
+func (p *Parser) builtinName(n *sitter.Node) string {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		if c != nil && c.Kind() == "builtin_identifier" {
+			return strings.TrimPrefix(p.text(c), "@")
+		}
+	}
+	return ""
 }
 
 // handleTest processes `test "name" { ... }`.
@@ -653,14 +709,15 @@ func (p *Parser) walkExpression(n *sitter.Node) {
 	switch n.Kind() {
 	case "call_expression":
 		p.handleCallExpression(n)
-		p.walkExpression(p.field(n, "function"))
-		// Also walk the argument list so nested calls are detected.
-		if args := findChildByKind(n, "arguments"); args != nil {
-			for i := uint(0); i < args.NamedChildCount(); i++ {
-				c := args.NamedChild(i)
-				if c != nil {
-					p.walkExpression(c)
-				}
+		// Walk the callee AND every argument. Zig's grammar has no
+		// dedicated "arguments" wrapper — arguments are direct named
+		// children — so a nested call like
+		// `print("x", .{ OrderService.highestId(inv) })` is only found
+		// by walking all children here.
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			c := n.NamedChild(i)
+			if c != nil {
+				p.walkExpression(c)
 			}
 		}
 	case "field_expression":
@@ -733,68 +790,90 @@ func (p *Parser) walkExpression(n *sitter.Node) {
 	}
 }
 
-// handleCallExpression resolves a `callee(args)` site. Resolution
-// order:
-//  1. If the callee is a field expression `obj.name`, look it up as
-//     `obj.name` in the field index.
-//  2. If the callee is a plain identifier, look it up as a free
-//     function in the index.
-//  3. Otherwise drop the call (no phantom UNKNOWN edges).
+// handleCallExpression resolves a `callee(args)` site to a fully
+// qualified callee. Zig method dispatch needs type information the
+// index does not track, so resolution is deliberately conservative:
+//
+//  1. `foo(...)` — a bare identifier. Resolved only when `foo` is a
+//     unique file-scope free function (owner == ""), e.g.
+//     `applyLinearDamping(...)` in solver.zig.
+//  2. `Type.foo(...)` — a field access whose object is a simple
+//     identifier naming a KNOWN type in the index. Resolved to
+//     `Type.foo` when that method exists in the index, e.g.
+//     `OrderService.highestId(inv)`.
+//  3. Anything else (`self.x.foo()`, local vars, `svc.place()`) is
+//     dropped: guessing here produced spurious cross-file edges (e.g.
+//     `self.cells.deinit()` resolving to an unrelated free `deinit`).
+//
+// The qualified callee name is emitted so the resulting relation
+// target matches an actual entity node instead of dangling.
 func (p *Parser) handleCallExpression(n *sitter.Node) {
 	if n == nil {
 		return
 	}
-	fnNode := p.field(n, "function")
-	callee := ""
-	owner := ""
 
-	switch fnNode.Kind() {
-	case "identifier":
-		callee = p.text(fnNode)
-	case "field_expression":
-		callee = p.text(p.field(fnNode, "member"))
-		obj := p.field(fnNode, "object")
-		if obj != nil && obj.Kind() == "identifier" {
-			owner = p.text(obj)
-		}
-	case "builtin_function":
-		// @import("std") etc. — handled by handleBuiltinCall.
-		p.handleBuiltinCall(n)
-		return
-	}
-
-	if callee == "" {
-		return
-	}
-
-	// Suppress calls that resolve to a local name.
-	if _, isLocal := p.scope.LookupLocal(callee); isLocal {
-		return
-	}
-
-	// Suppress calls inside test bodies.
+	// Suppress calls inside test bodies before any resolution work.
 	if p.isInsideTest > 0 {
 		return
 	}
 
-	resolved := ""
-	if p.index != nil {
-		if owner != "" {
-			if cands, ok := p.index.Fields[owner+"."+callee]; ok && len(cands) > 0 {
-				resolved = cands[0].FilePath
-			} else if matches, ok := p.index.SimpleNames[callee]; ok && len(matches) == 1 {
-				resolved = matches[0]
-			}
-		} else {
-			if matches, ok := p.index.SimpleNames[callee]; ok && len(matches) == 1 {
-				resolved = matches[0]
-			} else if cands, ok := p.index.Functions[callee]; ok && len(cands) == 1 {
-				resolved = cands[0].FilePath
-			}
-		}
+	fnNode := p.field(n, "function")
+	if fnNode == nil {
+		return
 	}
 
-	if resolved == "" {
+	// resolvedName is the fully-qualified callee; resolvedFile its file.
+	resolvedName := ""
+	resolvedFile := ""
+	owner := ""
+
+	switch fnNode.Kind() {
+	case "identifier":
+		callee := p.text(fnNode)
+		if callee != "" && !p.isLocalName(callee) && p.index != nil {
+			if cands, ok := p.index.Functions[callee]; ok && len(cands) == 1 && cands[0].Owner == "" {
+				resolvedName = callee
+				resolvedFile = cands[0].FilePath
+			}
+		}
+	case "field_expression":
+		member := p.text(p.field(fnNode, "member"))
+		obj := p.field(fnNode, "object")
+		// Only a simple-identifier receiver can be resolved. Chained
+		// receivers like `self.cells.deinit()` have a nested
+		// field_expression object whose type we cannot know — skip.
+		if member != "" && obj != nil && obj.Kind() == "identifier" {
+			qualifier := p.text(obj)
+			// A local variable/parameter receiver is method dispatch on
+			// an instance we cannot type — skip (world.step(), ...).
+			if qualifier != "" && !p.isLocalName(qualifier) && p.index != nil {
+				switch {
+				// Case A: the qualifier names a declared type → a
+				// concrete method call, e.g. OrderService.highestId(...).
+				case p.index.Types[qualifier] != nil:
+					if cands, ok := p.index.Functions[qualifier+"."+member]; ok && len(cands) > 0 {
+						resolvedName = qualifier + "." + member
+						resolvedFile = cands[0].FilePath
+						owner = qualifier
+					}
+				// Case B: the qualifier is a module alias
+				// (const m = @import(...)) and `member` is a unique
+				// file-scope free function, e.g.
+				// solver.applyLinearDamping(...).
+				default:
+					if cands, ok := p.index.Functions[member]; ok && len(cands) == 1 && cands[0].Owner == "" {
+						resolvedName = member
+						resolvedFile = cands[0].FilePath
+					}
+				}
+			}
+		}
+	case "builtin_function":
+		// @import("std") etc. — handled by handleBuiltinCall.
+		p.handleBuiltinCall(n)
+	}
+
+	if resolvedName == "" {
 		// Unresolved — drop. Avoids phantom UNKNOWN nodes downstream.
 		return
 	}
@@ -802,26 +881,26 @@ func (p *Parser) handleCallExpression(n *sitter.Node) {
 	p.addCall(CallSite{
 		CallerFile:   p.sourcePath,
 		CallerMethod: p.currentFn,
-		CalleeName:   callee,
+		CalleeName:   resolvedName,
 		CalleeOwner:  owner,
 		LineNo:       startLine(n),
-		ResolvedFile: resolved,
+		ResolvedFile: resolvedFile,
 	})
+}
+
+// isLocalName reports whether name is declared in the current lexical
+// scope (parameter or local variable), so call sites reusing those
+// names are not resolved as project symbols.
+func (p *Parser) isLocalName(name string) bool {
+	_, isLocal := p.scope.LookupLocal(name)
+	return isLocal
 }
 
 // handleBuiltinCall treats a few well-known builtins as imports.
 // Other builtins are ignored — they're standard-library utilities, not
 // user-defined code.
 func (p *Parser) handleBuiltinCall(n *sitter.Node) {
-	name := ""
-	for i := uint(0); i < n.NamedChildCount(); i++ {
-		c := n.NamedChild(i)
-		if c != nil && c.Kind() == "builtin_identifier" {
-			name = strings.TrimPrefix(p.text(c), "@")
-			break
-		}
-	}
-	if name != "import" {
+	if p.builtinName(n) != "import" {
 		return
 	}
 

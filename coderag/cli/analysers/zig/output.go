@@ -7,6 +7,7 @@ package ziganalyser
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -113,9 +114,14 @@ func (oc *OutputConfig) WriteCoverageReport(report CoverageReport) (string, erro
 		}
 		// Description column is JSON-shaped so the indexer can treat
 		// each project as a structured COVERAGE entity without per-tool
-		// parsers.
-		fmt.Fprintf(out, "COVERAGE|%s|{\"files\":%d,\"warnings\":\"%s\"}\n",
-			key, len(proj.SourceFiles), warnings)
+		// parsers. `skipped` is a per-file list (path: reason) and
+		// `scanned_at` is the unix timestamp of the scan.
+		skippedJSON, _ := json.Marshal(proj.Skipped)
+		if proj.Skipped == nil {
+			skippedJSON = []byte("[]")
+		}
+		fmt.Fprintf(out, "COVERAGE|%s|{\"files\":%d,\"skipped\":%s,\"scanned_at\":%d,\"warnings\":\"%s\"}\n",
+			key, len(proj.SourceFiles), string(skippedJSON), proj.ScannedAt, warnings)
 	}
 	return outPath, nil
 }

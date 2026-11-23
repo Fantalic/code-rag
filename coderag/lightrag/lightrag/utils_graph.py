@@ -640,10 +640,16 @@ async def acreate_relation(
             )
             keywords = ",".join(sorted(all_keywords))
 
-            # Prepare edge data with defaults if missing
+            # Prepare edge data with defaults if missing. The `source`/
+            # `target` fields are kept verbatim so consumers can recover
+            # the true edge direction — the graph backend stores edges in
+            # an undirected/lexicographically-sorted form and otherwise
+            # loses which end is the caller vs. callee.
             edge_data = {
                 "description": relation_data.get("description", ""),
                 "keywords": keywords,
+                "source": source_entity,
+                "target": target_entity,
                 "source_id": relation_data.get("source_id", "manual_creation"),
                 "weight": float(relation_data.get("weight", 1.0)),
                 "file_path": relation_data.get("file_path", "manual_creation"),
@@ -1232,6 +1238,11 @@ async def abatch_import(
             edge_data = {
                 "description": data.get("description", ""),
                 "keywords": data.get("keywords", ""),
+                # Preserve the true direction: the graph backend stores
+                # edges in an undirected/sorted form, so consumers read
+                # `source`/`target` from these properties to recover it.
+                "source": src,
+                "target": tgt,
                 "source_id": data.get("source_id", "manual_creation"),
                 "weight": float(data.get("weight", 1.0)),
             }

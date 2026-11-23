@@ -92,15 +92,17 @@ func NewGlobalIndex() *GlobalIndex {
 	}
 }
 
-// CallSite records one place where a function is invoked. ResolvedFile
-// is populated only when the GlobalIndex could match the call; otherwise
-// it stays empty and the call is dropped from output to avoid phantom
-// UNKNOWN nodes in the knowledge graph.
+// CallSite records one place where a function is invoked. CalleeName is
+// the fully-qualified callee (e.g. "OrderService.highestId" or a free
+// function name) so the emitted relation target matches a real entity
+// node. ResolvedFile holds the callee's declaring file; it is populated
+// only when the GlobalIndex could match the call, otherwise the call is
+// dropped from output to avoid phantom UNKNOWN nodes.
 type CallSite struct {
 	CallerFile   string
 	CallerMethod string
 	CalleeName   string
-	CalleeOwner  string // struct/union the call is a member of, if known
+	CalleeOwner  string // enclosing type of the callee, if known ("")
 	LineNo       int
 	ResolvedFile string
 }
