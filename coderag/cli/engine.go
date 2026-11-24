@@ -74,8 +74,16 @@ func resolveEngine() string {
 
 // composeCmd builds a `<engine> compose ...` command so start/stop/logs work
 // with both Docker and Podman (podman >= 4.7 ships a compose provider).
+//
+// Callers supply the base `-f <file>` argument. When CODERAG_COMPOSE_OVERRIDE is
+// set, the override is layered before those caller arguments so workspace mounts
+// stay consistent on down/up/stop/logs.
 func composeCmd(ctx context.Context, args ...string) *exec.Cmd {
-	full := append([]string{"compose"}, args...)
+	full := []string{"compose"}
+	if override := os.Getenv("CODERAG_COMPOSE_OVERRIDE"); override != "" {
+		full = append(full, "-f", override)
+	}
+	full = append(full, args...)
 	cmd := exec.CommandContext(ctx, resolveEngine(), full...)
 	cmd.Env = os.Environ()
 	return cmd

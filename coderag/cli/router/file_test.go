@@ -12,8 +12,8 @@ func TestGetAnalyser(t *testing.T) {
 	if got := GetAnalyser(".CS"); got != "c_sharp" {
 		t.Errorf("GetAnalyser(.CS) = %q, want %q", got, "c_sharp")
 	}
-	if got := GetAnalyser(".py"); got != "" {
-		t.Errorf("GetAnalyser(.py) = %q, want %q", got, "")
+	if got := GetAnalyser(".py"); got != "python" {
+		t.Errorf("GetAnalyser(.py) = %q, want %q", got, "python")
 	}
 	if got := GetAnalyser(""); got != "" {
 		t.Errorf("GetAnalyser(\"\") = %q, want %q", got, "")
@@ -26,7 +26,7 @@ func TestIsSupported(t *testing.T) {
 		want bool
 	}{
 		{"file.cs", true},
-		{"file.py", false},
+		{"file.py", true},
 		{filepath.Join("obj", "file.cs"), false},
 		{filepath.Join("bin", "file.cs"), false},
 		{"FILE.CS", true},

@@ -711,10 +711,7 @@ class TestGetNodesFileMatch:
 
     @pytest.mark.asyncio
     async def test_invalid_file_match_rejected(self):
-        from coderag_mcp.client import (
-            LightRAGClient,
-            LightRAGValidationError,
-        )
+        from coderag_mcp.client import LightRAGClient, LightRAGValidationError
 
         client = LightRAGClient()
         client.get_knowledge_graph = AsyncMock(return_value=self._graph())
@@ -830,3 +827,166 @@ class TestGraphLanguage:
         assert "AtomSim.internal" in names
         # pub + exported -> alive
         assert "AtomSim.pub" not in names
+
+    def test_graph_language_python(self):
+        from coderag_mcp.client import _graph_language
+
+        python_nodes = [
+            {"properties": {"entity_type": "CLASS"}, "file_path": "app.py"},
+            {"properties": {"entity_type": "METHOD"}, "file_path": "app.py"},
+        ]
+        assert _graph_language(python_nodes) == "python"
+        # Mixed: python file_path should win over type counts.
+        mixed = [
+            {"properties": {"entity_type": "CLASS"}, "file_path": "app.py"},
+            {"properties": {"entity_type": "FUNCTION"}},
+        ]
+        assert _graph_language(mixed) == "python"
+        # file_path in properties also works.
+        prop_nodes = [
+            {"properties": {"entity_type": "FUNCTION", "file_path": "mod.py"}},
+        ]
+        assert _graph_language(prop_nodes) == "python"
+        # Case-insensitive.
+        upper_nodes = [
+            {"properties": {"entity_type": "CLASS"}, "file_path": "APP.PY"},
+        ]
+        assert _graph_language(upper_nodes) == "python"
+
+    def test_python_type_vocabularies(self):
+        from coderag_mcp.client import _member_types, _top_level_types
+
+        py_top = _top_level_types("python")
+        assert "CLASS" in py_top
+        assert "STRUCT" not in py_top and "INTERFACE" not in py_top
+
+        py_mem = _member_types("python")
+        assert "FUNCTION" in py_mem
+        assert "METHOD" in py_mem
+        assert "PROPERTY" in py_mem
+        assert "CONST" in py_mem
+        assert "VAR" in py_mem
+        assert "ENUM_MEMBER" not in py_mem
+
+    @pytest.mark.asyncio
+    async def test_python_dead_code_private_function(self):
+        # A Python function with no [public] marker is private
+        # and should be reported as dead when unreferenced + unexported.
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "app.private_util",
+                    "name": "app.private_util",
+                    "properties": {
+                        "entity_type": "FUNCTION",
+                        "entity_name": "app.private_util",
+                        "file_path": "app.py",
+                        "description": "def private_util",
+                    },
+                },
+                {
+                    "id": "app.public_api",
+                    "name": "app.public_api",
+                    "properties": {
+                        "entity_type": "FUNCTION",
+                        "entity_name": "app.public_api",
+                        "file_path": "app.py",
+                        "description": "def public_api [public]",
+                    },
+                },
+                {
+                    "id": "app:EXPORTS",
+                    "name": "app:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "app.py",
+                        "description": "app.public_api [MTIME=1700000000]",
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        names = {e.name for e in resp.entities}
+        # private (no [public]) + not exported -> dead
+        assert "app.private_util" in names
+        # public + exported -> alive
+        assert "app.public_api" not in names
+
+    @pytest.mark.asyncio
+    async def test_python_dead_code_method_parent_exported(self):
+        # A public method whose parent class is in EXPORTS must not
+        # be reported as dead, even though the method itself is not
+        # in the EXPORTS header.
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "app.MyClass",
+                    "name": "app.MyClass",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "app.MyClass",
+                        "file_path": "app.py",
+                        "description": "class MyClass [public]",
+                    },
+                },
+                {
+                    "id": "app.MyClass.process",
+                    "name": "app.MyClass.process",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "app.MyClass.process",
+                        "file_path": "app.py",
+                        "description": "def process [public]",
+                    },
+                },
+                {
+                    "id": "app:EXPORTS",
+                    "name": "app:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "app.py",
+                        "description": "app.MyClass [MTIME=1700000000]",
+                    },
+                },
+            ],
+            edges=[],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        names = {e.name for e in resp.entities}
+        # method whose parent class is exported -> alive
+        assert "app.MyClass.process" not in names
+
+    def test_graph_languages_mixed(self):
+        from coderag_mcp.client import _graph_languages, _member_types, _top_level_types
+
+        # Mixed .py + .cs nodes → both languages detected.
+        mixed = [
+            {"properties": {"entity_type": "CLASS"}, "file_path": "app.py"},
+            {"properties": {"entity_type": "METHOD"}, "file_path": "Program.cs"},
+        ]
+        assert _graph_languages(mixed) == {"python", "csharp"}
+
+        # Vocabularies are the union.
+        top = _top_level_types({"python", "csharp"})
+        assert "CLASS" in top  # both
+        assert "INTERFACE" in top  # csharp
+        mem = _member_types({"python", "csharp"})
+        assert "METHOD" in mem  # both
+        assert "FUNCTION" in mem  # python
+        assert "PROPERTY" in mem  # both
+
+        # _graph_language still returns one value (priority: python > zig > csharp).
+        from coderag_mcp.client import _graph_language
+
+        assert _graph_language(mixed) == "python"
+        zig_csharp = [
+            {"properties": {"entity_type": "FUNCTION"}},
+            {"properties": {"entity_type": "CLASS"}},
+        ]
+        assert _graph_languages(zig_csharp) == {"zig", "csharp"}
+        assert _graph_language(zig_csharp) == "zig"

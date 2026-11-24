@@ -10,7 +10,7 @@
 | Command | Purpose |
 |---------|---------|
 | [`coderag start [dir]`](#coderag-start) | Start Docker + file watcher (foreground) |
-| [`coderag scan [dir]`](#coderag-scan) | One-time re-index of a C# solution |
+| [`coderag scan [dir]`](#coderag-scan) | One-time re-index of a supported project (.sln, build.zig, or Python) |
 | [`coderag mcp [dir]`](#coderag-mcp) | Start the MCP stdio↔SSE bridge for AI agents |
 | [`coderag graph files/deps/cycles`](#coderag-graph) | File-level derived views of the graph |
 | [`coderag query "<text>"`](#coderag-query) | Natural-language question (LLM) |
@@ -60,12 +60,15 @@ the analyser.
 
 What a scan does:
 
-1. Find the `.sln` (searches up to 10 levels up from `<dir>`).
-2. Run `csharp_analyser` over the whole solution → `.coderag/analyser_output/*.txt`.
-3. Parse output into entities + relations.
+1. Detect the project type and root:
+   - `.sln` → C# analyser
+   - `build.zig` → Zig analyser (walk up from the changed file)
+   - Python sources → Python `ast` analyser
+2. Run the matching analyser → `.coderag/analyser_output/*.txt`.
+3. Parse format-2 output into entities + relations (including source spans and sidecars).
 4. Diff against the current graph (content-derived IDs → re-scans are idempotent).
 5. Apply creates/updates/deletes via a single batched import.
-6. Print `Entities: created=N, updated=M, deleted=K` and `Relations: ...`.
+6. Print per-language counts, then `Scan complete. Knowledge graph now contains N entities`.
 
 ## 4. coderag mcp
 

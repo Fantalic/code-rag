@@ -194,11 +194,10 @@ class RelatedFilesRequest(BaseModel):
         10, ge=1, le=100, description="Maximum number of related files to return"
     )
 
-
-# NOTE: there used to be a legacy `RelatedFilesResponse` schema here, but
-# callers only ever receive the schema at the bottom of this file
-# (Python rebinds the late-bound class with the same name). It was removed
-# so static analysers agree with runtime.
+    # NOTE: there used to be a legacy `RelatedFilesResponse` schema here, but
+    # callers only ever receive the schema at the bottom of this file
+    # (Python rebinds the late-bound class with the same name). It was removed
+    # so static analysers agree with runtime.
     total_found: int = Field(0, description="Total number of related files found")
 
 
@@ -732,7 +731,7 @@ class ListEntitiesRequest(BaseModel):
     """Request model for listing entities by type."""
 
     entity_type: str = Field(
-        ..., description="Entity type to list (e.g. CLASS, METHOD)"
+        ..., description="Stored entity type (analyser-dependent; omit to list all)"
     )
     limit: int = Field(100, ge=1, le=500, description="Maximum entities to return")
     offset: int = Field(0, ge=0, description="Offset for pagination")
@@ -911,7 +910,7 @@ class DeadCodeEntity(BaseModel):
     name: str = Field(..., description="Qualified entity name (e.g. 'Ns.Class.M')")
     type: str = Field(
         ...,
-        description="Entity type: CLASS | METHOD | PROPERTY | INTERFACE | STRUCT | ENUM",
+        description="Stored entity type reported by the analyser",
     )
     file_path: str = Field(..., description="Source file the entity lives in")
     line_no: int = Field(..., description="1-indexed line number in source file")

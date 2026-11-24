@@ -432,7 +432,13 @@ async def get_nodes(
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    """Filter nodes by any combination of: `entity_type` (stored type, language-dependent — C#: CLASS/INTERFACE/STRUCT/ENUM/METHOD/PROPERTY; Zig: STRUCT/ENUM/UNION/OPAQUE/ERROR_SET/FUNCTION/CONST/VAR/ENUM_MEMBER/TEST/IMPORT), `name` (substring), `file_path` (+ `file_match`: "contains" default or "exact" — use exact to avoid Snake matching Snake1/Snake2), `connected_to` (only nodes touching this one). Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset`. Entities include `start_line`/`end_line` source spans when known. See `coderag --agent-help`."""
+    """Filter nodes by any combination of:
+    `entity_type` (stored type name; omit to include all types — exact values depend on the analyser and a graph may span multiple languages),
+    `name` (substring),
+    `file_path` (+ `file_match`: "contains" default or "exact"),
+    `connected_to` (only nodes touching this one).
+    Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset`. Entities include `start_line`/`end_line` source spans when known. See `coderag --agent-help`.
+    """
     client = _get_lightrag_client()
     try:
         result = await client.get_nodes(
@@ -456,7 +462,7 @@ async def find_dead_code(
     min_age_days: int = 0,
     entity_type: str = "",
 ) -> dict:
-    """Find symbols that are unreferenced and not exported from their file; useful for cleanup suggestions. `min_age_days` filters by file modification time (0 = all). `entity_type` restricts by the stored entity type (case-insensitive, language-dependent: C# uses CLASS/METHOD/PROPERTY, Zig uses STRUCT/FUNCTION/CONST/etc.)."""
+    """Find symbols that are unreferenced and not exported from their file; useful for cleanup suggestions. `min_age_days` filters by file modification time (0 = all). `entity_type` restricts by the stored entity type (case-insensitive, omit for all types — exact values depend on the analyser)."""
     client = _get_lightrag_client()
     try:
         result = await client.find_dead_code(

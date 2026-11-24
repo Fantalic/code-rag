@@ -247,6 +247,32 @@ root. The repo `.env` is read by the CLI (engine selection) and is copied next t
 the generated compose file, so compose picks up `OLLAMA_HOST`/model vars even when
 you call `coderag` from a different folder.
 
+### WSL / Taiji_RAG quick start (verified)
+
+When the codeRAG checkout is `/mnt/e/_dev/_Projects/code-lightrag` and the target
+project is `/mnt/e/_dev/_Projects/Taiji_RAG`, run from WSL:
+
+```bash
+cd /mnt/e/_dev/_Projects/code-lightrag
+export CODERAG_COMPOSE_OVERRIDE=/mnt/e/_dev/_Projects/code-lightrag/docker-compose.override.wsl.yml
+export WORKSPACE=Taiji_RAG
+export WORKSPACE_BIND=/mnt/e/_dev/_Projects/Taiji_RAG
+export PYTHON_PATH=python3
+export PYTHON_ANALYSER_PATH=/mnt/e/_dev/_Projects/code-lightrag/coderag/cli/analysers/python/python_analyser.py
+
+./coderag/cli/coderag-linux scan /mnt/e/_dev/_Projects/Taiji_RAG
+```
+
+`CODERAG_COMPOSE_OVERRIDE` is layered on top of `docker-compose.yml` by the CLI.
+`WORKSPACE` must be set on every compose recreate; otherwise LightRAG starts on the
+default empty workspace and the graph looks empty. `WORKSPACE_BIND` is both the
+container mount and the `SOURCE_ROOT` used by `get_source`.
+
+The WSL override uses a host-side llama.cpp embedding server at
+`http://host.docker.internal:8081/v1` with `qwen3-embedding-0.6b` (dim 1024). It must
+be started with `--embedding --pooling last -c 32768`; Qwen3 embeddings use the last
+token, and llama.cpp rejects OpenAI-compatible requests when pooling is `none`.
+
 ## 7. Troubleshooting
 
 ### Docker services won't start

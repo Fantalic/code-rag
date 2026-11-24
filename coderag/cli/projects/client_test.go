@@ -1,9 +1,9 @@
 package projects
 
 import (
-	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -23,19 +23,17 @@ func TestClientDisabledWhenBaseURLEmpty(t *testing.T) {
 func TestPushAndFocusHitTheServer(t *testing.T) {
 	var hits int32
 	var sawPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := New("http://coderag.invalid")
+	c.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		atomic.AddInt32(&hits, 1)
-		sawPath = r.URL.Path
-		if r.Body != nil {
-			defer r.Body.Close()
-			_ = json.NewDecoder(r.Body).Decode(&map[string]any{})
-		}
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(`{"project":{"id":"p1"}}`))
-	}))
-	defer srv.Close()
+		sawPath = req.URL.Path
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"project":{"id":"p1"}}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
 
-	c := New(srv.URL)
 	if err := c.Push(registry.Project{ID: "p1", Name: "demo"}, true); err != nil {
 		t.Fatalf("push: %v", err)
 	}
@@ -45,7 +43,11 @@ func TestPushAndFocusHitTheServer(t *testing.T) {
 	if got := atomic.LoadInt32(&hits); got != 2 {
 		t.Fatalf("expected 2 hits, got %d", got)
 	}
-	if sawPath == "" {
-		t.Fatalf("server never saw any path")
+	if sawPath != "/coderag/projects/p1/focus" {
+		t.Fatalf("unexpected last path %q", sawPath)
 	}
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

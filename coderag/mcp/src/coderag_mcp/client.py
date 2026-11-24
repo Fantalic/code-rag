@@ -146,9 +146,7 @@ def _find_entity_node_key(node: dict[str, Any]) -> str:
     return f"{fp}|{_node_display_name(node)}"
 
 
-# Entity-type vocabularies per language. The C# analyser and the Zig
-# analyser store different `entity_type` strings for the same concept,
-# so depth filtering and type documentation must be language-aware.
+# Signature entity types used to infer a language from older nodes without file paths.
 
 _ZIG_ONLY_TYPES = frozenset(
     {
@@ -176,39 +174,146 @@ _NON_SYMBOL_TYPES = frozenset(
 )
 
 
-def _graph_language(nodes: list[dict[str, Any]]) -> str:
-    """Infer the analysed language from the entity types present.
+# Language-aware depth vocabularies. Each language maps to a pair of
+# frozensets: (top-level container types, member types). The C#
+# analyser and the Zig analyser store different `entity_type` strings
+# for the same concept, so depth filtering and type documentation
+# must be language-aware.
 
-    A workspace holds one project at a time, so a graph is either C# or
-    Zig; STRUCT/ENUM are shared, but each language has signature types
-    that never appear in the other. Returns "zig" or "csharp" (the
-    latter is the fallback for an empty/unknown graph).
+_ZIG_TOP_LEVEL_TYPES = frozenset(
+    {
+        "STRUCT",
+        "ENUM",
+        "UNION",
+        "OPAQUE",
+        "ERROR_SET",
+    }
+)
+_ZIG_MEMBER_TYPES = frozenset(
+    {
+        "FUNCTION",
+        "CONST",
+        "VAR",
+        "ENUM_MEMBER",
+    }
+)
+_CSHARP_TOP_LEVEL_TYPES = frozenset(
+    {
+        "CLASS",
+        "INTERFACE",
+        "STRUCT",
+        "ENUM",
+        "NAMESPACE",
+    }
+)
+_CSHARP_MEMBER_TYPES = frozenset(
+    {
+        "METHOD",
+        "PROPERTY",
+    }
+)
+_PYTHON_TOP_LEVEL_TYPES = frozenset({"CLASS"})
+_PYTHON_MEMBER_TYPES = frozenset({"FUNCTION", "METHOD", "PROPERTY", "CONST", "VAR"})
+
+# Mapping: language name → (top-level types, member types).
+_LANGUAGE_VOCAB: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "zig": (_ZIG_TOP_LEVEL_TYPES, _ZIG_MEMBER_TYPES),
+    "csharp": (_CSHARP_TOP_LEVEL_TYPES, _CSHARP_MEMBER_TYPES),
+    "python": (_PYTHON_TOP_LEVEL_TYPES, _PYTHON_MEMBER_TYPES),
+}
+
+
+def _graph_languages(nodes: list[dict[str, Any]]) -> set[str]:
+    """Detect every language present in the graph nodes.
+
+    Uses node ``file_path`` (node-level or ``properties.file_path``,
+    case-insensitive): ``.py`` → ``"python"``, ``.zig`` → ``"zig"``,
+    ``.cs`` → ``"csharp"``. Also keeps the signature-count fallback
+    for older nodes without useful paths (zig count > 0 adds
+    ``"zig"``, csharp count > 0 adds ``"csharp"``). If nothing is
+    detected, returns ``{"csharp"}`` to preserve the old fallback.
     """
+    langs: set[str] = set()
+    # Extension-based detection.
+    for node in nodes:
+        fp = (
+            node.get("file_path") or (node.get("properties") or {}).get("file_path", "")
+        ).lower()
+        if fp.endswith(".py"):
+            langs.add("python")
+        elif fp.endswith(".zig"):
+            langs.add("zig")
+        elif fp.endswith(".cs"):
+            langs.add("csharp")
+    # Signature-count fallback for older nodes without useful paths.
+    # Only count actual code-symbol types — EXPORTS, IMPORT, TEST,
+    # etc. are metadata and should not influence language detection.
+    _SIG_ZIG = _ZIG_ONLY_TYPES - _NON_SYMBOL_TYPES
+    _SIG_CS = _CSHARP_ONLY_TYPES - _NON_SYMBOL_TYPES
     zig = 0
     csharp = 0
     for node in nodes:
         ntype = ((node.get("properties") or {}).get("entity_type") or "").upper()
-        if ntype in _ZIG_ONLY_TYPES:
+        if ntype in _SIG_ZIG:
             zig += 1
-        elif ntype in _CSHARP_ONLY_TYPES:
+        elif ntype in _SIG_CS:
             csharp += 1
-    if zig > csharp:
+    if zig > 0:
+        langs.add("zig")
+    if csharp > 0:
+        langs.add("csharp")
+    return langs if langs else {"csharp"}
+
+
+def _graph_language(nodes: list[dict[str, Any]]) -> str:
+    """Return the single dominant language of the graph.
+
+    Uses ``_graph_languages`` and applies deterministic priority:
+    python > zig > csharp. Deprecated for callers that need all
+    languages — use ``_graph_languages`` instead.
+    """
+    langs = _graph_languages(nodes)
+    if "python" in langs:
+        return "python"
+    if "zig" in langs:
         return "zig"
     return "csharp"
 
 
-def _top_level_types(lang: str) -> set[str]:
-    """Container/type entities for a given language (depth-1 view)."""
-    if lang == "zig":
-        return {"STRUCT", "ENUM", "UNION", "OPAQUE", "ERROR_SET"}
-    return {"CLASS", "INTERFACE", "STRUCT", "ENUM", "NAMESPACE"}
+def _top_level_types(lang: str | set[str]) -> set[str]:
+    """Container/type entities for a given language (depth-1 view).
+
+    Accepts a single language string or a set of languages. When a
+    set is provided the returned set is the union of all vocabulary
+    top-level types for every language in the set. Falls back to the
+    C# vocabulary when no known language is present.
+    """
+    if isinstance(lang, str):
+        lang = {lang}
+    result: set[str] = set()
+    for l in lang:
+        entry = _LANGUAGE_VOCAB.get(l)
+        if entry:
+            result.update(entry[0])
+    return result or set(_CSHARP_TOP_LEVEL_TYPES)
 
 
-def _member_types(lang: str) -> set[str]:
-    """Member entities for a given language (added at depth-2)."""
-    if lang == "zig":
-        return {"FUNCTION", "CONST", "VAR", "ENUM_MEMBER"}
-    return {"METHOD", "PROPERTY"}
+def _member_types(lang: str | set[str]) -> set[str]:
+    """Member entities for a given language (added at depth-2).
+
+    Accepts a single language string or a set of languages. When a
+    set is provided the returned set is the union of all vocabulary
+    member types for every language in the set. Falls back to the
+    C# vocabulary when no known language is present.
+    """
+    if isinstance(lang, str):
+        lang = {lang}
+    result: set[str] = set()
+    for l in lang:
+        entry = _LANGUAGE_VOCAB.get(l)
+        if entry:
+            result.update(entry[1])
+    return result or set(_CSHARP_MEMBER_TYPES)
 
 
 # Custom Exception Hierarchy
@@ -1516,6 +1621,7 @@ class LightRAGClient:
 
         etype_filter = entity_type.strip().lower()
         lang = _graph_language(graph.nodes)
+        langs = _graph_languages(graph.nodes)
 
         # Build per-file EXPORTS map and per-file mtime map from the
         # EXPORTS metadata entities emitted by the C#/Zig walker.
@@ -1620,6 +1726,10 @@ class LightRAGClient:
                 # Zig public-ness is the `pub` keyword only; a symbol
                 # without a `[pub]` suffix is private by construction.
                 visibility = "public" if visibility == "pub" else "private"
+            elif lang == "python":
+                # Python: no visibility marker means private.
+                if not visibility:
+                    visibility = "private"
             elif not visibility:
                 # Unknown visibility -> exclude (safer than guessing).
                 continue
@@ -1659,6 +1769,15 @@ class LightRAGClient:
                 short = entity_name.rsplit(".", 1)[-1]
                 if short in exports_list:
                     in_exports = True
+            # Python: a qualified method like "MyClass.process" is
+            # exported when its parent class "MyClass" is in EXPORTS.
+            if (
+                not in_exports
+                and "python" in langs
+                and "." in entity_name
+                and entity_name.rsplit(".", 1)[0] in exports_list
+            ):
+                in_exports = True
 
             is_private_or_internal = visibility in {"private", "internal"}
             is_public_unexported = visibility == "public" and not in_exports

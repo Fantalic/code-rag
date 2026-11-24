@@ -2,38 +2,26 @@ package status
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
-
-// waitFor polls cond until true or the timeout elapses.
-func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("condition not met within %v", timeout)
-}
 
 func TestReporterPostsBatch(t *testing.T) {
 	flushInterval = 20 * time.Millisecond
 
 	var mu sync.Mutex
 	var got [][]Event
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/coderag/status/events" {
-			t.Errorf("unexpected path %s", r.URL.Path)
+	rep := New("http://coderag.invalid")
+	rep.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/coderag/status/events" {
+			t.Errorf("unexpected path %s", req.URL.Path)
 		}
-		body, _ := io.ReadAll(r.Body)
+		body, _ := io.ReadAll(req.Body)
 		var batch []Event
 		if err := json.Unmarshal(body, &batch); err != nil {
 			t.Errorf("bad json: %v", err)
@@ -41,10 +29,8 @@ func TestReporterPostsBatch(t *testing.T) {
 		mu.Lock()
 		got = append(got, batch)
 		mu.Unlock()
-	}))
-	defer srv.Close()
-
-	rep := New(srv.URL)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
 	rep.Stage("analyse", "analysing %d files", 3)
 	rep.Counts("crud", map[string]int{"files": 3})
 	rep.Close()
@@ -85,18 +71,14 @@ func TestReporterDisabledByEnv(t *testing.T) {
 	t.Setenv("CODERAG_STATUS_DISABLE", "1")
 
 	called := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rep := New("http://coderag.invalid")
+	rep.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		called = true
-	}))
-	defer srv.Close()
-
-	rep := New(srv.URL)
-	rep.Stage("scan", "should not be sent")
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	rep.Stage("analyse", "should not post")
 	rep.Close()
-
-	if called {
-		t.Fatal("request was made although reporter is disabled")
-	}
+	if called { t.Fatal("disabled reporter posted an event") }
 }
 
 func TestReporterNilSafe(t *testing.T) {
@@ -118,8 +100,10 @@ func TestReporterNilSafe(t *testing.T) {
 func TestReporterSurvivesDeadEndpoint(t *testing.T) {
 	flushInterval = 20 * time.Millisecond
 
-	// Port 1 on localhost -> connection refused immediately.
-	rep := New("http://127.0.0.1:1")
+	rep := New("http://coderag.invalid")
+	rep.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("dead endpoint")
+	})}
 
 	start := time.Now()
 	for i := 0; i < 1000; i++ {
@@ -139,3 +123,7 @@ func TestSetDefaultRestore(t *testing.T) {
 	restore()
 	// After restore it must simply not panic whatever it was.
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

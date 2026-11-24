@@ -1,0 +1,27 @@
+# WSL Taiji_RAG override: embeddings-only LightRAG config; MCP derived queries need no LLM.
+#
+# Usage:
+#   CODERAG_COMPOSE_OVERRIDE=/mnt/e/_dev/_Projects/code-lightrag/docker-compose.override.wsl.yml \
+#     coderag scan /mnt/e/_dev/_Projects/Taiji_RAG
+
+services:
+  lightrag:
+    environment:
+      LLM_BINDING: openai
+      EMBEDDING_BINDING: openai
+      EMBEDDING_BINDING_HOST: http://host.docker.internal:8081/v1
+      EMBEDDING_MODEL: qwen3-embedding-0.6b
+      EMBEDDING_DIM: 1024
+      EMBEDDING_BINDING_API_KEY: llama
+      # `scan` and MCP tools never call the LLM; placeholder only satisfies startup binding.
+      LLM_BINDING_HOST: http://127.0.0.1:9/v1
+      LLM_MODEL: unused
+      LLM_BINDING_API_KEY: unused
+
+  mcp:
+    volumes:
+      # The target path must equal the absolute path stored by the WSL CLI so
+      # `get_source` resolves correctly against SOURCE_ROOT.
+      - ${WORKSPACE_BIND:-/mnt/e/_dev/_Projects/Taiji_RAG}:${WORKSPACE_BIND:-/mnt/e/_dev/_Projects/Taiji_RAG}:ro
+    environment:
+      SOURCE_ROOT: ${WORKSPACE_BIND:-/mnt/e/_dev/_Projects/Taiji_RAG}

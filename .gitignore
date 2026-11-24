@@ -91,6 +91,8 @@ local_neo4jWorkDir/
 neo4jWorkDir/
 
 # Binary build artifacts
+/coderag/coderag-linux
+/coderag/cli/coderag-linux
 /coderag.exe
 
 # C# Analyser
