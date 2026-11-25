@@ -12,7 +12,7 @@ from typing import Any, Optional
 import httpx
 
 from .analyser_runner import run_analysis
-from .filegraph import build_file_graph
+from .filegraph import build_file_graph, edge_endpoints
 from .models import (
     DeadCodeEntity,
     DeadCodeResponse,
@@ -506,15 +506,17 @@ class LightRAGClient:
     # --- Knowledge Graph ---
 
     async def get_knowledge_graph(
-        self, label: str = "*", max_depth: int = 3
+        self, label: str = "*", max_depth: int = 3, max_nodes: int = 10000
     ) -> GraphResponse:
         """Retrieve the knowledge graph from LightRAG.
 
         Args:
             label: Entity label filter
             max_depth: Detail level — 1=types only, 2=+members, 3=all (default)
+            max_nodes: Maximum nodes to request from LightRAG; the API default
+                of 1000 truncates large projects.
         """
-        params = {"label": label}
+        params = {"label": label, "max_nodes": max_nodes}
         response_data = await self._make_request("GET", "/graphs", params=params)
         result = GraphResponse(**response_data)
 
@@ -543,8 +545,7 @@ class LightRAGClient:
                 n.get("id") or n.get("name", "") for n in filtered_nodes
             }
             for edge in result.edges:
-                src = edge.get("source") or edge.get("src_id", "")
-                tgt = edge.get("target") or edge.get("tgt_id", "")
+                src, tgt = edge_endpoints(edge)
                 if src in filtered_node_names and tgt in filtered_node_names:
                     filtered_edges.append(edge)
 
@@ -588,8 +589,7 @@ class LightRAGClient:
         visible = {n.get("id") or n.get("name", "") for n in graph.nodes}
         edge_count = 0
         for edge in graph.edges:
-            src = edge.get("source") or edge.get("src_id") or ""
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            src, tgt = edge_endpoints(edge)
             if src not in visible or tgt not in visible:
                 continue
             edge_count += 1
@@ -624,12 +624,11 @@ class LightRAGClient:
         depth-filtered graph, with true totals and truncation flag."""
         page_nodes = graph.nodes[offset : offset + limit]
         page_ids = {n.get("id") or n.get("name", "") for n in page_nodes}
-        page_edges = [
-            e
-            for e in graph.edges
-            if (e.get("source") or e.get("src_id") or "") in page_ids
-            and (e.get("target") or e.get("tgt_id") or "") in page_ids
-        ]
+        page_edges = []
+        for e in graph.edges:
+            e_src, e_tgt = edge_endpoints(e)
+            if e_src in page_ids and e_tgt in page_ids:
+                page_edges.append(e)
         return GraphPageResponse(
             mode="graph",
             nodes=page_nodes,
@@ -664,8 +663,7 @@ class LightRAGClient:
             entity_types: set[str] = set()
             relation_keywords: set[str] = set()
             for edge in graph.edges:
-                src = edge.get("source") or edge.get("src_id") or ""
-                tgt = edge.get("target") or edge.get("tgt_id") or ""
+                src, tgt = edge_endpoints(edge)
                 if node not in (src, tgt):
                     continue
                 kw = edge.get("properties", {}).get("keywords", "")
@@ -997,8 +995,7 @@ class LightRAGClient:
                 neighbors.append(EntityInfo(**data))
 
         for edge in graph.edges:
-            src = edge.get("source") or edge.get("src_id") or ""
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            src, tgt = edge_endpoints(edge)
             is_source = src in endpoint_names
             is_target = tgt in endpoint_names
             if not (is_source or is_target):
@@ -1070,8 +1067,7 @@ class LightRAGClient:
         all_relations: list[RelationInfo] = []
 
         for edge in graph.edges:
-            src = edge.get("source") or edge.get("src_id") or ""
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            src, tgt = edge_endpoints(edge)
             is_source = src in endpoint_names
             is_target = tgt in endpoint_names
             if not (is_source or is_target):
@@ -1096,6 +1092,7 @@ class LightRAGClient:
         # Filter by depth
         if depth < 3:
             structural_kw = {
+                "calls",
                 "contains",
                 "defines",
                 "has",
@@ -1142,8 +1139,7 @@ class LightRAGClient:
         if node:
             connected_names = set()
             for edge in graph.edges:
-                src = edge.get("source") or edge.get("src_id") or ""
-                tgt = edge.get("target") or edge.get("tgt_id") or ""
+                src, tgt = edge_endpoints(edge)
                 if src == node:
                     connected_names.add(tgt)
                 elif tgt == node:
@@ -1241,8 +1237,7 @@ class LightRAGClient:
         if conn:
             connected_names = set()
             for edge in graph.edges:
-                src = edge.get("source") or edge.get("src_id") or ""
-                tgt = edge.get("target") or edge.get("tgt_id") or ""
+                src, tgt = edge_endpoints(edge)
                 if src == conn:
                     connected_names.add(tgt)
                 elif tgt == conn:
@@ -1413,8 +1408,7 @@ class LightRAGClient:
 
         relations: list[RelationInfo] = []
         for edge in graph.edges:
-            src = edge.get("source") or edge.get("src_id") or ""
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            src, tgt = edge_endpoints(edge)
             kw = edge.get("properties", {}).get("keywords", "")
             if src != entity_name and tgt != entity_name:
                 continue
@@ -1497,8 +1491,7 @@ class LightRAGClient:
 
         # Also check edges: find entities connected to the query entity/file
         for edge in graph.edges:
-            src = edge.get("source") or edge.get("src_id") or ""
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            src, tgt = edge_endpoints(edge)
             props = edge.get("properties") or {}
             src_fp = props.get("file_path", "")
             tgt_fp = props.get("file_path", "")
@@ -1549,8 +1542,7 @@ class LightRAGClient:
         implementing_classes: list[str] = []
 
         for edge in graph.edges:
-            src = edge.get("source") or edge.get("src_id") or ""
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            src, tgt = edge_endpoints(edge)
             kw = edge.get("properties", {}).get("keywords", "")
 
             # Interface declares method: interface -> method (via defines)
@@ -1673,7 +1665,7 @@ class LightRAGClient:
         )
         incoming: dict[str, int] = {}
         for edge in graph.edges:
-            tgt = edge.get("target") or edge.get("tgt_id") or ""
+            _, tgt = edge_endpoints(edge)
             if not tgt:
                 continue
             kw = (edge.get("properties") or {}).get("keywords") or ""
@@ -1799,7 +1791,7 @@ class LightRAGClient:
 
             line_no = 0
             try:
-                line_no = int(props.get("line_no") or 0)
+                line_no = int(props.get("start_line") or props.get("line_no") or 0)
             except (TypeError, ValueError):
                 line_no = 0
 

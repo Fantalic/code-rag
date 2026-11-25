@@ -405,6 +405,49 @@ Check LightRAG server health.
 {}
 ```
 
+## Shared Pagination Contract
+
+Eight tools gained a shared `page` / `per_page` pagination layer. See
+[`.ai/plans/mcp-pagination.md`](../../.ai/plans/mcp-pagination.md) for full
+details.
+
+### Tools affected
+
+`dead_code`, `what_changed`, `detect_circular_dependencies`, `file_dependencies`,
+`get_nodes`, `node_details`, `codebase_overview`, `query_codebase`.
+
+### Parameters
+
+Every affected tool accepts:
+
+- `page` (int, default 1): 1-based page number.
+- `per_page` (int, default 100, max 1000): items per page.
+
+### Response envelope
+
+The response keeps all original keys and gains a top-level `pagination` object:
+
+```json
+{
+  "pagination": {
+    "page": 1,
+    "per_page": 100,
+    "total": 2340,
+    "total_pages": 24,
+    "has_more": true,
+    "next_page": 2
+  }
+}
+```
+
+### Legacy compatibility
+
+- `get_nodes` — `limit`/`offset` (defaults 100/0) remain; non-default values
+  override `page`/`per_page`.
+- `codebase_overview` — `limit`/`offset` (defaults 200/0) remain; same rule.
+- `node_details` — legacy `limit=50` explicitly set is authoritative, caps at
+  200, forces `page 1`.
+
 ## Example Workflows
 
 ### Complete Document Management Workflow

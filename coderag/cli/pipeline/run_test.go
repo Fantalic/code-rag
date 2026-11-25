@@ -239,3 +239,70 @@ func TestRunCSharpAnalyser(t *testing.T) {
 		t.Log("No relations to check")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// getInt
+// ---------------------------------------------------------------------------
+
+func TestGetInt(t *testing.T) {
+	tests := []struct {
+		name     string
+		m        map[string]any
+		key      string
+		expected int
+	}{
+		{"int", map[string]any{"start_line": 42}, "start_line", 42},
+		{"float64 from JSON", map[string]any{"start_line": float64(76)}, "start_line", 76},
+		{"numeric string", map[string]any{"start_line": "123"}, "start_line", 123},
+		{"missing key", map[string]any{"end_line": 5}, "start_line", 0},
+		{"invalid string", map[string]any{"start_line": "abc"}, "start_line", 0},
+		{"nil map", nil, "start_line", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getInt(tt.m, tt.key)
+			if got != tt.expected {
+				t.Errorf("getInt(%v, %q) = %d, want %d", tt.m, tt.key, got, tt.expected)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// normalizeSpanMap
+// ---------------------------------------------------------------------------
+
+func TestNormalizeSpanMap(t *testing.T) {
+	t.Run("float64 spans become int", func(t *testing.T) {
+		input := map[string]any{
+			"description": "test",
+			"start_line":  float64(76),
+			"end_line":    float64(80),
+		}
+		got := normalizeSpanMap(input)
+		if v, ok := got["start_line"]; !ok || v != 76 {
+			t.Errorf("start_line = %v, want 76", v)
+		}
+		if v, ok := got["end_line"]; !ok || v != 80 {
+			t.Errorf("end_line = %v, want 80", v)
+		}
+		if got["description"] != "test" {
+			t.Errorf("description = %v, want 'test'", got["description"])
+		}
+	})
+
+	t.Run("zero span removed", func(t *testing.T) {
+		input := map[string]any{
+			"description": "test",
+			"start_line":  0,
+			"end_line":    float64(0),
+		}
+		got := normalizeSpanMap(input)
+		if _, exists := got["start_line"]; exists {
+			t.Error("start_line should be removed when 0")
+		}
+		if _, exists := got["end_line"]; exists {
+			t.Error("end_line should be removed when 0")
+		}
+	})
+}

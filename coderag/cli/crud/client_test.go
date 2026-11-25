@@ -2,6 +2,7 @@ package crud
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1049,5 +1050,82 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	if c.Workspace != "" {
 		t.Fatalf("expected empty Workspace, got %s", c.Workspace)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BatchImport — span preservation
+// ---------------------------------------------------------------------------
+
+func TestBatchImportPreservesEntitySpans(t *testing.T) {
+	var capturedBody []byte
+	c := testCfg(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = body
+		okResponse(w, map[string]any{"status": "imported"})
+	}))
+
+	_, err := c.BatchImport([]BatchEntityItem{
+		{
+			EntityName: "WithSpan",
+			EntityData: EntityData{
+				Description: "d",
+				EntityType:  "FUNCTION",
+				StartLine:   76,
+				EndLine:     80,
+			},
+		},
+		{
+			EntityName: "NoSpan",
+			EntityData: EntityData{
+				Description: "d",
+				EntityType:  "FUNCTION",
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Decode the captured JSON body into a map to inspect raw values.
+	var payload map[string]any
+	if err := json.Unmarshal(capturedBody, &payload); err != nil {
+		t.Fatalf("unmarshal captured body: %v", err)
+	}
+
+	entities, ok := payload["entities"].([]any)
+	if !ok {
+		t.Fatal("expected 'entities' array in payload")
+	}
+	if len(entities) != 2 {
+		t.Fatalf("expected 2 entities, got %d", len(entities))
+	}
+
+	// Entity 0: WithSpan — start_line and end_line must be present as JSON numbers.
+	e0Map := entities[0].(map[string]any)
+	e0Data := e0Map["entity_data"].(map[string]any)
+	sl, ok := e0Data["start_line"]
+	if !ok {
+		t.Fatal("expected start_line in entity_data[0]")
+	}
+	if sl.(float64) != 76 {
+		t.Errorf("start_line = %v (JSON number), want 76", sl)
+	}
+	el, ok := e0Data["end_line"]
+	if !ok {
+		t.Fatal("expected end_line in entity_data[0]")
+	}
+	if el.(float64) != 80 {
+		t.Errorf("end_line = %v (JSON number), want 80", el)
+	}
+
+	// Entity 1: NoSpan — omitempty means start_line/end_line must be absent.
+	e1Map := entities[1].(map[string]any)
+	e1Data := e1Map["entity_data"].(map[string]any)
+	if _, exists := e1Data["start_line"]; exists {
+		t.Error("expected no start_line in entity_data[1] (omitempty)")
+	}
+	if _, exists := e1Data["end_line"]; exists {
+		t.Error("expected no end_line in entity_data[1] (omitempty)")
 	}
 }

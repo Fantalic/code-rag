@@ -103,6 +103,8 @@ type EntityData struct {
 	EntityType  string `json:"entity_type"`
 	SourceID    string `json:"source_id"`
 	FilePath    string `json:"file_path"`
+	StartLine   int    `json:"start_line,omitempty"`
+	EndLine     int    `json:"end_line,omitempty"`
 }
 
 type CreateEntityPayload struct {
@@ -124,9 +126,9 @@ func (c *Config) CreateEntity(name, description, entityType, sourceID, filePath 
 }
 
 type UpdateEntityPayload struct {
-	EntityName   string         `json:"entity_name"`
-	UpdatedData  map[string]any `json:"updated_data"`
-	AllowRename  bool           `json:"allow_rename"`
+	EntityName  string         `json:"entity_name"`
+	UpdatedData map[string]any `json:"updated_data"`
+	AllowRename bool           `json:"allow_rename"`
 }
 
 func (c *Config) UpdateEntity(name string, updatedData map[string]any) (map[string]any, error) {

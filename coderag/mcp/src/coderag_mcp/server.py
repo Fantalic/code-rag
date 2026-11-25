@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import LightRAGAPIError, LightRAGClient, LightRAGError
 from .models import AddNoteResponse
+from .pagination import MAX_PER_PAGE, normalize_page_args, paginate
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -74,29 +75,65 @@ async def get_related_files(
 
 
 @mcp_server.tool(name="file_dependencies")
-async def get_file_dependencies(file_path: str) -> dict:
-    """Files that depend on or are depended on by a given file, e.g. "src/Services/OrderService.cs". See `coderag --agent-help`."""
+async def get_file_dependencies(
+    file_path: str, page: int = 1, per_page: int = 100
+) -> dict:
+    """Files that depend on or are depended on by a given file, e.g. "src/Services/OrderService.cs". See `coderag --agent-help`.
+
+    Args:
+        file_path: Source file path to query.
+        page: 1-based page number (default 1).
+        per_page: Items per page, 1-1000 (default 100).
+    """
     client = _get_lightrag_client()
     try:
         result = await client.get_file_dependencies(file_path)
-        return _serialize(result)
     except LightRAGError as e:
         return _error("get_file_dependencies", e)
     except Exception as e:
         return _error("get_file_dependencies", e)
+
+    data = _serialize(result)
+    try:
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("get_file_dependencies", exc)
+
+    data["references"] = data["references"][(page - 1) * per_page : page * per_page]
+    data["dependents"] = data["dependents"][(page - 1) * per_page : page * per_page]
+    page_items, meta = paginate(data["entities"], page, per_page)
+    data["entities"] = page_items
+    data["pagination"] = meta
+    return data
 
 
 @mcp_server.tool(name="detect_circular_dependencies")
-async def file_dependency_cycles() -> dict:
-    """Detect circular dependencies in the codebase. See `coderag --agent-help`."""
+async def file_dependency_cycles(page: int = 1, per_page: int = 100) -> dict:
+    """Detect circular dependencies in the codebase. See `coderag --agent-help`.
+
+    Args:
+        page: 1-based page number (default 1).
+        per_page: Items per page, 1-1000 (default 100).
+    """
     client = _get_lightrag_client()
     try:
         result = await client.file_dependency_cycles()
-        return _serialize(result)
     except LightRAGError as e:
         return _error("file_dependency_cycles", e)
     except Exception as e:
         return _error("file_dependency_cycles", e)
+
+    data = _serialize(result)
+    try:
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("file_dependency_cycles", exc)
+
+    count = data["count"]
+    page_items, meta = paginate(data["cycles"], page, per_page)
+    data["cycles"] = page_items
+    data["pagination"] = meta
+    return data
 
 
 # @mcp_server.tool()
@@ -126,8 +163,17 @@ async def get_knowledge_graph(
     view: str = "summary",
     limit: int = 200,
     offset: int = 0,
+    page: int = 1,
+    per_page: int = 100,
 ) -> dict:
-    """Overview of the codebase graph. `view="summary"` (default) returns counts only (nodes/edges by type, files indexed) — start here to size up the codebase. `view="graph"` returns one page of nodes+edges (`limit`/`offset`, hard cap 1000). `max_depth` 1=top-level types, 2=+members, 3=all. See `coderag --agent-help`."""
+    """Overview of the codebase graph. `view="summary"` (default) returns counts only (nodes/edges by type, files indexed) — start here to size up the codebase. `view="graph"` returns one page of nodes+edges. `max_depth` 1=top-level types, 2=+members, 3=all. See `coderag --agent-help`.
+
+    `page`/`per_page` (1-based, default 100) provide uniform pagination.
+    Legacy `limit`/`offset` are still accepted: if either differs from its
+    default (limit!=200 or offset!=0) the legacy args are authoritative and
+    override page/per_page; otherwise offset/limit are derived from page/per_page.
+    Summary view has no items to slice; pagination metadata is still reported.
+    """
     # Output guard: the full unpaginated dump exceeded 227 KB on a mid-size
     # monorepo and burned agent context; summary-first + pagination keeps
     # responses proportional to what was asked.
@@ -137,9 +183,23 @@ async def get_knowledge_graph(
             "get_knowledge_graph",
             ValueError(f"Invalid view '{view}'. Must be 'summary' or 'graph'"),
         )
+    try:
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("get_knowledge_graph", exc)
+    depth = max(1, min(max_depth, 3))
+
+    # Resolve effective legacy limit/offset.
+    explicit_legacy = limit != 200 or offset != 0
+    if explicit_legacy:
+        per_page = min(limit, MAX_PER_PAGE)
+        page = max(1, offset // limit + 1) if limit >= 1 else 1
+    else:
+        offset = (page - 1) * per_page
+        limit = per_page
+
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)
-    depth = max(1, min(max_depth, 3))
 
     client = _get_lightrag_client()
     try:
@@ -149,12 +209,20 @@ async def get_knowledge_graph(
             # entity, not just the depth-visible types, so fetch the
             # unfiltered graph for that tally.
             full = await client.get_knowledge_graph(max_depth=3)
-            return _serialize(
-                client.summarize_graph(graph, max_depth=depth, all_nodes=full.nodes)
+            summary = client.summarize_graph(
+                graph, max_depth=depth, all_nodes=full.nodes
             )
-        return _serialize(
-            client.paginate_graph(graph, max_depth=depth, offset=offset, limit=limit)
+            data = _serialize(summary)
+            _, meta = paginate(range(data["total_nodes"]), page, per_page)
+            data["pagination"] = meta
+            return data
+        result = client.paginate_graph(
+            graph, max_depth=depth, offset=offset, limit=limit
         )
+        data = _serialize(result)
+        _, meta = paginate(range(data["total_nodes"]), page, per_page)
+        data["pagination"] = meta
+        return data
     except LightRAGError as e:
         return _error("get_knowledge_graph", e)
     except Exception as e:
@@ -215,12 +283,46 @@ async def list_notes_alias(entity_name: str) -> dict:
 
 
 @mcp_server.tool(name="query_codebase")
-async def query_data(query: str) -> dict:
-    """Semantic vector search over the codebase — no LLM involved: the query is embedded with the configured embedding model and matched against entity/relationship vector stores. Returns matching entities (with source spans when known) and relationships. Note: text-chunk hits only exist for prose documents ingested via LLM ingestion — indexed source files live in the graph, not the chunk store; use get_source(entity_name) for exact code lines. See `coderag --agent-help`."""
+async def query_data(query: str, page: int = 1, per_page: int = 100) -> dict:
+    """Semantic vector search over the codebase — no LLM involved: the query is embedded with the configured embedding model and matched against entity/relationship vector stores. Returns matching entities (with source spans when known) and relationships. Note: text-chunk hits only exist for prose documents ingested via LLM ingestion — indexed source files live in the graph, not the chunk store; use get_source(entity_name) for exact code lines. See `coderag --agent-help`.
+
+    Pagination: ``page`` (1-based, default 1) and ``per_page`` (default 100,
+    max 1000) bound all four result lists.  The ``pagination`` metadata
+    describes the ``entities`` list.
+    """
     client = _get_lightrag_client()
     try:
         result = await client.query_data(query)
-        return _serialize(result)
+        data = _serialize(result)
+        try:
+            page, per_page = normalize_page_args(page, per_page)
+        except ValueError as exc:
+            return _error("query_data", exc)
+
+        inner = data.get("data", {})
+        if not isinstance(inner, dict):
+            inner = {}
+
+        # Capture pre-pagination entity count for metadata.
+        entities_list = inner.get("entities", [])
+        total = len(entities_list) if isinstance(entities_list, list) else 0
+
+        # Slice every list-valued key in the inner data dict.
+        for key in ("entities", "relationships", "chunks", "references"):
+            if key in inner and isinstance(inner[key], list):
+                inner[key], _ = paginate(inner[key], page, per_page)
+
+        data["pagination"] = {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": max(1, (total + per_page - 1) // per_page),
+            "has_more": page < max(1, (total + per_page - 1) // per_page),
+            "next_page": (
+                page + 1 if page < max(1, (total + per_page - 1) // per_page) else None
+            ),
+        }
+        return data
     except LightRAGError as e:
         return _error("query_data", e)
     except Exception as e:
@@ -276,8 +378,17 @@ async def index_coverage() -> dict:
 
 
 @mcp_server.tool(name="what_changed")
-async def what_changed(hours: float = 24.0, since: str = "") -> dict:
-    """List recent index changes (added/removed/updated symbols per file) from CHANGELOG records written by watch-mode re-scans. `hours` windows back from now; `since` (ISO like 2026-08-23T10:00:00Z or epoch seconds) overrides `hours` when given. See `coderag --agent-help`."""
+async def what_changed(
+    hours: float = 24.0, since: str = "", page: int = 1, per_page: int = 100
+) -> dict:
+    """List recent index changes (added/removed/updated symbols per file) from CHANGELOG records written by watch-mode re-scans. `hours` windows back from now; `since` (ISO like 2026-08-23T10:00:00Z or epoch seconds) overrides `hours` when given. See `coderag --agent-help`.
+
+    Args:
+        hours: Hours back from now (default 24).
+        since: ISO timestamp or epoch seconds to override `hours`.
+        page: 1-based page number (default 1).
+        per_page: Items per page, 1-1000 (default 100).
+    """
     client = _get_lightrag_client()
     try:
         graph = await client.get_knowledge_graph(label="*")
@@ -304,9 +415,16 @@ async def what_changed(hours: float = 24.0, since: str = "") -> dict:
             {"file_path": fp, "changed_at": payload.get("changed_at"), **payload}
         )
     changes.sort(key=lambda c: str(c.get("changed_at") or ""), reverse=True)
+    total = len(changes)
+    try:
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("what_changed", exc)
+
+    page_items, meta = paginate(changes, page, per_page)
     return {
-        "changes": changes,
-        "total": len(changes),
+        "changes": page_items,
+        "total": total,
         "cutoff": since if since else (f"now-{hours}h" if cutoff else None),
         "hint": (
             "No CHANGELOG records yet — they are written by watch-mode "
@@ -314,6 +432,7 @@ async def what_changed(hours: float = 24.0, since: str = "") -> dict:
             if not changes
             else ""
         ),
+        "pagination": meta,
     }
 
 
@@ -386,12 +505,36 @@ async def get_node_details(
     relation_type: str = "",
     depth: int = 2,
     limit: int = 50,
+    page: int = 1,
+    per_page: int = 100,
 ) -> dict:
-    """Unified node lookup with per-view response shapes: "details" (default; entity + incoming/outgoing relations, depth-filtered via structural keywords), "relations" (only edges touching the node, optional `relation_type` filter), "neighbors" (1-hop neighbor entities + connecting edges, capped by `limit`, totals + `truncated` flag included). Names resolve exactly first, then unique qualified suffix (e.g. "Snake.Tile" finds "Ns.Snake.Tile"). See `coderag --agent-help`."""
-    # Output guard: hub nodes (base classes referenced everywhere) used to
-    # return unbounded neighborhoods; `limit` caps each direction and the
-    # totals still reflect true counts.
-    limit = max(1, min(limit, 200))
+    """Unified node lookup with per-view response shapes: "details" (default; entity + incoming/outgoing relations, depth-filtered via structural keywords), "relations" (only edges touching the node, optional `relation_type` filter), "neighbors" (1-hop neighbor entities + connecting edges, capped by `limit`, totals + `truncated` flag included). Names resolve exactly first, then unique qualified suffix (e.g. "Snake.Tile" finds "Ns.Snake.Tile"). See `coderag --agent-help`.
+
+    Pagination: ``page`` (1-based, default 1) and ``per_page`` (default 100,
+    max 1000) apply to all list-valued keys.  The legacy ``limit`` parameter
+    is authoritative when explicitly set (not the default 50): it overrides
+    ``per_page``, forces page 1, and retains the old 200-item cap.  The
+    ``pagination`` metadata describes the primary list chosen from
+    ``neighbors``, ``relations``, ``incoming_relations``, ``outgoing_relations``.
+    """
+    # Validate pagination args; the legacy branch is handled after.
+    try:
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("get_node_details", exc)
+
+    # Resolve client-side limit.
+    if limit != 50:
+        # Explicit legacy cap — authoritative, overrides pagination.
+        per_page = min(limit, MAX_PER_PAGE)
+        page = 1
+        client_limit = max(1, min(limit, 200))
+    elif view == "neighbors":
+        # Page 2+ needs enough data from the client to slice.
+        client_limit = min(page * per_page, MAX_PER_PAGE)
+    else:
+        client_limit = per_page
+
     client = _get_lightrag_client()
     try:
         result = await client.get_node_details(
@@ -399,13 +542,45 @@ async def get_node_details(
             view=view,
             relation_type=relation_type,
             depth=depth,
-            limit=limit,
+            limit=client_limit,
         )
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_node_details", e)
-    except Exception as e:
-        return _error("get_node_details", e)
+        data = _serialize(result)
+    except LightRAGError as exc:
+        return _error("get_node_details", exc)
+    except Exception as exc:
+        return _error("get_node_details", exc)
+
+    # Paginate all list-valued keys present in the response.
+    # Priority for primary list: neighbors > relations > incoming > outgoing.
+    list_keys = ("neighbors", "relations", "incoming_relations", "outgoing_relations")
+
+    # Capture the pre-pagination length of the primary list.
+    primary_length = 0
+    for key in list_keys:
+        if key in data:
+            primary_length = len(data[key])
+            break
+
+    for key in list_keys:
+        if key in data and isinstance(data[key], list):
+            data[key], _ = paginate(data[key], page, per_page)
+
+    # Build pagination metadata from the primary list, preserving its
+    # pre-pagination total length.
+    primary = None
+    for key in list_keys:
+        if key in data:
+            primary = data[key]
+            break
+    if primary is None:
+        primary = []
+    _, meta = paginate(primary, page, per_page)
+    meta["total"] = primary_length
+    meta["total_pages"] = max(1, (primary_length + per_page - 1) // per_page)
+    meta["has_more"] = page < meta["total_pages"]
+    meta["next_page"] = page + 1 if meta["has_more"] else None
+    data["pagination"] = meta
+    return data
 
 
 # @mcp_server.tool()
@@ -431,49 +606,83 @@ async def get_nodes(
     file_match: str = "contains",
     limit: int = 100,
     offset: int = 0,
+    page: int = 1,
+    per_page: int = 100,
 ) -> dict:
     """Filter nodes by any combination of:
     `entity_type` (stored type name; omit to include all types — exact values depend on the analyser and a graph may span multiple languages),
     `name` (substring),
     `file_path` (+ `file_match`: "contains" default or "exact"),
     `connected_to` (only nodes touching this one).
-    Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset`. Entities include `start_line`/`end_line` source spans when known. See `coderag --agent-help`.
+    Empty/omitted filters are no-ops; all filters AND-combine. Paginated via `limit`/`offset` (legacy) or `page`/`per_page` (1-based, default 100). If either legacy arg differs from its default (limit!=100 or offset!=0) it is authoritative and overrides page/per_page; otherwise offset/limit are derived from page/per_page. Entities include `start_line`/`end_line` source spans when known. See `coderag --agent-help`.
     """
     client = _get_lightrag_client()
     try:
-        result = await client.get_nodes(
-            entity_type=entity_type,
-            name=name,
-            file_path=file_path,
-            connected_to=connected_to,
-            file_match=file_match,
-            limit=limit,
-            offset=offset,
-        )
-        return _serialize(result)
-    except LightRAGError as e:
-        return _error("get_nodes", e)
-    except Exception as e:
-        return _error("get_nodes", e)
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("get_nodes", exc)
+
+    # Resolve effective legacy limit/offset.
+    explicit_legacy = limit != 100 or offset != 0
+    if explicit_legacy:
+        per_page = min(limit, MAX_PER_PAGE)
+        page = max(1, offset // limit + 1) if limit >= 1 else 1
+    else:
+        offset = (page - 1) * per_page
+        limit = per_page
+
+    result = await client.get_nodes(
+        entity_type=entity_type,
+        name=name,
+        file_path=file_path,
+        connected_to=connected_to,
+        file_match=file_match,
+        limit=limit,
+        offset=offset,
+    )
+    data = _serialize(result)
+    _, meta = paginate(range(data["total"]), page, per_page)
+    data["pagination"] = meta
+    return data
 
 
 @mcp_server.tool(name="dead_code")
 async def find_dead_code(
     min_age_days: int = 0,
     entity_type: str = "",
+    page: int = 1,
+    per_page: int = 100,
 ) -> dict:
-    """Find symbols that are unreferenced and not exported from their file; useful for cleanup suggestions. `min_age_days` filters by file modification time (0 = all). `entity_type` restricts by the stored entity type (case-insensitive, omit for all types — exact values depend on the analyser)."""
+    """Find symbols that are unreferenced and not exported from their file; useful for cleanup suggestions. `min_age_days` filters by file modification time (0 = all). `entity_type` restricts by the stored entity type (case-insensitive, omit for all types — exact values depend on the analyser). See `coderag --agent-help`.
+
+    Args:
+        min_age_days: File age filter (default 0 = all).
+        entity_type: Entity type filter (default = all types).
+        page: 1-based page number (default 1).
+        per_page: Items per page, 1-1000 (default 100).
+    """
     client = _get_lightrag_client()
     try:
         result = await client.find_dead_code(
             min_age_days=min_age_days,
             entity_type=entity_type,
         )
-        return _serialize(result)
     except LightRAGError as e:
         return _error("find_dead_code", e)
     except Exception as e:
         return _error("find_dead_code", e)
+
+    data = _serialize(result)
+    try:
+        page, per_page = normalize_page_args(page, per_page)
+    except ValueError as exc:
+        return _error("find_dead_code", exc)
+
+    total = data["total"]
+    page_items, meta = paginate(data["entities"], page, per_page)
+    data["entities"] = page_items
+    data["pagination"] = meta
+    return data
 
 
 # @mcp_server.tool()

@@ -203,3 +203,62 @@ FUNCTION|my_func|/path/to/mod.py|22|30|A function
 		t.Fatalf("expected 2 entities, got %d", len(entities))
 	}
 }
+
+func TestParsePythonFile_ExportsHeader(t *testing.T) {
+	content := `# FORMAT: 2
+# EXPORTS: _require_admin, mode
+# MTIME: 1794356321
+# a normal comment
+FUNCTION|my_func|/path/to/mod.py|1|10|A function
+`
+	entities, _ := ParsePythonFile("/path/to/mod.py.txt", content)
+
+	if len(entities) != 2 {
+		t.Fatalf("expected 2 entities, got %d", len(entities))
+	}
+
+	// Find the EXPORTS entity
+	var expEntity *Entity
+	for i := range entities {
+		if entities[i].EntityType == "EXPORTS" {
+			expEntity = &entities[i]
+			break
+		}
+	}
+	if expEntity == nil {
+		t.Fatal("expected an EXPORTS entity")
+	}
+	if expEntity.Name != "/path/to/mod.py:EXPORTS" {
+		t.Errorf("EXPORTS entity Name: expected /path/to/mod.py:EXPORTS, got %s", expEntity.Name)
+	}
+	if expEntity.Description != "_require_admin, mode [MTIME=1794356321]" {
+		t.Errorf("EXPORTS entity Description: expected _require_admin, mode [MTIME=1794356321], got %s", expEntity.Description)
+	}
+	if expEntity.FilePath != "/path/to/mod.py" {
+		t.Errorf("EXPORTS entity FilePath: expected /path/to/mod.py, got %s", expEntity.FilePath)
+	}
+	if expEntity.SourceID != "/path/to/mod.py.txt" {
+		t.Errorf("EXPORTS entity SourceID: expected /path/to/mod.py.txt, got %s", expEntity.SourceID)
+	}
+	if expEntity.StartLine != 1 || expEntity.EndLine != 1 {
+		t.Errorf("EXPORTS entity StartLine/EndLine: expected 1/1, got %d/%d", expEntity.StartLine, expEntity.EndLine)
+	}
+
+	// Verify the normal # comment produced no entity (only 2 entities total).
+}
+
+func TestParsePythonFile_EmptyExportsHeader(t *testing.T) {
+	content := `# EXPORTS:
+FUNCTION|f|/path/to/mod.py|1|2|desc
+`
+	entities, _ := ParsePythonFile("/path/to/mod.py.txt", content)
+
+	if len(entities) != 1 {
+		t.Fatalf("expected 1 entity (no EXPORTS sidecar), got %d", len(entities))
+	}
+	for _, e := range entities {
+		if e.EntityType == "EXPORTS" {
+			t.Error("unexpected EXPORTS entity for empty header")
+		}
+	}
+}

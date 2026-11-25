@@ -990,3 +990,320 @@ class TestGraphLanguage:
         ]
         assert _graph_languages(zig_csharp) == {"zig", "csharp"}
         assert _graph_language(zig_csharp) == "zig"
+
+
+class TestGetKnowledgeGraphMaxNodes:
+    """Test that get_knowledge_graph forwards max_nodes to the LightRAG API."""
+
+    @pytest.mark.asyncio
+    async def test_default_max_nodes(self):
+        client = LightRAGClient()
+        with patch.object(
+            client,
+            "_make_request",
+            new=AsyncMock(return_value={"nodes": [], "edges": []}),
+        ) as mock_request:
+            await client.get_knowledge_graph(label="*")
+            mock_request.assert_called_once_with(
+                "GET", "/graphs", params={"label": "*", "max_nodes": 10000}
+            )
+
+    @pytest.mark.asyncio
+    async def test_custom_max_nodes(self):
+        client = LightRAGClient()
+        with patch.object(
+            client,
+            "_make_request",
+            new=AsyncMock(return_value={"nodes": [], "edges": []}),
+        ) as mock_request:
+            await client.get_knowledge_graph(label="*", max_nodes=25)
+            mock_request.assert_called_once_with(
+                "GET", "/graphs", params={"label": "*", "max_nodes": 25}
+            )
+
+
+class TestEdgePropertiesDirection:
+    """Verify edge_endpoints reads properties.source/properties.target
+    when present, so LightRAG's lexicographic swap does not corrupt
+    relation direction."""
+
+    @staticmethod
+    def _make_graph(nodes, edges):
+        return GraphResponse(nodes=nodes, edges=edges)
+
+    @staticmethod
+    def _reversed_edge(src: str, tgt: str, **kw: object) -> dict:
+        """Build an edge whose top-level source/target are lexicographically
+        swapped but whose properties preserve the original direction."""
+        return {
+            "source": tgt,  # swapped
+            "target": src,  # swapped
+            "properties": {"source": src, "target": tgt, **kw},
+        }
+
+    @pytest.mark.asyncio
+    async def test_relation_detail_uses_properties_direction(self):
+        """get_relation_detail should report _require_admin as source even
+        when LightRAG flipped top-level source/target to admin_graph."""
+        from coderag_mcp.client import LightRAGClient
+        from coderag_mcp.models import GraphResponse
+
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {"id": "admin_graph", "name": "admin_graph"},
+                {"id": "_require_admin", "name": "_require_admin"},
+            ],
+            edges=[
+                self._reversed_edge("_require_admin", "admin_graph", keywords="calls"),
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.get_relation_detail(entity_name="_require_admin")
+        assert resp.total == 1
+        rel = resp.relations[0]
+        assert rel.source_entity == "_require_admin"
+        assert rel.target_entity == "admin_graph"
+
+    @pytest.mark.asyncio
+    async def test_find_dead_code_respects_properties_direction(self):
+        """A private method that IS called should not be reported as dead.
+        The call edge has reversed top-level source/target; the incoming-
+        count logic must use properties.target (the true callee) so it
+        counts the call and keeps the method alive."""
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = self._make_graph(
+            nodes=[
+                {
+                    "id": "Ns.Foo",
+                    "name": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns.Foo.PrivateCalled",
+                    "name": "Ns.Foo.PrivateCalled",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Foo.PrivateCalled",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo.PrivateCalled() [private]",
+                    },
+                },
+                {
+                    "id": "Ns.Other",
+                    "name": "Ns.Other",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Other",
+                        "file_path": "Ns/Other.cs",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "name": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Foo.PrivateCalled",
+                    "properties": {"keywords": "method, defines"},
+                },
+                # Top-level: Other -> PrivateCalled (lexicographic order)
+                # Properties: Other -> PrivateCalled (actual call)
+                # With edge_endpoints, tgt=PrivateCalled gets a usage count.
+                self._reversed_edge(
+                    "Ns.Other", "Ns.Foo.PrivateCalled", keywords="calls"
+                ),
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+        resp = await client.find_dead_code()
+        names = {e.name for e in resp.entities}
+        # PrivateCalled has an incoming usage edge -> not dead
+        assert "Ns.Foo.PrivateCalled" not in names
+        assert resp.total == 0
+
+
+class TestGetEntityDetailsCallsDepth:
+    """CALL relations should survive the depth-2 filter (structural_kw)."""
+
+    @pytest.mark.asyncio
+    async def test_depth_2_includes_calls_relation(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "caller",
+                    "name": "caller",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "caller",
+                        "file_path": "caller.cs",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "caller",
+                    "target": "callee",
+                    "properties": {"keywords": "calls"},
+                },
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.get_entity_details(entity_name="caller", depth=2)
+        assert len(resp.relations) == 1
+        assert resp.relations[0].source_entity == "caller"
+        assert resp.relations[0].target_entity == "callee"
+
+    @pytest.mark.asyncio
+    async def test_depth_1_still_drops_calls(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "caller",
+                    "name": "caller",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "caller",
+                        "file_path": "caller.cs",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "caller",
+                    "target": "callee",
+                    "properties": {"keywords": "calls"},
+                },
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.get_entity_details(entity_name="caller", depth=1)
+        assert len(resp.relations) == 0
+        assert resp.relations == []
+
+
+class TestDeadCodeStartLine:
+    """Dead-code line number should prefer start_line over line_no."""
+
+    @pytest.mark.asyncio
+    async def test_prefers_start_line_when_line_no_absent(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "Ns.Dead",
+                    "name": "Ns.Dead",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.Dead",
+                        "file_path": "Ns/Foo.cs",
+                        "start_line": 76,
+                        "description": "Ns.Dead() [private]",
+                    },
+                },
+                {
+                    "id": "Ns.Foo",
+                    "name": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "name": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.Dead",
+                    "properties": {"keywords": "method, defines"},
+                },
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.find_dead_code()
+        assert resp.total == 1
+        assert resp.entities[0].line_no == 76
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_line_no_when_start_line_absent(self):
+        from coderag_mcp.client import LightRAGClient
+
+        client = LightRAGClient()
+        graph = GraphResponse(
+            nodes=[
+                {
+                    "id": "Ns.OldStyle",
+                    "name": "Ns.OldStyle",
+                    "properties": {
+                        "entity_type": "METHOD",
+                        "entity_name": "Ns.OldStyle",
+                        "file_path": "Ns/Foo.cs",
+                        "line_no": 42,
+                        "description": "Ns.OldStyle() [private]",
+                    },
+                },
+                {
+                    "id": "Ns.Foo",
+                    "name": "Ns.Foo",
+                    "properties": {
+                        "entity_type": "CLASS",
+                        "entity_name": "Ns.Foo",
+                        "file_path": "Ns/Foo.cs",
+                    },
+                },
+                {
+                    "id": "Ns:EXPORTS",
+                    "name": "Ns:EXPORTS",
+                    "properties": {
+                        "entity_type": "EXPORTS",
+                        "file_path": "Ns/Foo.cs",
+                        "description": "Ns.Foo",
+                    },
+                },
+            ],
+            edges=[
+                {
+                    "source": "Ns.Foo",
+                    "target": "Ns.OldStyle",
+                    "properties": {"keywords": "method, defines"},
+                },
+            ],
+        )
+        client.get_knowledge_graph = AsyncMock(return_value=graph)
+
+        resp = await client.find_dead_code()
+        assert resp.total == 1
+        assert resp.entities[0].line_no == 42

@@ -24,7 +24,7 @@ def _node_file_path(node: dict[str, Any]) -> str:
     return str(props.get("file_path") or "")
 
 
-def _edge_endpoints(edge: dict[str, Any]) -> tuple[str, str]:
+def edge_endpoints(edge: dict[str, Any]) -> tuple[str, str]:
     """Return the true source/target entity ids of an edge.
 
     LightRAG swaps ``source``/``target`` lexicographically on read-back, so the
@@ -165,7 +165,9 @@ def _resolve_import_file(
         return known_norm[norm]
     # Fallback: unique basename match (handles path-prefix differences).
     base = norm.rsplit("/", 1)[-1]
-    candidates = [f for f in known_files if f.replace("\\", "/").rsplit("/", 1)[-1] == base]
+    candidates = [
+        f for f in known_files if f.replace("\\", "/").rsplit("/", 1)[-1] == base
+    ]
     if len(candidates) == 1:
         return candidates[0]
     return None
@@ -205,7 +207,7 @@ def build_file_graph(
             fg.deps[file_tgt].append(file_src)
 
     for edge in edges:
-        src, tgt = _edge_endpoints(edge)
+        src, tgt = edge_endpoints(edge)
         _add_ref(fg.entity_file.get(src, ""), fg.entity_file.get(tgt, ""))
 
     # Resolve IMPORT entities into file references. The import name is
@@ -214,7 +216,7 @@ def build_file_graph(
     for name, importer_file in importer_by_name.items():
         target = name
         if target.lower().startswith("import:"):
-            target = target[len("import:"):]
+            target = target[len("import:") :]
         target_file = _resolve_import_file(importer_file, target, fg.files)
         if target_file:
             _add_ref(importer_file, target_file)

@@ -153,6 +153,8 @@ func applyZigResultsCounted(filePath string, client *crud.Config, results []Anal
 					EntityType:  getString(data, "entity_type", "UNKNOWN"),
 					SourceID:    getString(data, "source_id", filePath),
 					FilePath:    getString(data, "file_path", filePath),
+					StartLine:   getInt(data, "start_line"),
+					EndLine:     getInt(data, "end_line"),
 				},
 			})
 		case diff.ActionUpdate:

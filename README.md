@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <i>Real-time codebase knowledge graphs for C# — queried by AI agents via MCP.</i>
+  <i>Real-time codebase knowledge graphs for C#, Zig, and Python — queried by AI agents via MCP.</i>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 
 ## What this is
 
-A proof-of-concept tool that turns a C# solution into a **live, queryable knowledge graph**.  
+A proof-of-concept tool that turns a C# solution, Zig project, or Python project into a **live, queryable knowledge graph**.  
 Instead of grepping files or reading static docs, AI agents ask the graph directly via MCP.
 
 Built to explore what's possible when deterministic code analysis meets local LLMs — no cloud, no data leaving the machine.
@@ -28,11 +28,22 @@ Built to explore what's possible when deterministic code analysis meets local LL
 
 | Capability | How |
 |---|---|
-| **Index** | Native Go parser extracts entities & relations from `.sln` deterministically |
+| **Index** | Deterministic analysers for `.sln` (C#), `build.zig` (Zig), and Python (stdlib `ast`) extract entities and relations |
 | **Sync** | Live file watcher (`fsnotify` + git polling) keeps the graph current |
 | **Query** | 10 MCP tools for agents: existence checks, dependency maps, dead-code detection, circular-dependency analysis |
 | **Explore** | Web UI at `localhost:9621` for visual graph navigation |
 | **Answer** | Natural-language queries via local Ollama (optional) |
+
+---
+
+## Supported projects
+
+`coderag scan` auto-detects the project type: a `*.sln` uses the Go/C# analyser,
+a `build.zig` uses the Zig analyser, and a folder with `*.py` files uses the
+Python analyser (Python 3 on `PATH`, or set `PYTHON_PATH`). The Python analyser
+uses only the standard library, records exact start/end lines, and emits an
+`EXPORTS` section so dead-code and dependency queries work. Markdown files are
+not indexed. Details → [`docs/SUPPORTED_FILES.md`](docs/SUPPORTED_FILES.md)
 
 ---
 
@@ -72,11 +83,11 @@ else direct downloads.
 
 ## Use it
 
-From **any folder** containing (or below) a C# solution:
+From **any folder** containing (or below) a C# solution, Zig project, or Python project:
 
 ```bash
 coderag start .    # spin up services + live watcher
-coderag scan .     # index the .sln found here
+coderag scan .     # index the .sln, build.zig, or .py project found here
 coderag webui      # open graph explorer
 coderag mcp .      # bridge for your AI agent
 coderag query "How does checkout work?"
@@ -90,11 +101,11 @@ Full setup & troubleshooting → [`docs/INSTALL.md`](docs/INSTALL.md)
 ## Architecture
 
 ```
-C# solution (.sln)
+C# (.sln) / Zig (build.zig) / Python (.py)
       │
       ▼
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ Go analyzer │────▶│ LightRAG    │◀────│ Go watcher  │
+│ Analyzer    │────▶│ LightRAG    │◀────│ Go watcher  │
 │ (determin.) │     │ (:9621)     │     │ (live sync) │
 └─────────────┘     └──────┬──────┘     └─────────────┘
                            │
@@ -115,6 +126,7 @@ Deep dive → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 | File | Topic |
 |---|---|
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Setup, models, offline mode, troubleshooting |
+| [`docs/SUPPORTED_FILES.md`](docs/SUPPORTED_FILES.md) | Supported languages, analysers, and coverage |
 | [`docs/USAGE.md`](docs/USAGE.md) | Full CLI reference |
 | [`docs/MCP_CLIENTS.md`](docs/MCP_CLIENTS.md) | Wiring into Claude, Cursor, OpenCode, Windsurf |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Components, data flow, design decisions |
@@ -124,8 +136,8 @@ Deep dive → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ## Tech stack
 
-- **Go** — CLI, C# parser, file watcher, MCP bridge
-- **Python / LightRAG** — Knowledge graph engine
+- **Go** — CLI, C#/Zig analysers, file watcher, MCP bridge
+- **Python 3** — stdlib `ast` analyser for Python projects, LightRAG runtime
 - **Docker / Podman** — Containerized MCP server + graph backend
 - **Ollama** — Local LLM + embeddings
 

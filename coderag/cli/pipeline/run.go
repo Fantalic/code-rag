@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -227,6 +228,8 @@ func applyCSharpResults(filePath string, client *crud.Config, results []Analyser
 					EntityType:  getString(data, "entity_type", "UNKNOWN"),
 					SourceID:    getString(data, "source_id", filePath),
 					FilePath:    getString(data, "file_path", filePath),
+					StartLine:   getInt(data, "start_line"),
+					EndLine:     getInt(data, "end_line"),
 				},
 			})
 		case diff.ActionUpdate:
@@ -533,9 +536,9 @@ func entitySliceToMap(entities []map[string]any) map[string]map[string]any {
 		}
 		if name != "" {
 			if props, ok := e["properties"].(map[string]any); ok {
-				m[name] = props
+				m[name] = normalizeSpanMap(props)
 			} else {
-				m[name] = e
+				m[name] = normalizeSpanMap(e)
 			}
 		}
 	}
@@ -645,6 +648,47 @@ func getString(m map[string]any, key string, defaultVal ...string) string {
 		return defaultVal[0]
 	}
 	return ""
+}
+
+// getInt extracts an int from a map. JSON numbers arrive as float64, so we
+// handle that type (truncating to int) as well as plain int and decimal
+// strings; everything else yields 0.
+func getInt(m map[string]any, key string) int {
+	switch v := m[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	case string:
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+// normalizeSpanMap copies a map and converts existing start_line/end_line keys
+// to int when > 0, deleting them when <= 0. Graph JSON returns numbers as
+// float64, so normalizing prevents int-vs-float64 diff churn.
+func normalizeSpanMap(props map[string]any) map[string]any {
+	result := make(map[string]any, len(props))
+	for k, v := range props {
+		if k == "start_line" || k == "end_line" {
+			var n int
+			switch val := v.(type) {
+			case int:
+				n = val
+			case float64:
+				n = int(val)
+			}
+			if n > 0 {
+				result[k] = n
+			}
+		} else {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 func getFloat(m map[string]any, key string, defaultVal float64) float64 {

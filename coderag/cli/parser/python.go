@@ -49,10 +49,24 @@ func ParsePythonFile(filename string, content string) (entities []Entity, relati
 	entitySeen := make(map[string]bool)
 	relationSeen := make(map[string]bool)
 
+	// Track # EXPORTS: / # MTIME: headers from the sidecar.
+	exports := ""
+	mtime := ""
+
 	scanner := bufio.NewScanner(bytes.NewReader([]byte(content)))
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
+
+		// Handle EXPORTS / MTIME headers before discarding all comments.
+		if strings.HasPrefix(trimmed, "# EXPORTS:") {
+			exports = strings.TrimSpace(strings.TrimPrefix(trimmed, "# EXPORTS:"))
+			continue
+		}
+		if strings.HasPrefix(trimmed, "# MTIME:") {
+			mtime = strings.TrimSpace(strings.TrimPrefix(trimmed, "# MTIME:"))
+			continue
+		}
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
@@ -128,6 +142,35 @@ func ParsePythonFile(filename string, content string) (entities []Entity, relati
 			continue
 		}
 	}
+
+	// When the sidecar carries an EXPORTS header, synthesize an EXPORTS entity
+	// so the MCP `dead_code` tool can read the export list from the graph
+	// instead of having to open sidecar files. Mirrors C#/Zig per-file behavior.
+	if exports != "" {
+		sourcePath := filename
+		// Walk existing entities to find the first non-empty FilePath (entity rows
+		// carry the real source path; the sidecar filename may be a flat name).
+		for _, e := range entities {
+			if e.FilePath != "" {
+				sourcePath = e.FilePath
+				break
+			}
+		}
+		desc := exports
+		if mtime != "" {
+			desc = exports + " [MTIME=" + mtime + "]"
+		}
+		entities = append(entities, Entity{
+			Name:        sourcePath + ":EXPORTS",
+			EntityType:  "EXPORTS",
+			Description: desc,
+			SourceID:    filename,
+			FilePath:    sourcePath,
+			StartLine:   1,
+			EndLine:     1,
+		})
+	}
+
 	return entities, relations
 }
 
