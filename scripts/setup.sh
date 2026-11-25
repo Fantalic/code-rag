@@ -273,15 +273,15 @@ build_coderag() {
         exit 1
     fi
     info "Building coderag CLI ..."
-    go build -C "$ROOT/coderag/cli" -o "$ROOT/coderag" .
-    ok "coderag built: $ROOT/coderag"
+    go build -C "$ROOT/coderag/cli" -o "$ROOT/coderag/cli/coderag" .
+    ok "coderag built: $ROOT/coderag/cli/coderag"
 
-    # The analyser must sit NEXT TO the coderag binary so it is found when
-    # calling coderag from any folder (see pipeline.findCSharpAnalyser).
+    # The PATH binary resolves the analyser next to itself (pipeline.findCSharpAnalyser).
     info "Building C# analyser ..."
     if (cd "$ROOT/coderag/cli/analysers/csharp" &&
         go build -o "$ROOT/csharp_analyser" ./cmd/csharp_analyser 2>/dev/null); then
         ok "C# analyser built: $ROOT/csharp_analyser"
+        cp -f "$ROOT/csharp_analyser" "$ROOT/coderag/cli/analysers/csharp/csharp_analyser"
     else
         warn "C# analyser build skipped (only needed for indexing C# solutions)"
     fi
@@ -300,15 +300,16 @@ build_images() {
 add_to_path() {
     local rc="$HOME/.bashrc"
     case "${SHELL:-}" in *zsh*) rc="$HOME/.zshrc" ;; esac
-    if ! grep -qsF "$ROOT" "$rc"; then
+    local cliDir="$ROOT/coderag/cli"
+    if ! grep -qsF "$cliDir" "$rc"; then
         {
             echo ""
             echo "# codeRAG"
-            echo "export PATH=\"\$PATH:$ROOT\""
+            echo "export PATH=\"$cliDir:$ROOT:\$PATH\""
         } >> "$rc"
-        info "Added $ROOT to PATH in $rc (restart shell or 'source $rc')"
+        info "Added $cliDir and $ROOT to PATH in $rc (restart shell or 'source $rc')"
     else
-        ok "$ROOT already on PATH"
+        ok "$cliDir already on PATH"
     fi
 }
 
@@ -368,7 +369,7 @@ echo ""
 echo "  Engine:         $ENGINE"
 echo "  Embedding:      $EMBED_MODEL (dim $EMBED_DIM)"
 [ "$LLM_ANSWER" != "none" ] && echo "  Code LLM:       $LLM_ANSWER"
-echo "  coderag CLI:    $ROOT/coderag"
+echo "  coderag CLI:    $ROOT/coderag/cli/coderag"
 echo "  LightRAG API:   http://localhost:9621"
 echo "  MCP SSE:        http://localhost:9622"
 echo ""

@@ -25,6 +25,7 @@ Global flags (apply to every command):
 |------|---------|
 | `--quiet` | Suppress informational output; show only errors and results |
 | `--version` | Print the build version |
+| `--agent-help` | Print a compact CLI guide for AI agents (commands, MCP tools, docs) and exit |
 
 If `<dir>` is omitted, the current directory is used. All paths are resolved to
 absolute paths before use.

@@ -28,6 +28,27 @@ import (
 var Version = "dev"
 var quietMode = false
 
+const agentHelpText = `codeRAG - agent quick reference (full docs: docs/USAGE.md)
+
+INITIALIZE / INDEX A PROJECT FOLDER (there is no init command):
+  coderag scan <dir>           auto-detect *.sln / build.zig / Python, index changes
+  coderag scan <dir> --clean   wipe graph + analyser output, then re-index
+  coderag start <dir>          Docker services + live file watcher
+
+QUERY / EXPLORE FROM THE CLI:
+  coderag graph files|deps|cycles    derived file-level graph views
+  coderag query "<text>"            LLM answer (needs Ollama)
+  coderag status                    service + workspace health
+  coderag projects list|focus|forget  host project registry
+
+MCP TOOLS (preferred for agents): get_nodes, node_details, file_dependencies,
+dead_code, detect_circular_dependencies, codebase_overview, get_source,
+query_codebase, index_coverage, what_changed. All list tools accept
+page/per_page (default 100). Each tool description refers back here.
+
+HELP: coderag --help ; coderag help <command>
+DOCS: docs/USAGE.md (CLI), docs/SUPPORTED_FILES.md (languages), docs/INSTALL.md (setup).`
+
 func main() {
 	app := &cli.App{
 		Name:    "coderag",
@@ -38,9 +59,17 @@ func main() {
 				Name:  "quiet",
 				Usage: "Suppress informational output, show only errors and results",
 			},
+			&cli.BoolFlag{
+				Name:  "agent-help",
+				Usage: "Print a compact agent guide, then exit",
+			},
 		},
 		Before: func(c *cli.Context) error {
 			quietMode = c.Bool("quiet")
+			if c.Bool("agent-help") {
+				fmt.Print(agentHelpText)
+				return cli.Exit("", 0)
+			}
 			return nil
 		},
 		Commands: []*cli.Command{
@@ -58,7 +87,7 @@ func main() {
 			},
 			{
 				Name:   "scan",
-				Usage:  "Run C# analyser and populate knowledge graph",
+				Usage:  "Index a project (*.sln, build.zig, or Python) into the knowledge graph",
 				Action: scanCmd,
 				Args:   true,
 				Flags: []cli.Flag{

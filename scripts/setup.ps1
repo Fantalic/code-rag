@@ -356,16 +356,18 @@ function Build-CodeRAG {
         exit 1
     }
     Write-Info "Building coderag CLI ..."
-    & go build -C "$ROOT\coderag\cli" -o "$ROOT\coderag.exe" .
+    & go build -C "$ROOT\coderag\cli" -o "$ROOT\coderag\cli\coderag.exe" .
     if ($LASTEXITCODE -ne 0) { Write-Err "coderag build failed"; exit 1 }
-    Write-OK "coderag built: $ROOT\coderag.exe"
+    Write-OK "coderag built: $ROOT\coderag\cli\coderag.exe"
 
-    # The analyser must sit NEXT TO coderag.exe so it is found when calling
-    # coderag from any folder (see pipeline.findCSharpAnalyser).
+    # The PATH binary resolves the analyser next to itself (pipeline.findCSharpAnalyser).
     Write-Info "Building C# analyser ..."
     Push-Location "$ROOT\coderag\cli\analysers\csharp"
     & go build -o "$ROOT\csharp_analyser.exe" ./cmd/csharp_analyser 2>$null
-    if ($LASTEXITCODE -eq 0) { Write-OK "C# analyser built: $ROOT\csharp_analyser.exe" }
+    if ($LASTEXITCODE -eq 0) {
+        Write-OK "C# analyser built: $ROOT\csharp_analyser.exe"
+        Copy-Item -Force "$ROOT\csharp_analyser.exe" "$ROOT\coderag\cli\analysers\csharp\csharp_analyser.exe"
+    }
     else { Write-Warn "C# analyser build skipped (only needed for indexing C# solutions)" }
     Pop-Location
 }
@@ -380,12 +382,14 @@ function Build-Docker {
 
 function Add-ToPath {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if (($userPath -split ";") -notcontains $ROOT) {
-        [Environment]::SetEnvironmentVariable("Path", "$ROOT;$userPath", "User")
-        $env:Path = "$ROOT;$env:Path"
-        Write-Info "Added $ROOT to your PATH (effective in new shells)"
+    $cliDir = "$ROOT\coderag\cli"
+    $newEntry = "$cliDir;$ROOT"
+    if (($userPath -split ";") -notcontains $cliDir) {
+        [Environment]::SetEnvironmentVariable("Path", "$newEntry;$userPath", "User")
+        $env:Path = "$newEntry;$env:Path"
+        Write-Info "Added $cliDir and $ROOT to your PATH (effective in new shells)"
     } else {
-        Write-OK "$ROOT already on PATH"
+        Write-OK "$cliDir already on PATH"
     }
 }
 
@@ -455,7 +459,7 @@ Write-Host ""
 Write-Host "  Engine:         $ENGINE"
 Write-Host "  Embedding:      $embedModel (dim $embedDim)"
 if ($llmAnswer -and $llmAnswer -ne "none") { Write-Host "  Code LLM:       $llmAnswer" }
-Write-Host "  coderag CLI:    $ROOT\coderag.exe"
+Write-Host "  coderag CLI:    $ROOT\coderag\cli\coderag.exe"
 Write-Host "  LightRAG API:   http://localhost:9621"
 Write-Host "  MCP SSE:        http://localhost:9622"
 Write-Host ""
